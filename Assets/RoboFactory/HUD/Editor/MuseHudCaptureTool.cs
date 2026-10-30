@@ -9,11 +9,11 @@ using UnityEngine;
 namespace RoboFactory.HUD.EditorTools
 {
     /// <summary>
-    /// Outil de validation visuelle du HUD (éditeur uniquement) :
-    /// - fixe la résolution du Game View (1920×1080, 3840×2160, 12288×2160) ;
-    /// - capture le Game View en PlayMode (ScreenCapture, UI comprise) dans HudCaptures/ ;
-    /// - raccourcis de démo qui appellent les MÊMES API publiques que l'ancien HUD de debug
-    ///   (commande normale de démo, urgence manuelle) et le changement de mode du HUD.
+    /// HUD visual validation tool (editor only):
+    /// - sets the Game View resolution (1920×1080, 3840×2160, 12288×2160);
+    /// - captures the Game View in PlayMode (ScreenCapture, UI included) into HudCaptures/;
+    /// - demo shortcuts that call the SAME public APIs as the old debug HUD
+    ///   (normal demo order, manual urgent) and the HUD mode switch.
     /// </summary>
     [InitializeOnLoad]
     public static class MuseHudCaptureTool
@@ -26,9 +26,9 @@ namespace RoboFactory.HUD.EditorTools
         private static double nextPoll;
 
         /// <summary>
-        /// Commandes par fichier (HudCaptures/cmd.txt, une par ligne) pour piloter les captures
-        /// sans clavier : play | stop | capture | suite | order | urgent | mode cinematic|operations|debug
-        /// | size W H. Le fichier est consommé puis supprimé ; le journal va dans HudCaptures/log.txt.
+        /// File commands (HudCaptures/cmd.txt, one per line) to drive the captures
+        /// without a keyboard: play | stop | capture | suite | order | urgent | mode cinematic|operations|debug
+        /// | size W H. The file is consumed then deleted; the log goes to HudCaptures/log.txt.
         /// </summary>
         private static void PollCommands()
         {
@@ -49,7 +49,7 @@ namespace RoboFactory.HUD.EditorTools
                 switch (a[0].ToLowerInvariant())
                 {
                     case "play":
-                        // le PlayMode continue à pleine vitesse même si l'éditeur n'a pas le focus
+                        // PlayMode keeps running at full speed even if the editor does not have focus
                         EditorApplication.playModeStateChanged -= KeepRunning;
                         EditorApplication.playModeStateChanged += KeepRunning;
                         EditorApplication.isPlaying = true;
@@ -108,19 +108,19 @@ namespace RoboFactory.HUD.EditorTools
         [MenuItem("RoboFactory/HUD/Game View 1920x1080 %#F8")]
         private static void Set1080() { Select(FindOrAdd(1920, 1080)); }
 
-        [MenuItem("RoboFactory/HUD/Demo - commande normale (A x2, B x1) %#F11")]
+        [MenuItem("RoboFactory/HUD/Demo - normal order (A x2, B x1) %#F11")]
         private static void DemoOrder()
         {
             MuseOrchestrator o = UnityEngine.Object.FindFirstObjectByType<MuseOrchestrator>();
-            if (o == null) { Debug.LogWarning("[HUD capture] pas d'orchestrateur (PlayMode ?)"); return; }
+            if (o == null) { Debug.LogWarning("[HUD capture] no orchestrator (PlayMode?)"); return; }
             o.SubmitOrder("A x2, B x1");
         }
 
-        [MenuItem("RoboFactory/HUD/Demo - urgence manuelle (A x1, B x1) %#F12")]
+        [MenuItem("RoboFactory/HUD/Demo - manual urgent (A x1, B x1) %#F12")]
         private static void DemoUrgent()
         {
             MuseOrchestrator o = UnityEngine.Object.FindFirstObjectByType<MuseOrchestrator>();
-            if (o == null) { Debug.LogWarning("[HUD capture] pas d'orchestrateur (PlayMode ?)"); return; }
+            if (o == null) { Debug.LogWarning("[HUD capture] no orchestrator (PlayMode?)"); return; }
             o.SubmitUrgentCounts(1, 1, 0);
         }
 
@@ -134,13 +134,13 @@ namespace RoboFactory.HUD.EditorTools
             if (root != null) root.SetMode(m, false);
         }
 
-        // ------------------------------------------------------------------ capture séquentielle
+        // ------------------------------------------------------------------ sequential capture
 
         private static void Run(int[] sizes, string label)
         {
             if (!Application.isPlaying)
             {
-                Debug.LogWarning("[HUD capture] lancer le PlayMode d'abord.");
+                Debug.LogWarning("[HUD capture] start PlayMode first.");
                 Log("capture refused: not playing");
                 return;
             }
@@ -164,14 +164,14 @@ namespace RoboFactory.HUD.EditorTools
                 if (restoreIndex >= 0) Select(restoreIndex);
                 queue = null;
                 EditorApplication.update -= Tick;
-                Debug.Log("[HUD capture] terminé → " + Path.GetFullPath(Folder));
+                Debug.Log("[HUD capture] done → " + Path.GetFullPath(Folder));
                 return;
             }
             Vector2Int s = Sizes[queue[cursor]];
             if (phase == 0)
             {
                 Select(FindOrAdd(s.x, s.y));
-                until = now + 1.6; // mise en page + animations
+                until = now + 1.6; // layout + animations
                 phase = 1;
             }
             else if (phase == 1)
@@ -189,7 +189,7 @@ namespace RoboFactory.HUD.EditorTools
             }
         }
 
-        // ------------------------------------------------------------------ Game View (réflexion)
+        // ------------------------------------------------------------------ Game View (reflection)
 
         private static readonly Type GameViewType = Type.GetType("UnityEditor.GameView,UnityEditor");
         private static readonly Type SizesType = Type.GetType("UnityEditor.GameViewSizes,UnityEditor");

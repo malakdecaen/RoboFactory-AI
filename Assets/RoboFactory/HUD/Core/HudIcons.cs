@@ -7,8 +7,8 @@ namespace RoboFactory.HUD
     public enum HudIcon { Box, Bench, Truck, Robot, Order, Shield, Signal, Check, Camera, Spark, Clock, Speaker, SpeakerOff }
 
     /// <summary>
-    /// Pictogrammes vectoriels cohérents (trait 4 px sur une grille 64, anti-aliasés par champ
-    /// de distance), générés une seule fois. Blancs : teintés par Image.color.
+    /// Consistent vector pictograms (4 px stroke on a 64 grid, anti-aliased with a distance
+    /// field), generated only once. White: tinted through Image.color.
     /// </summary>
     public static class HudIcons
     {
@@ -42,7 +42,7 @@ namespace RoboFactory.HUD
             return s;
         }
 
-        // ------------------------------------------------------------------ formes
+        // ------------------------------------------------------------------ shapes
 
         private static Func<Vector2, float> Shape(HudIcon icon)
         {
@@ -154,7 +154,7 @@ namespace RoboFactory.HUD
         private static float Arc(Vector2 p, Vector2 c, float r, float fromDeg, float toDeg)
         {
             Vector2 d = p - c;
-            float ang = Mathf.Atan2(d.x, d.y) * Mathf.Rad2Deg; // 0 = haut
+            float ang = Mathf.Atan2(d.x, d.y) * Mathf.Rad2Deg; // 0 = up
             if (ang < fromDeg || ang > toDeg)
             {
                 Vector2 e0 = c + new Vector2(Mathf.Sin(fromDeg * Mathf.Deg2Rad), Mathf.Cos(fromDeg * Mathf.Deg2Rad)) * r;

@@ -7,13 +7,13 @@ using RoboFactory.Sim;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Vues caméra du HUD : vue d'origine de la scène (WarehouseCameraController, inchangé) et
-    /// vue ORBITE. En orbite : glisser la souris pour tourner, molette pour un zoom / dézoom
-    /// limité, rotation lente automatique sans interaction. Flèche gauche / droite : la caméra
-    /// suit R1 / R2 (orbite autour du robot) ; haut / bas : retour à la vue d'ensemble.
-    /// La hauteur reste sous le plafond (détecté par un rayon vers le haut, sinon 6,5 m).
-    /// Le script caméra de la scène n'est que mis en pause ; la pose d'origine (position,
-    /// rotation, FOV) est restaurée à l'identique au retour, avec un fondu de trajectoire.
+    /// HUD camera views: the scene's original view (WarehouseCameraController, unchanged) and
+    /// the ORBIT view. In orbit: drag the mouse to rotate, wheel for a limited zoom in / out,
+    /// slow automatic rotation without interaction. Left / right arrow: the camera
+    /// follows R1 / R2 (orbit around the robot); up / down: back to the overview.
+    /// The height stays under the ceiling (detected with an upward ray, otherwise 6.5 m).
+    /// The scene's camera script is only paused; the original pose (position,
+    /// rotation, FOV) is restored exactly on return, with a blended trajectory.
     /// </summary>
     public sealed class HudCameraRig
     {
@@ -23,19 +23,19 @@ namespace RoboFactory.HUD
         public View Current { get; private set; } = View.Default;
         public bool IsOrbit => Current == View.Orbit;
         public Focus CurrentFocus { get; private set; } = Focus.Warehouse;
-        /// <summary>Libellé court du bouton caméra : SCENE / ORBIT / R1 / R2.</summary>
+        /// <summary>Short label of the camera button: SCENE / ORBIT / R1 / R2.</summary>
         public string Label => Current == View.Default ? "SCENE"
                              : CurrentFocus == Focus.R1 ? "R1" : CurrentFocus == Focus.R2 ? "R2" : "ORBIT";
 
-        public float ZoomRange = .35f;        // ±35 % autour de la distance de base
+        public float ZoomRange = .35f;        // ±35 % around the base distance
         public float AutoSpeed = 4f;          // °/s
-        public float IdleBeforeAuto = 4f;     // s sans interaction avant la rotation auto
+        public float IdleBeforeAuto = 4f;     // s without interaction before the auto rotation
         public float DragYaw = .25f, DragPitch = .18f;
         public float MinPitch = 14f, MaxPitch = 65f;
         public float BlendTime = .9f;
         public float OverviewMinDist = 6f, OverviewMaxDist = 11f;
         public float RobotDist = 4.2f;
-        public float DefaultCeiling = 6.5f;   // hauteur max au-dessus du sol si aucun plafond détecté
+        public float DefaultCeiling = 6.5f;   // max height above the floor if no ceiling is detected
         public float CeilingMargin = .7f;
 
         private Camera cam;
@@ -65,7 +65,7 @@ namespace RoboFactory.HUD
             else if (!leaving) ExitOrbit();
         }
 
-        /// <summary>Flèches : suivre R1 / R2, ou revenir à la vue d'ensemble (entre en orbite si besoin).</summary>
+        /// <summary>Arrows: follow R1 / R2, or go back to the overview (enters orbit if needed).</summary>
         public void FocusOn(Focus focus, WarehouseWorld world, Transform r1, Transform r2)
         {
             if (Current == View.Default) EnterOrbit(world);
@@ -89,7 +89,7 @@ namespace RoboFactory.HUD
             savedRot = t.rotation;
             savedFov = cam.fieldOfView;
 
-            // le script caméra de la scène est mis en pause (pas modifié) pendant l'orbite
+            // the scene's camera script is paused (not modified) during the orbit
             paused.Clear();
             foreach (WarehouseCameraController c in Object.FindObjectsByType<WarehouseCameraController>(FindObjectsSortMode.None))
                 if (c.enabled && (c.targetCamera == cam || c.transform == t || t.IsChildOf(c.transform)))
@@ -100,7 +100,7 @@ namespace RoboFactory.HUD
 
             overviewPivot = WorldCenter(world, out float radius);
             if (radius <= 0f) overviewPivot = GroundHit(t, out radius);
-            // plus près qu'avant : une vue d'ensemble serrée, jamais au-dessus du toit
+            // closer than before: a tight overview, never above the roof
             overviewDist = Mathf.Clamp(radius * .55f, OverviewMinDist, OverviewMaxDist);
             ceilingY = DetectCeiling(overviewPivot);
             pivot = overviewPivot;
@@ -149,7 +149,7 @@ namespace RoboFactory.HUD
             Current = View.Default;
         }
 
-        /// <summary>Appelé en LateUpdate (après les scripts caméra de la scène).</summary>
+        /// <summary>Called in LateUpdate (after the scene's camera scripts).</summary>
         public void LateTick(float dt)
         {
             if (Current != View.Orbit) return;
@@ -166,7 +166,7 @@ namespace RoboFactory.HUD
             }
 
             ReadInput(dt);
-            // pivot : centre de l'entrepôt, ou robot suivi (lissé)
+            // pivot: center of the warehouse, or followed robot (smoothed)
             Vector3 goal = follow != null ? new Vector3(follow.position.x, overviewPivot.y + .6f, follow.position.z) : overviewPivot;
             pivot = Vector3.Lerp(pivot, goal, 1f - Mathf.Exp(-4f * dt));
 
@@ -174,7 +174,7 @@ namespace RoboFactory.HUD
             yaw = Mathf.LerpAngle(yaw, targetYaw, s);
             pitch = Mathf.Lerp(pitch, targetPitch, s);
             dist = Mathf.Lerp(dist, targetDist, s);
-            // jamais au-dessus du plafond : l'angle est plafonné selon la distance
+            // never above the ceiling: the angle is capped according to the distance
             float room = Mathf.Max(1f, ceilingY - CeilingMargin - pivot.y);
             float roofPitch = Mathf.Asin(Mathf.Clamp01(room / Mathf.Max(.1f, dist))) * Mathf.Rad2Deg;
             float usePitch = Mathf.Clamp(Mathf.Min(pitch, roofPitch), 6f, MaxPitch);
@@ -227,18 +227,18 @@ namespace RoboFactory.HUD
             return es != null && es.IsPointerOverGameObject();
         }
 
-        /// <summary>Hauteur du plafond au-dessus du point (premier collider vers le haut), sinon défaut.</summary>
+        /// <summary>Height of the ceiling above the point (first collider upwards), otherwise the default.</summary>
         private float DetectCeiling(Vector3 at)
         {
             float fallback = at.y + DefaultCeiling;
-            // un obstacle bas (étagère, lampe) n'est pas un plafond : on ne retient qu'un toit > 3,5 m
+            // a low obstacle (shelf, lamp) is not a ceiling: only a roof > 3.5 m counts
             if (Physics.Raycast(at + Vector3.up * 1.5f, Vector3.up, out RaycastHit hit, 40f, ~0, QueryTriggerInteraction.Ignore) &&
                 hit.point.y > at.y + 3.5f)
                 return Mathf.Min(hit.point.y, at.y + 12f);
             return fallback;
         }
 
-        /// <summary>Centre des palettes, bancs et camions réels (sol) et rayon englobant.</summary>
+        /// <summary>Center of the real pallets, benches and trucks (floor) and enclosing radius.</summary>
         private static Vector3 WorldCenter(WarehouseWorld world, out float radius)
         {
             radius = 0f;
@@ -259,7 +259,7 @@ namespace RoboFactory.HUD
             return new Vector3(b.center.x, b.min.y, b.center.z);
         }
 
-        /// <summary>Repli : point du sol (y = 0) visé par la caméra.</summary>
+        /// <summary>Fallback: floor point (y = 0) targeted by the camera.</summary>
         private static Vector3 GroundHit(Transform t, out float radius)
         {
             radius = 10f;

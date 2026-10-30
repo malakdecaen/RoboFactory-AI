@@ -12,10 +12,10 @@ using UnityEngine.SceneManagement;
 namespace RoboFactory.Sim.EditorTools
 {
     /// <summary>
-    /// Construit la scène de démo en formes simples (cubes, cylindres) à partir de
-    /// Assets/RoboFactorySim/warehouse_layout.json : mêmes positions de palettes, bancs, camions,
-    /// zones d'arrimage, obstacles et robots que la scène complète, mêmes réglages des composants
-    /// RoboFactory. Aucun asset tiers. Menu : RoboFactory/Public/Créer la scène simplifiée.
+    /// Builds the demo scene with simple shapes (cubes, cylinders) from
+    /// Assets/RoboFactorySim/warehouse_layout.json: same positions of pallets, benches, trucks,
+    /// docking zones, obstacles and robots as the full scene, same settings of the
+    /// RoboFactory components. No third-party asset. Menu: RoboFactory/Public/Build simplified scene.
     /// </summary>
     public static class SimplifiedSceneBuilder
     {
@@ -31,7 +31,7 @@ namespace RoboFactory.Sim.EditorTools
         {
             if (!File.Exists(LayoutPath))
             {
-                Debug.LogError("[Sim] " + LayoutPath + " introuvable");
+                Debug.LogError("[Sim] " + LayoutPath + " not found");
                 return;
             }
             if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
@@ -53,7 +53,7 @@ namespace RoboFactory.Sim.EditorTools
 
             Directory.CreateDirectory(Path.GetDirectoryName(ScenePath));
             EditorSceneManager.SaveScene(scene, ScenePath);
-            Debug.Log("[Sim] scène simplifiée créée : " + ScenePath);
+            Debug.Log("[Sim] simplified scene created: " + ScenePath);
         }
 
         // ------------------------------------------------------------------ helpers
@@ -90,7 +90,7 @@ namespace RoboFactory.Sim.EditorTools
             return mat;
         }
 
-        /// <summary>Objet vide placé en monde (échelle 1), rangé sous parent.</summary>
+        /// <summary>Empty object placed in world space (scale 1), stored under parent.</summary>
         private static Transform Node(string name, Transform parent, Vector3 pos, Quaternion rot)
         {
             var go = new GameObject(name);
@@ -99,7 +99,7 @@ namespace RoboFactory.Sim.EditorTools
             return go.transform;
         }
 
-        /// <summary>Cube visuel (sans collider) de centre / rotation / taille monde.</summary>
+        /// <summary>Visual cube (no collider) from a world center / rotation / size.</summary>
         private static GameObject Box(string name, Transform parent, Vector3 center, Quaternion rot, Vector3 size, Material mat,
                                       bool keepCollider = false, bool trigger = false)
         {
@@ -120,7 +120,7 @@ namespace RoboFactory.Sim.EditorTools
             return go;
         }
 
-        /// <summary>Parent déjà construit le plus proche dans un chemin « a/b/c ».</summary>
+        /// <summary>Closest parent already built in a path « a/b/c ».</summary>
         private static Transform ParentOf(string path)
         {
             if (string.IsNullOrEmpty(path)) return null;
@@ -142,7 +142,7 @@ namespace RoboFactory.Sim.EditorTools
             return t;
         }
 
-        /// <summary>Réglages sérialisés d'un composant, sans les références d'objets (ids non valides ici).</summary>
+        /// <summary>Serialised settings of a component, without object references (ids not valid here).</summary>
         private static void ApplySettings(Component target, JToken json)
         {
             if (target == null || !(json is JObject obj)) return;
@@ -219,8 +219,8 @@ namespace RoboFactory.Sim.EditorTools
                 Transform root = Node(S(t["name"]), null, V(t["pos"]), Q(t["rot"]));
                 built[path] = root;
 
-                // Remorque : plancher, deux flancs, toit et fond ; l'extrémité la plus proche de
-                // l'entrepôt (origine) reste ouverte, comme le calcule TruckBay.
+                // Trailer: floor, two sides, roof and back; the end closest to
+                // the warehouse (origin) stays open, as TruckBay computes it.
                 JObject bb = (JObject)t["bounds"];
                 Vector3 c = V(bb["center"]), s = V(bb["size"]);
                 Vector3 min = c - s * .5f, max = c + s * .5f;
@@ -235,7 +235,7 @@ namespace RoboFactory.Sim.EditorTools
                 Box("trailer_roof", root, new Vector3(c.x, max.y - wall * .5f, c.z), Quaternion.identity, new Vector3(s.x, wall, s.z), shell);
                 Box("trailer_front", root, new Vector3(farX - Mathf.Sign(farX - doorX) * wall * .5f, c.y, c.z), Quaternion.identity, new Vector3(wall, s.y, s.z), shell);
 
-                // Porte coulissante (TruckBay la trouve par son nom).
+                // Sliding door (TruckBay finds it by its name).
                 if (t["gate"] is JObject g)
                 {
                     Transform gateParent = root;
@@ -253,8 +253,8 @@ namespace RoboFactory.Sim.EditorTools
         }
 
         /// <summary>
-        /// Composant TruckBay des camions, ajouté après leurs stockages enfants (« pallet depot ») :
-        /// c'est lui qui en fait des camions pour WarehouseWorld (sinon ils seraient pris pour des palettes).
+        /// TruckBay component of the trucks, added after their child storages (« pallet depot »):
+        /// it is what makes them trucks for WarehouseWorld (otherwise they would be taken for pallets).
         /// </summary>
         private static void BuildTruckBays(JObject layout)
         {
@@ -308,7 +308,7 @@ namespace RoboFactory.Sim.EditorTools
                 storage.columns = columns.ToArray();
                 storageByPath[path] = storage;
 
-                // Visuel : socle de palette, ou plateaux sous chaque niveau (banc, plancher de camion).
+                // Visual: pallet base, or a tray under each level (bench, truck floor).
                 if (s["bounds"] is JObject b)
                 {
                     Vector3 c = V(b["center"]), size = V(b["size"]);
@@ -353,12 +353,12 @@ namespace RoboFactory.Sim.EditorTools
             if (box["bounds"] is JObject b)
             {
                 Vector3 size = V(b["size"]);
-                // taille locale : les bounds sont alignées monde, la boîte peut être tournée de 90°
+                // local size: the bounds are world-aligned, the box may be rotated by 90°
                 Vector3 local = root.InverseTransformVector(size);
                 local = new Vector3(Mathf.Abs(local.x), Mathf.Abs(local.y), Mathf.Abs(local.z)) * .96f;
                 GameObject v = Box("box_" + type, root, V(b["center"]), root.rotation, Vector3.one, Mat("sim_box_" + type, color, .15f));
                 v.transform.localScale = local;
-                // bandes d'identification : A une bande, B deux, C aucune
+                // identification stripes: A one stripe, B two, C none
                 Material tape = Mat("sim_box_tape", new Color(.12f, .12f, .12f), .1f);
                 int stripes = type == "A" ? 1 : type == "B" ? 2 : 0;
                 for (int i = 0; i < stripes; i++)
@@ -410,7 +410,7 @@ namespace RoboFactory.Sim.EditorTools
             foreach (JObject o in (JArray)layout["obstacles"])
             {
                 string path = S(o["path"]) ?? "";
-                if (path.Contains("/truck_walls/")) continue; // recréés par TruckBay au démarrage
+                if (path.Contains("/truck_walls/")) continue; // recreated by TruckBay at start
                 string owner = S(o["owner"]) ?? "env";
                 Transform parent;
                 if (owner.StartsWith("truck:")) built.TryGetValue(owner.Substring(6), out parent);
@@ -421,7 +421,7 @@ namespace RoboFactory.Sim.EditorTools
                 bool onStation = owner.StartsWith("storage:") || owner.StartsWith("truck:");
                 GameObject go = Box("obstacle_" + (i++) + "_" + path.Substring(path.LastIndexOf('/') + 1), parent,
                                     V(o["center"]), Q(o["rot"]), V(o["size"]), worker ? person : env, true, false);
-                // Les colliders des stations restent invisibles : leur visuel est déjà construit.
+                // The stations' colliders stay invisible: their visual is already built.
                 if (onStation) UnityEngine.Object.DestroyImmediate(go.GetComponent<MeshRenderer>());
                 string layer = S(o["layer"]);
                 int index = string.IsNullOrEmpty(layer) ? -1 : LayerMask.NameToLayer(layer);
@@ -445,7 +445,7 @@ namespace RoboFactory.Sim.EditorTools
                 Box("eyes", root, root.position + Vector3.up * (size.y * .6f) + root.forward * (size.z * .455f), root.rotation,
                     new Vector3(size.x * .5f, .06f, .01f), Mat("sim_robot_eyes", new Color(.4f, 1f, .95f), .9f));
 
-                // 2 roues par côté, axe = X local du robot
+                // 2 wheels per side, axis = robot's local X
                 Material wheelMat = Mat("sim_wheel", new Color(.08f, .08f, .09f), .2f);
                 var left = new List<Transform>();
                 var right = new List<Transform>();
@@ -464,7 +464,7 @@ namespace RoboFactory.Sim.EditorTools
                     (side < 0 ? left : right).Add(w.transform);
                 }
 
-                // comme le robot d'origine : volume trigger + Rigidbody sans gravité (zones d'arrimage)
+                // like the original robot: trigger volume + Rigidbody without gravity (docking zones)
                 var col = root.gameObject.AddComponent<BoxCollider>();
                 col.isTrigger = true;
                 col.center = new Vector3(0f, size.y * .5f, 0f);
@@ -484,7 +484,7 @@ namespace RoboFactory.Sim.EditorTools
                 tracks.leftWheels = left.ToArray();
                 tracks.rightWheels = right.ToArray();
                 tracks.wheelRadius = radius;
-                tracks.spinAxis = Vector3.up; // axe du cylindre
+                tracks.spinAxis = Vector3.up; // cylinder axis
                 var grid = root.gameObject.AddComponent<GridRobotController>();
                 JObject g = (JObject)r["grid"];
                 grid.cellSize = g["cellSize"].Value<float>();
@@ -496,9 +496,9 @@ namespace RoboFactory.Sim.EditorTools
 
                 foreach (JProperty p in ((JObject)r["components"]).Properties())
                 {
-                    if (!(p.Value is JObject)) continue; // composant tiers : remplacé ci-dessus
+                    if (!(p.Value is JObject)) continue; // third-party component: replaced above
                     Type type = FindType(p.Name);
-                    if (type == null) { Debug.LogWarning("[Sim] type introuvable : " + p.Name); continue; }
+                    if (type == null) { Debug.LogWarning("[Sim] type not found: " + p.Name); continue; }
                     Component c = root.gameObject.AddComponent(type);
                     ApplySettings(c, p.Value);
                 }
@@ -517,7 +517,7 @@ namespace RoboFactory.Sim.EditorTools
                     built[path] = host;
                 }
                 Type type = FindType(S(c["type"]));
-                if (type == null) { Debug.LogWarning("[Sim] type introuvable : " + S(c["type"])); continue; }
+                if (type == null) { Debug.LogWarning("[Sim] type not found: " + S(c["type"])); continue; }
                 if (c["colliders"] is JArray cols)
                     foreach (JObject o in cols)
                     {

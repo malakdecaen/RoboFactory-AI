@@ -11,9 +11,9 @@ namespace RoboFactory.HUD
     }
 
     /// <summary>
-    /// Synthèse procédurale des sons du HUD (aucun asset audio à importer) : cloches douces,
-    /// bips, balayages de bruit filtré, alarme bi-tonale, écho léger. Mono 44,1 kHz, clips
-    /// générés une seule fois au démarrage.
+    /// Procedural synthesis of the HUD sounds (no audio asset to import): soft bells,
+    /// beeps, filtered noise sweeps, two-tone alarm, light echo. Mono 44.1 kHz, clips
+    /// generated only once at start.
     /// </summary>
     public static class HudSoundSynth
     {
@@ -73,7 +73,7 @@ namespace RoboFactory.HUD
                     for (int i = 0; i < 3; i++)
                     {
                         float t = .18f + i * .42f;
-                        Tone(b, t, .19f, 740f, 740f, .26f, .01f, .17f, .6f);   // alarme bi-tonale
+                        Tone(b, t, .19f, 740f, 740f, .26f, .01f, .17f, .6f);   // two-tone alarm
                         Tone(b, t + .2f, .19f, 988f, 988f, .26f, .01f, .17f, .6f);
                     }
                     Echo(b, .16f, .25f, .25f);
@@ -120,7 +120,7 @@ namespace RoboFactory.HUD
 
         private static float[] Buf(float seconds) { return new float[Mathf.CeilToInt(seconds * Rate)]; }
 
-        /// <summary>Ton avec glissando, enveloppe attaque/déclin exponentiel, part de triangle (grain).</summary>
+        /// <summary>Tone with glissando, attack/exponential decay envelope, part triangle (grain).</summary>
         private static void Tone(float[] b, float start, float dur, float f0, float f1, float amp, float attack, float decay, float grit)
         {
             int s0 = Mathf.FloorToInt(start * Rate), n = Mathf.FloorToInt(dur * Rate);
@@ -134,12 +134,12 @@ namespace RoboFactory.HUD
                 float sine = Mathf.Sin((float)phase);
                 float tri = 2f / Mathf.PI * Mathf.Asin(sine);
                 float env = (t < attack ? t / Mathf.Max(attack, 1e-4f) : Mathf.Exp(-(t - attack) / Mathf.Max(decay * .35f, 1e-4f)));
-                env *= Mathf.Clamp01((n - i) / (Rate * .004f)); // fin sans clic
+                env *= Mathf.Clamp01((n - i) / (Rate * .004f)); // click-free ending
                 b[s0 + i] += amp * env * Mathf.Lerp(sine, tri, grit);
             }
         }
 
-        /// <summary>Cloche douce : fondamentale + partiels inharmoniques à déclin plus rapide.</summary>
+        /// <summary>Soft bell: fundamental + inharmonic partials with faster decay.</summary>
         private static void Bell(float[] b, float start, float f, float amp, float length)
         {
             Tone(b, start, length, f, f, amp, .003f, length, 0f);
@@ -147,7 +147,7 @@ namespace RoboFactory.HUD
             Tone(b, start, length * .35f, f * 3.98f, f * 3.98f, amp * .12f, .001f, length * .25f, 0f);
         }
 
-        /// <summary>Bruit filtré passe-bas à coupure balayée (souffle, impact, mécanique).</summary>
+        /// <summary>Low-pass filtered noise with a swept cutoff (breath, impact, mechanical).</summary>
         private static void Noise(float[] b, float start, float dur, float amp, float cut0, float cut1, int seed)
         {
             var rng = new System.Random(seed);

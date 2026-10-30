@@ -5,11 +5,11 @@ using UnityEngine.UI;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Fenêtre ROBOT VISION (V2) façon flux de surveillance : vidéo 320×180 nette (rendu
-    /// suréchantillonné selon la résolution réelle de l'écran), cadre contrasté, cible de
-    /// navigation CONNUE DU CONTRÔLEUR clairement distinguée d'une détection visuelle
-    /// (aucun détecteur branché → « DETECTION: NOT CONNECTED », aucune boîte dessinée).
-    /// Agrandissement au clic.
+    /// ROBOT VISION window (V2) in the style of a surveillance feed: crisp 320×180 video (render
+    /// supersampled according to the real screen resolution), high-contrast frame, navigation
+    /// target KNOWN TO THE CONTROLLER clearly distinguished from a visual detection
+    /// (no detector connected → « DETECTION: NOT CONNECTED », no box drawn).
+    /// Enlarges on click.
     /// </summary>
     public sealed class RobotVisionView
     {
@@ -18,7 +18,7 @@ namespace RoboFactory.HUD
         public readonly RobotVisionFeed Feed = new RobotVisionFeed();
         public float CompactFps = 10f;
         public float ExpandedFps = 20f;
-        /// <summary>Facteur pixels écran / unités canvas (pour dimensionner la RenderTexture).</summary>
+        /// <summary>Screen pixels / canvas units factor (to size the RenderTexture).</summary>
         public float PixelScale = 1f;
 
         private readonly bool rightSide;
@@ -106,7 +106,7 @@ namespace RoboFactory.HUD
         private void UpdateResolution()
         {
             float w = Expanded ? HudTheme.VisionExpandedW : HudTheme.VisionW;
-            // rendu à 1,25× la taille réellement affichée (netteté), plafonné pour les performances
+            // rendered at 1.25× the size actually displayed (sharpness), capped for performance
             int rw = Mathf.Clamp(Mathf.RoundToInt(w * PixelScale * 1.25f / 16f) * 16, 320, 1280);
             int rh = Mathf.RoundToInt(rw * 9f / 16f);
             Feed.SetResolution(rw, rh);

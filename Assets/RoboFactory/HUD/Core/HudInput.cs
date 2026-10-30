@@ -4,8 +4,8 @@ using UnityEngine.EventSystems;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Entrées clavier du HUD et module d'EventSystem, compatibles avec l'ancien
-    /// gestionnaire d'entrées (projet actuel : "Both") comme avec l'Input System seul.
+    /// HUD keyboard input and EventSystem module, compatible with the old
+    /// input manager (current project: "Both") as well as with the Input System alone.
     /// </summary>
     public static class HudInput
     {
@@ -35,7 +35,7 @@ namespace RoboFactory.HUD
 #endif
         }
 
-        /// <summary>Position souris écran (pixels).</summary>
+        /// <summary>Mouse position on screen (pixels).</summary>
         public static Vector2 MousePosition()
         {
 #if ENABLE_LEGACY_INPUT_MANAGER || !ENABLE_INPUT_SYSTEM
@@ -46,7 +46,7 @@ namespace RoboFactory.HUD
 #endif
         }
 
-        /// <summary>Bouton gauche ou droit maintenu (rotation de l'orbite).</summary>
+        /// <summary>Left or right button held (orbit rotation).</summary>
         public static bool MouseHeld()
         {
 #if ENABLE_LEGACY_INPUT_MANAGER || !ENABLE_INPUT_SYSTEM
@@ -57,7 +57,7 @@ namespace RoboFactory.HUD
 #endif
         }
 
-        /// <summary>Molette : signe seulement utile (+ = vers l'avant).</summary>
+        /// <summary>Wheel: only the sign is useful (+ = forward).</summary>
         public static float ScrollY()
         {
 #if ENABLE_LEGACY_INPUT_MANAGER || !ENABLE_INPUT_SYSTEM

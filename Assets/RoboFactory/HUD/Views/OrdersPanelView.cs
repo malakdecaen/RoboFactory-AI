@@ -7,9 +7,9 @@ using UnityEngine.UI;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Panneau gauche ORDERS (V2) : cartes lisibles à distance (identifiant 24 px, composition
-    /// 18 px, progression réelle chargé/préparé), quatre filtres, détail au clic, saisie
-    /// d'une commande ou d'une urgence manuelle (mêmes API que l'ancien HUD).
+    /// Left ORDERS panel (V2): cards readable from a distance (24 px identifier, 18 px
+    /// composition, real loaded/staged progress), four filters, detail on click, input
+    /// of an order or a manual urgent order (same APIs as the old HUD).
     /// </summary>
     public sealed class OrdersPanelView
     {
@@ -26,7 +26,7 @@ namespace RoboFactory.HUD
         private RectTransform body, viewport, content, footer;
         private ScrollRect scroll;
         private bool collapsed;
-        private int filter;                       // 0 ALL (non livrées), 1 ACTIVE (urgent compris), 2 PAUSED, 3 DONE
+        private int filter;                       // 0 ALL (not delivered), 1 ACTIVE (urgent included), 2 PAUSED, 3 DONE
         private readonly List<Button> tabs = new List<Button>();
         private readonly List<TextMeshProUGUI> tabLabels = new List<TextMeshProUGUI>();
         private readonly List<Row> rows = new List<Row>();
@@ -200,12 +200,12 @@ namespace RoboFactory.HUD
                 case 1: return o.Category == OrderCategory.Active || o.Category == OrderCategory.Urgent;
                 case 2: return o.Category == OrderCategory.Suspended;
                 case 3: return o.Category == OrderCategory.Done;
-                // ALL = toutes les commandes encore à traiter ; les livrées sont dans DONE
+                // ALL = every order still to be handled; delivered ones are in DONE
                 default: return o.Category != OrderCategory.Done;
             }
         }
 
-        // ------------------------------------------------------------------ rafraîchissement
+        // ------------------------------------------------------------------ refresh
 
         public void Refresh(HudModel m)
         {
@@ -249,7 +249,7 @@ namespace RoboFactory.HUD
                 if (!on) continue;
                 OrderVM o = visible[i];
                 if (r.OrderId != o.Id) { r.OrderId = o.Id; r.Y = -y - 12f; r.Group.alpha = 0f; r.LastStatus = o.Status; r.FlashT = 0f; }
-                if (r.LastStatus != o.Status) { r.LastStatus = o.Status; r.FlashT = 0f; }   // surbrillance au changement d'état
+                if (r.LastStatus != o.Status) { r.LastStatus = o.Status; r.FlashT = 0f; }   // highlight on state change
                 bool open = expanded.Contains(o.Id);
                 float h = RowH + (open ? DetailH : 0f);
                 r.TargetY = -y;

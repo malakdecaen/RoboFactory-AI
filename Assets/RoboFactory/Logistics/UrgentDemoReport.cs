@@ -8,26 +8,26 @@ using UnityEngine;
 namespace RoboFactory.Logistics
 {
     /// <summary>
-    /// Rapport de validation PlayMode pour la démo urgente. Surveille le stage
-    /// de l'orchestrateur, fige l'état des commandes au moment PAUSED, puis à
-    /// la fin du flux vérifie la conservation des cartons (ni perte ni doublon),
-    /// la fermeture des camions et l'absence de réservation résiduelle.
+    /// PlayMode validation report for the urgent demo. Watches the orchestrator's
+    /// stage, freezes the state of the orders at the PAUSED moment, then at
+    /// the end of the flow checks box conservation (no loss, no duplicate),
+    /// truck closing and the absence of leftover reservations.
     ///
-    /// Le rapport distingue explicitement trois preuves :
-    ///  - voice   : transcription FINALE réellement émise par muse-voice
-    ///              (audio_ms = preuve de transport SEULEMENT, jamais présenté
-    ///              comme preuve de transcription) ;
-    ///  - muse    : décision réelle du modèle (mode "live" + modèle muse-*) ;
-    ///  - exec    : quantités livrées == quantités commandées, pour l'urgente
-    ///              ET pour chaque commande reprise.
+    /// The report explicitly separates three proofs:
+    ///  - voice   : FINAL transcription actually emitted by muse-voice
+    ///              (audio_ms = proof of transport ONLY, never presented
+    ///              as proof of transcription);
+    ///  - muse    : real model decision (mode "live" + model muse-*);
+    ///  - exec    : delivered quantities == ordered quantities, for the urgent order
+    ///              AND for each resumed order.
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class UrgentDemoReport : MonoBehaviour
     {
-        [Header("Références")]
+        [Header("References")]
         public MuseOrchestrator Orchestrator;
         public VoiceCommandController Voice;
-        [Tooltip("Fréquence de surveillance du stage.")]
+        [Tooltip("Stage monitoring frequency.")]
         public float PollInterval = .25f;
 
         // ------------------------------------------------------------------ JSON
@@ -36,7 +36,7 @@ namespace RoboFactory.Logistics
             public string mode;         // live | mock | manual
             public string model;
             public int latency_ms;
-            public int audio_ms;        // transport seulement
+            public int audio_ms;        // transport only
             public string transcript;
             public bool final_submitted;
             public bool real;
@@ -77,13 +77,13 @@ namespace RoboFactory.Logistics
             public MuseProof muse;
             public List<OrderCheck> orders = new List<OrderCheck>();
             public List<string> integrity = new List<string>();
-            /// <summary>FINISH TO FREE : commande normale finie pour libérer la capacité de l'urgente.</summary>
+            /// <summary>FINISH TO FREE: normal order finished to free the urgent order's capacity.</summary>
             public string finish_to_free = "";
             public string verdict;
         }
 
         // ------------------------------------------------------------------ HUD
-        /// <summary>Résumé multi-lignes affiché dans le HUD.</summary>
+        /// <summary>Multi-line summary shown in the HUD.</summary>
         public string Summary { get; private set; } = "";
         public string LastPath { get; private set; } = "";
         public bool Ready { get; private set; }
@@ -93,8 +93,8 @@ namespace RoboFactory.Logistics
         {
             public int id; public bool urgent;
             public int a, b, c;
-            public int sa, sb, sc;   // staged au moment PAUSED
-            public int la, lb, lc;   // loaded au moment PAUSED
+            public int sa, sb, sc;   // staged at the PAUSED moment
+            public int la, lb, lc;   // loaded at the PAUSED moment
         }
 
         private readonly List<Snap> paused = new List<Snap>();
@@ -103,7 +103,7 @@ namespace RoboFactory.Logistics
         private string freedBench = "", freedTruck = "";
         private MuseOrchestrator.UrgentStage prevStage = MuseOrchestrator.UrgentStage.Idle;
         private float nextPoll;
-        // état voix figé à l'entrée du flux (évite de réutiliser d'anciennes données)
+        // voice state frozen at the start of the flow (avoids reusing old data)
         private string flowTranscript = "";
         private bool flowVoiceFinal;
         private string flowVoiceMode = "";
@@ -124,15 +124,15 @@ namespace RoboFactory.Logistics
             nextPoll = Time.time + PollInterval;
             MuseOrchestrator.UrgentStage s = Orchestrator.Stage;
 
-            // Entrée en planning : capturer la voix immédiatement — le flux peut
-            // mourir ici (wait/clarify/échec Meta) sans jamais atteindre Suspending.
+            // Entering planning: capture the voice right away — the flow can
+            // die here (wait/clarify/Meta failure) without ever reaching Suspending.
             if (s == MuseOrchestrator.UrgentStage.Planning &&
                 prevStage != MuseOrchestrator.UrgentStage.Planning)
             {
                 Ready = false;
                 CaptureVoice();
             }
-            // Entrée en suspension : nouveau flux -> nouvelles mesures.
+            // Entering suspension: new flow -> new measurements.
             if (s == MuseOrchestrator.UrgentStage.Suspending &&
                 prevStage != MuseOrchestrator.UrgentStage.Suspending)
             {
@@ -140,20 +140,20 @@ namespace RoboFactory.Logistics
                 urgentOrderId = Orchestrator.UrgentOrderId;
                 if (!Orchestrator.CapacityEpisode) finishedForUrgent = -1;
                 Ready = false;
-                CaptureVoice(); // rattrapage si Planning n'a pas été observé
+                CaptureVoice(); // catch-up if Planning was not observed
             }
-            // Suspension terminée : les commandes sont PAUSED, figer l'état.
+            // Suspension finished: the orders are PAUSED, freeze the state.
             if (prevStage == MuseOrchestrator.UrgentStage.Suspending &&
                 s != MuseOrchestrator.UrgentStage.Suspending)
                 CapturePaused();
-            // Suspension trop rapide pour être observée : figer à UrgentActive.
+            // Suspension too fast to be observed: freeze at UrgentActive.
             if (s == MuseOrchestrator.UrgentStage.UrgentActive && paused.Count == 0)
                 CapturePaused();
-            // Fin de flux : générer le rapport.
+            // End of flow: generate the report.
             if ((s == MuseOrchestrator.UrgentStage.Completed ||
                  s == MuseOrchestrator.UrgentStage.Failed) && prevStage != s)
                 BuildReport(s);
-            // FINISH TO FREE : mémoriser la commande que Muse a fait finir pour l'urgente
+            // FINISH TO FREE: remember the order Muse had finished for the urgent one
             if (Orchestrator.FinishingOrderId >= 0)
             {
                 finishedForUrgent = Orchestrator.FinishingOrderId;
@@ -161,11 +161,11 @@ namespace RoboFactory.Logistics
                 freedTruck = Orchestrator.FreeingTruckId;
             }
             if (urgentOrderId < 0 && Orchestrator.UrgentOrderId >= 0)
-                urgentOrderId = Orchestrator.UrgentOrderId; // rattrapage
+                urgentOrderId = Orchestrator.UrgentOrderId; // catch-up
             prevStage = s;
         }
 
-        /// <summary>Fige les champs voix du contrôleur au début du flux.</summary>
+        /// <summary>Freezes the controller's voice fields at the start of the flow.</summary>
         private void CaptureVoice()
         {
             flowTranscript = Voice != null ? Voice.FinalTranscript : "";
@@ -177,13 +177,13 @@ namespace RoboFactory.Logistics
             flowVoiceFailure = Voice != null ? Voice.LastFailure : "";
         }
 
-        /// <summary>Fige staged/loaded de chaque commande PAUSED (preuve de conservation).</summary>
+        /// <summary>Freezes staged/loaded of each PAUSED order (proof of conservation).</summary>
         private void CapturePaused()
         {
             paused.Clear();
             foreach (WhOrderState o in Orchestrator.OrdersSnapshot)
             {
-                // commandes en pause + l'urgente DE CE FLUX (pas une urgente d'une vague précédente)
+                // paused orders + the urgent order OF THIS FLOW (not an urgent order from a previous wave)
                 bool thisUrgent = o.urgent && (o.id == Orchestrator.UrgentOrderId || o.id == urgentOrderId);
                 if (o.status != "paused" && !thisUrgent) continue;
                 paused.Add(new Snap
@@ -204,13 +204,13 @@ namespace RoboFactory.Logistics
                 outcome = Orchestrator.LastUrgentOutcome
             };
 
-            // ---- 2. MUSE d'abord : son record dit si la voix a été utilisée
+            // ---- 2. MUSE first: its record tells whether the voice was used
             var mp = new MuseProof { mode = "none" };
             MuseDecisionRecord rec = null;
             IReadOnlyList<MuseDecisionRecord> hist = Orchestrator.History;
             for (int i = hist.Count - 1; i >= 0; i--)
                 if (hist[i].OrderId == urgentOrderId && urgentOrderId >= 0) { rec = hist[i]; break; }
-            if (rec == null) // appel /urgent échoué avant création de commande
+            if (rec == null) // /urgent call failed before the order was created
                 for (int i = hist.Count - 1; i >= 0; i--)
                     if (hist[i].Trigger == "urgent_voice_order") { rec = hist[i]; break; }
             if (rec != null)
@@ -228,8 +228,8 @@ namespace RoboFactory.Logistics
             }
             report.muse = mp;
 
-            // ---- 1. VOIX : réel = transcription FINALE émise par muse-voice.
-            //          Le flux n'est "vocal" que si Muse a reçu une transcription.
+            // ---- 1. VOICE: real = FINAL transcription emitted by muse-voice.
+            //          The flow is only "voice" if Muse received a transcription.
             bool voiceUsed = rec != null && rec.Trigger == "urgent_voice_order";
             var vp = new VoiceProof();
             if (voiceUsed)
@@ -237,23 +237,23 @@ namespace RoboFactory.Logistics
                 vp.mode = flowVoiceMode;
                 vp.model = flowVoiceModel;
                 vp.latency_ms = flowVoiceLatency;
-                vp.audio_ms = flowAudioMs; // transport seulement — pas une preuve
+                vp.audio_ms = flowAudioMs; // transport only — not a proof
                 vp.transcript = flowTranscript;
                 vp.final_submitted = flowVoiceFinal;
                 vp.real = flowVoiceMode == "live" && flowVoiceFinal &&
                           !string.IsNullOrEmpty(flowTranscript);
-                vp.note = vp.real ? "transcription finale réelle (Meta muse-voice)"
-                    : flowVoiceFinal ? "transcription mock — pas une preuve réelle"
-                    : "pas de transcription finale : " + flowVoiceFailure;
+                vp.note = vp.real ? "real final transcription (Meta muse-voice)"
+                    : flowVoiceFinal ? "mock transcription — not a real proof"
+                    : "no final transcription: " + flowVoiceFailure;
             }
             else
             {
                 vp.mode = "manual";
-                vp.note = "urgence déclenchée manuellement (pas de session vocale)";
+                vp.note = "urgent order triggered manually (no voice session)";
             }
             report.voice = vp;
 
-            // ---- 3. EXÉCUTION : conservation des cartons, livraison exacte
+            // ---- 3. EXECUTION: box conservation, exact delivery
             WhOrderState[] now = Orchestrator.OrdersSnapshot;
             bool execOk = true;
             bool urgentSeen = false;
@@ -270,9 +270,9 @@ namespace RoboFactory.Logistics
                 if (p.urgent) urgentSeen = true;
                 if (cur == null)
                 {
-                    oc.status = "disparue";
+                    oc.status = "missing";
                     oc.ok = false;
-                    oc.note = "commande perdue";
+                    oc.note = "order lost";
                 }
                 else
                 {
@@ -282,15 +282,15 @@ namespace RoboFactory.Logistics
                                  cur.loaded_a == p.a && cur.loaded_b == p.b && cur.loaded_c == p.c;
                     bool noOverflow = cur.loaded_a <= p.a && cur.loaded_b <= p.b && cur.loaded_c <= p.c;
                     oc.ok = exact && noOverflow;
-                    oc.note = oc.ok ? "livré exact, sans doublon ni perte"
-                        : !noOverflow ? "DOUBLON : livré > commandé"
-                        : cur.status == "loaded" ? "livré ≠ commandé (perte)"
-                        : "non terminée : " + cur.status;
+                    oc.note = oc.ok ? "delivered exactly, no duplicate or loss"
+                        : !noOverflow ? "DUPLICATE: delivered > ordered"
+                        : cur.status == "loaded" ? "delivered ≠ ordered (loss)"
+                        : "not finished: " + cur.status;
                 }
                 if (!oc.ok) execOk = false;
                 report.orders.Add(oc);
             }
-            // L'urgente peut ne pas figurer dans paused (ex. créée après figeage).
+            // The urgent order may not be in paused (e.g. created after the freeze).
             if (!urgentSeen && urgentOrderId >= 0)
             {
                 WhOrderState cur = Find(now, urgentOrderId);
@@ -302,26 +302,26 @@ namespace RoboFactory.Logistics
                     oc.status = cur.status;
                     oc.ok = cur.status == "loaded" && cur.loaded_a == cur.a &&
                             cur.loaded_b == cur.b && cur.loaded_c == cur.c;
-                    oc.note = oc.ok ? "urgente livrée exacte" : "urgente non livrée : " + cur.status;
+                    oc.note = oc.ok ? "urgent order delivered exactly" : "urgent order not delivered: " + cur.status;
                 }
-                else { oc.status = "disparue"; oc.note = "urgente perdue"; }
+                else { oc.status = "missing"; oc.note = "urgent order lost"; }
                 if (!oc.ok) execOk = false;
                 report.orders.Add(oc);
             }
 
-            // ---- FINISH TO FREE : la commande finie pour libérer l'urgente doit être livrée exacte
+            // ---- FINISH TO FREE: the order finished to free the urgent one must be delivered exactly
             if (finishedForUrgent >= 0)
             {
                 WhOrderState f = Find(now, finishedForUrgent);
                 bool fOk = f != null && f.status == "loaded" && f.loaded_a == f.a && f.loaded_b == f.b && f.loaded_c == f.c;
-                report.finish_to_free = "#" + finishedForUrgent + " finie pour libérer " + freedBench + " / " + freedTruck +
-                                        (fOk ? " — livrée exacte" : " — " + (f != null ? f.status : "disparue"));
+                report.finish_to_free = "#" + finishedForUrgent + " finished to free " + freedBench + " / " + freedTruck +
+                                        (fOk ? " — delivered exactly" : " — " + (f != null ? f.status : "missing"));
                 if (!fOk) execOk = false;
             }
 
-            // ---- intégrité monde : portes fermées, réservations libérées.
-            // Une commande normale qui n'appartient pas au flux urgent et qui est ENCORE en cours
-            // (démarrée après la reprise) détient légitimement ses ressources : citée, pas comptée.
+            // ---- world integrity: doors closed, reservations released.
+            // A normal order that does not belong to the urgent flow and is STILL running
+            // (started after the resume) legitimately holds its resources: listed, not counted.
             WarehouseWorld world = WarehouseWorld.Instance;
             if (world != null)
             {
@@ -341,23 +341,23 @@ namespace RoboFactory.Logistics
                 foreach (string id in world.PalletIds)
                 {
                     string by = world.ReservedBy(id);
-                    if (!string.IsNullOrEmpty(by) && !Legit(by, id)) stillReserved.Add("palette " + id);
+                    if (!string.IsNullOrEmpty(by) && !Legit(by, id)) stillReserved.Add("pallet " + id);
                 }
                 foreach (string id in world.BenchIds)
                 {
                     string by = world.ReservedBy(id);
-                    if (!string.IsNullOrEmpty(by) && !Legit(by, id)) stillReserved.Add("banc " + id);
+                    if (!string.IsNullOrEmpty(by) && !Legit(by, id)) stillReserved.Add("bench " + id);
                 }
                 foreach (string id in world.TruckIds)
                 {
                     string by = world.ReservedBy(id);
-                    if (!string.IsNullOrEmpty(by) && !Legit(by, id)) stillReserved.Add("camion " + id);
+                    if (!string.IsNullOrEmpty(by) && !Legit(by, id)) stillReserved.Add("truck " + id);
                 }
                 report.integrity.Add(stillReserved.Count == 0
-                    ? "aucune réservation résiduelle"
-                    : "RESSOURCES ENCORE RÉSERVÉES : " + string.Join(", ", stillReserved));
+                    ? "no leftover reservation"
+                    : "RESOURCES STILL RESERVED: " + string.Join(", ", stillReserved));
                 if (inProgress.Count > 0)
-                    report.integrity.Add("commande(s) normale(s) encore en cours, hors flux urgent : " + string.Join(", ", inProgress));
+                    report.integrity.Add("normal order(s) still running, outside the urgent flow: " + string.Join(", ", inProgress));
                 var doors = new List<string>();
                 foreach (string id in world.TruckIds)
                 {
@@ -368,44 +368,44 @@ namespace RoboFactory.Logistics
                     if (d != "Closed" && d != "Loaded" && !legitOpen) doors.Add(id + "=" + d);
                 }
                 report.integrity.Add(doors.Count == 0
-                    ? "tous les camions fermés"
-                    : "PORTES NON FERMÉES : " + string.Join(", ", doors));
+                    ? "all trucks closed"
+                    : "DOORS NOT CLOSED: " + string.Join(", ", doors));
             }
-            else report.integrity.Add("WarehouseWorld absent — intégrité non vérifiable");
+            else report.integrity.Add("WarehouseWorld missing — integrity not verifiable");
             bool integrityOk = report.integrity.TrueForAll(x =>
-                !x.StartsWith("RESSOURCES") && !x.StartsWith("PORTES") &&
-                !x.Contains("non vérifiable"));
+                !x.StartsWith("RESOURCES") && !x.StartsWith("DOORS") &&
+                !x.Contains("not verifiable"));
 
-            // ---- verdict global
+            // ---- overall verdict
             bool urgentDelivered = s == MuseOrchestrator.UrgentStage.Completed;
             bool museOk = mp.real && mp.accepted;
             var fails = new List<string>();
-            if (!urgentDelivered) fails.Add("urgente non livrée");
-            if (!museOk) fails.Add("décision Muse non réelle/refusée");
-            if (!execOk) fails.Add("cartons perdus ou dupliqués");
-            // L'intégrité ne compte que si le flux a réellement touché des commandes —
-            // sinon des portes/réservations actives des commandes normales feraient
-            // échouer un rapport qui n'a jamais exécuté quoi que ce soit.
-            if (!integrityOk && report.orders.Count > 0) fails.Add("intégrité monde");
+            if (!urgentDelivered) fails.Add("urgent order not delivered");
+            if (!museOk) fails.Add("Muse decision not real/refused");
+            if (!execOk) fails.Add("boxes lost or duplicated");
+            // Integrity only counts if the flow actually touched orders —
+            // otherwise active doors/reservations of normal orders would make
+            // a report fail that never executed anything.
+            if (!integrityOk && report.orders.Count > 0) fails.Add("world integrity");
             if (voiceUsed && !vp.real)
-                fails.Add("transcription non finale/non réelle");
+                fails.Add("transcription not final/not real");
             report.verdict = fails.Count == 0
-                ? "PASS — transcription réelle + décision Muse réelle + exécution vérifiée"
-                : "FAIL — " + string.Join(" ; ", fails);
+                ? "PASS — real transcription + real Muse decision + verified execution"
+                : "FAIL — " + string.Join("; ", fails);
             LastVerdictOk = fails.Count == 0;
             Ready = true;
 
-            // ---- résumé HUD + fichier JSON
+            // ---- HUD summary + JSON file
             var sb = new StringBuilder();
-            sb.AppendLine("VOIX   : " + vp.mode.ToUpperInvariant() +
-                          (vp.real ? " — finale réelle \"" + vp.transcript + "\""
+            sb.AppendLine("VOICE  : " + vp.mode.ToUpperInvariant() +
+                          (vp.real ? " — real final \"" + vp.transcript + "\""
                                    : " — " + vp.note) +
-                          " (" + vp.latency_ms + " ms, audio transporté " + vp.audio_ms + " ms)");
+                          " (" + vp.latency_ms + " ms, audio transported " + vp.audio_ms + " ms)");
             sb.AppendLine("MUSE   : " + (rec != null
                 ? mp.model + " " + mp.mode.ToUpperInvariant() + " " + mp.latency_ms +
-                  " ms " + mp.action + (mp.accepted ? " OK" : " REFUSÉ") +
+                  " ms " + mp.action + (mp.accepted ? " OK" : " REFUSED") +
                   (!string.IsNullOrEmpty(mp.plan) ? " — " + mp.plan : "")
-                : "aucun appel Muse enregistré"));
+                : "no Muse call recorded"));
             sb.Append("EXEC   : ");
             foreach (OrderCheck oc in report.orders)
                 sb.Append("#" + oc.id + (oc.urgent ? "(URG)" : "") + " " +
@@ -417,7 +417,7 @@ namespace RoboFactory.Logistics
             Summary = sb.ToString();
             LastPath = WriteJson(report);
             Debug.Log("[UrgentDemoReport] " + report.verdict + "\n" + Summary +
-                      (LastPath.Length > 0 ? "fichier : " + LastPath : ""));
+                      (LastPath.Length > 0 ? "file: " + LastPath : ""));
         }
 
         private static WhOrderState Find(WhOrderState[] arr, int id)
@@ -449,7 +449,7 @@ namespace RoboFactory.Logistics
             }
             catch (Exception e)
             {
-                Debug.LogWarning("[UrgentDemoReport] écriture JSON impossible : " + e.Message);
+                Debug.LogWarning("[UrgentDemoReport] cannot write JSON: " + e.Message);
                 return "";
             }
         }

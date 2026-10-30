@@ -5,12 +5,12 @@ using UnityEngine;
 namespace RoboFactory.Hackathon.Orchestration
 {
     /// <summary>
-    /// Types purs pour l'orchestration Muse Wonder : aucun lien avec les assets Warcool,
-    /// donc testables en EditMode. Le snapshot est construit côté scène (RoboFactory.Logistics)
-    /// puis envoyé au proxy Meta ; le plan reçu est validé par PlanValidator avant exécution.
+    /// Pure types for the Muse Wonder orchestration: no link to the Warcool assets,
+    /// so testable in EditMode. The snapshot is built on the scene side (RoboFactory.Logistics)
+    /// then sent to the Meta gateway; the received plan is validated by PlanValidator before execution.
     /// </summary>
 
-    // ------------------------------------------------------------------ plan (réponse Muse)
+    // ------------------------------------------------------------------ plan (Muse answer)
 
     [Serializable]
     public sealed class MusePlanPick
@@ -36,19 +36,19 @@ namespace RoboFactory.Hackathon.Orchestration
         public string reason;
     }
 
-    // ------------------------------------------------------------------ snapshot (envoyé à Muse)
+    // ------------------------------------------------------------------ snapshot (sent to Muse)
 
     [Serializable]
     public sealed class WhOrderState
     {
         public int id;
-        public int a, b, c;                    // demandé par type
-        public int staged_a, staged_b, staged_c; // préparé sur le banc
-        public int loaded_a, loaded_b, loaded_c; // déjà dans le camion
+        public int a, b, c;                    // requested per type
+        public int staged_a, staged_b, staged_c; // staged on the bench
+        public int loaded_a, loaded_b, loaded_c; // already in the truck
         public int priority;
-        public bool urgent;                    // commande urgente (voix ou manuelle)
+        public bool urgent;                    // urgent order (voice or manual)
         public string status;                  // pending|planned|picking|staging|loading|loaded|waiting|blocked|suspending|paused
-        public string bench_id;                // affectation courante (null/"" sinon)
+        public string bench_id;                // current assignment (null/"" otherwise)
         public string truck_id;
     }
 
@@ -74,8 +74,8 @@ namespace RoboFactory.Hackathon.Orchestration
     {
         public string id;
         public float x, z;
-        public WhStock stock;   // contenu total réel par type
-        public WhStock top;     // cartons directement prenables (dessus des colonnes)
+        public WhStock stock;   // real total content per type
+        public WhStock top;     // boxes directly takeable (top of the columns)
         public string reserved_by;
         public float dist_r1;
     }
@@ -88,7 +88,7 @@ namespace RoboFactory.Hackathon.Orchestration
         public int capacity;
         public int free_levels;
         public int occupied;
-        public string reserved_by; // id de commande (string) ou null
+        public string reserved_by; // order id (string) or null
     }
 
     [Serializable]
@@ -110,8 +110,8 @@ namespace RoboFactory.Hackathon.Orchestration
         public float x, z;
         public string state;
         public bool carrying;
-        public bool available;   // le robot fonctionne (peut recevoir une mission en file)
-        public bool busy;        // mission dirigée en cours : la prochaine attendra son tour
+        public bool available;   // the robot works (can receive a queued mission)
+        public bool busy;        // directed mission in progress: the next one will wait its turn
         public string mission;
     }
 
@@ -138,10 +138,10 @@ namespace RoboFactory.Hackathon.Orchestration
         public WhDistance[] distances;
         public string[] incidents;
         public string last_rejection;
-        public string box_type_legend; // "A=caisse bois, B=gros carton, C=carton moyen"
+        public string box_type_legend; // "A=wooden crate, B=big cardboard box, C=medium cardboard box"
     }
 
-    // ------------------------------------------------------------------ enregistrements
+    // ------------------------------------------------------------------ records
 
     [Serializable]
     public sealed class MuseDecisionRecord

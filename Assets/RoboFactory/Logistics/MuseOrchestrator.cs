@@ -11,13 +11,13 @@ using RoboFactory.Sim;
 namespace RoboFactory.Logistics
 {
     /// <summary>
-    /// Orchestrateur central : les décisions logistiques viennent de Muse Wonder via le
-    /// proxy Meta (/warehouse). Cette classe ne choisit JAMAIS les palettes/bancs/camions
-    /// elle-même : elle envoie l'état réel, valide le plan reçu, réserve les ressources,
-    /// pilote les portes et les missions dirigées des robots, puis vérifie le contenu
-    /// livré avant de refermer la porte.
+    /// Central orchestrator: logistics decisions come from Muse Wonder through the
+    /// Meta proxy (/warehouse). This class NEVER picks pallets/benches/trucks
+    /// by itself: it sends the real state, validates the received plan, reserves resources,
+    /// drives the doors and the robots' directed missions, then checks the delivered
+    /// content before closing the door.
     ///
-    /// Une seule commande active et une seule porte ouverte à la fois (version 1).
+    /// Only one active order and one open door at a time (version 1).
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class MuseOrchestrator : MonoBehaviour, IMuseOrchestration
@@ -26,35 +26,35 @@ namespace RoboFactory.Logistics
         public string ProxyUrl = "http://127.0.0.1:8765";
         public PerceptionMode Perception = PerceptionMode.Live;
 
-        [Header("Décision")]
-        [Tooltip("Enchaîne les demandes à Muse dès qu'une commande attend.")]
+        [Header("Decision")]
+        [Tooltip("Chains requests to Muse as soon as an order is waiting.")]
         public bool AutoDecide = true;
-        [Tooltip("Pause minimale entre deux appels Meta.")]
+        [Tooltip("Minimum pause between two Meta calls.")]
         public float CallCooldown = 3f;
-        [Tooltip("Nouvel essai quand Muse répond wait/no_plan.")]
+        [Tooltip("Retry delay when Muse answers wait/no_plan.")]
         public float WaitRetryDelay = 8f;
-        [Tooltip("Rejets successifs avant pause longue.")]
+        [Tooltip("Consecutive rejections before a long pause.")]
         public int MaxConsecutiveRejects = 4;
-        [Tooltip("Commande defer_order : délai avant de redevenir candidate.")]
+        [Tooltip("defer_order: delay before the order becomes a candidate again.")]
         public float DeferredReactivateDelay = 30f;
 
-        [Header("Exécution (optionnel : trouvé automatiquement)")]
+        [Header("Execution (optional: found automatically)")]
         public WarehouseRobotAutopilot Robot1;
         public TruckLoaderAgent Robot2;
 
-        [Header("Voie urgente fixe (option)")]
-        [Tooltip("Option : un banc et un camion réservés en permanence aux urgentes. Désactivée par défaut : " +
-                 "les commandes normales utilisent les 3 bancs et 3 camions, et l'urgente libère sa capacité " +
-                 "par la politique FINISH TO FREE.")]
+        [Header("Fixed urgent lane (option)")]
+        [Tooltip("Option: one bench and one truck permanently reserved for urgent orders. Off by default: " +
+                 "normal orders use all 3 benches and 3 trucks, and an urgent order frees its capacity " +
+                 "through the FINISH TO FREE policy.")]
         public bool ReserveUrgentLane = false;
         public string UrgentBenchId = "B01";
         public string UrgentTruckId = "T01";
 
-        [Header("Sécurité")]
-        [Tooltip("Incident si un employé passe à moins de cette distance d'un robot en mission.")]
+        [Header("Safety")]
+        [Tooltip("Incident when an employee comes closer than this distance to a robot on a mission.")]
         public float WorkerProximityAlert = .9f;
 
-        // ------------------------------------------------------------------ état
+        // ------------------------------------------------------------------ state
         private enum Phase { Idle, Deciding, Preparing, Picking, Loading, Verifying, Closing }
 
         private MetaProxyClient proxy;
@@ -63,8 +63,8 @@ namespace RoboFactory.Logistics
         private readonly List<string> incidents = new List<string>();
         private readonly Dictionary<int, float> deferredUntil = new Dictionary<int, float>();
         private int nextOrderId = 1;
-        // Plusieurs commandes peuvent s'exécuter en parallèle : chacune réserve SES
-        // ressources (banc, camion, palettes) ; les robots servent en séquence.
+        // Several orders can run in parallel: each one reserves ITS OWN
+        // resources (bench, truck, pallets); the robots serve them in sequence.
         private readonly HashSet<int> activeOrderIds = new HashSet<int>();
         private readonly Dictionary<int, MusePlan> activePlans = new Dictionary<int, MusePlan>();
         private readonly List<Coroutine> running = new List<Coroutine>();
@@ -72,9 +72,9 @@ namespace RoboFactory.Logistics
         private int highlightedOrder = -1;
         private bool r1Busy, r2Busy;
         private int r1TicketSeq;
-        /// <summary>Collectes en attente de R1 (commande -> ordre d'arrivée).</summary>
+        /// <summary>Picks waiting for R1 (order -> arrival rank).</summary>
         private readonly Dictionary<int, int> r1Tickets = new Dictionary<int, int>();
-        /// <summary>Commande détenant le verrou R2 (libérable même si sa file est tuée).</summary>
+        /// <summary>Order holding the R2 lock (releasable even if its queue was killed).</summary>
         private int r2BusyOwner = -1;
         private Phase phase = Phase.Idle;
 
@@ -83,57 +83,57 @@ namespace RoboFactory.Logistics
         private string latestRequestId;
         private bool pending;
         private float pendingSince;
-        /// <summary>Un appel sans réponse au-delà de ce délai est abandonné (anti-blocage).</summary>
+        /// <summary>A call left unanswered beyond this delay is dropped (anti-deadlock).</summary>
         public float PendingTimeout = 135f;
 
-        // ------------------------------------------------------------------ urgences vocales
-        [Header("Commandes urgentes")]
-        [Tooltip("Confiance minimale de la transcription pour exécuter sans confirmation.")]
+        // ------------------------------------------------------------------ spoken urgent orders
+        [Header("Urgent orders")]
+        [Tooltip("Minimum transcription confidence to execute without confirmation.")]
         public float MinUrgentConfidence = .5f;
-        [Tooltip("Délai max pour que les robots se mettent en état sûr à la suspension.")]
+        [Tooltip("Maximum delay for the robots to reach a safe state on suspension.")]
         public float SuspendTimeout = 30f;
 
-        /// <summary>Étapes visibles du pipeline urgent pour le HUD et le rapport de démo.</summary>
-        /// <summary>WaitingForCapacity = URGENT_WAITING_FOR_CAPACITY : urgente acceptée, aucun couple
-        /// banc + camion vide disponible ; une commande normale est finie pour le libérer (FINISH TO FREE).</summary>
+        /// <summary>Visible stages of the urgent pipeline for the HUD and the demo report.</summary>
+        /// <summary>WaitingForCapacity = URGENT_WAITING_FOR_CAPACITY: urgent order accepted, no free
+        /// bench + empty truck pair; a normal order is finished to free one (FINISH TO FREE).</summary>
         public enum UrgentStage { Idle, Planning, Suspending, UrgentActive, Resuming, Completed, Failed, WaitingForCapacity }
         public UrgentStage Stage { get; private set; } = UrgentStage.Idle;
-        /// <summary>Dernier échec du pipeline urgent (texte affiché, jamais masqué).</summary>
+        /// <summary>Last failure of the urgent pipeline (displayed text, never hidden).</summary>
         public string UrgentError { get; private set; } = "";
-        /// <summary>Issue de la dernière urgente : "livrée" / motif d'échec.</summary>
+        /// <summary>Outcome of the last urgent order: "delivered" / failure reason.</summary>
         public string LastUrgentOutcome { get; private set; } = "";
-        /// <summary>Appel /urgent en vol (transcription -> interprétation Muse).</summary>
+        /// <summary>/urgent call in flight (transcription -> Muse interpretation).</summary>
         public bool UrgentPending => urgentPending;
-        /// <summary>Commandes reprises en cours d'exécution après l'urgente.</summary>
+        /// <summary>Resumed orders being executed after the urgent one.</summary>
         private readonly HashSet<int> resumedIds = new HashSet<int>();
-        /// <summary>L'urgente courante a-t-elle été physiquement livrée.</summary>
+        /// <summary>Has the current urgent order been physically delivered.</summary>
         private bool urgentDelivered;
-        /// <summary>Muse a répondu "wait" : une nouvelle tentative vocale est planifiée.
-        /// Tant qu'elle est armée, aucune décision normale ne doit voler les ressources
-        /// qui se libèrent — l'urgente garde la priorité.</summary>
+        /// <summary>Muse answered "wait": a new voice attempt is scheduled.
+        /// While it is armed, no normal decision may steal the resources
+        /// being freed — the urgent order keeps priority.</summary>
         private bool urgentWaiting;
         private int urgentVoiceRetries;
-        private const int MaxUrgentVoiceRetries = 24; // ~2 min d'attente de libération
-        /// <summary>Génération vocale : invalide les retries armés par une ancienne prise.</summary>
+        private const int MaxUrgentVoiceRetries = 24; // ~2 min waiting for resources to free up
+        /// <summary>Voice generation: invalidates retries armed by an older utterance.</summary>
         private int urgentVoiceGen;
 
-        /// <summary>Appel /urgent en vol.</summary>
+        /// <summary>/urgent call in flight.</summary>
         private bool urgentPending;
-        /// <summary>Transition SUSPENDING -> PAUSED en cours.</summary>
+        /// <summary>SUSPENDING -> PAUSED transition in progress.</summary>
         private bool suspendInProgress;
-        /// <summary>Commande urgente courante (-1 = aucune) : bloque l'auto-décision normale.</summary>
+        /// <summary>Current urgent order (-1 = none): blocks normal auto-decisions.</summary>
         private int urgentId = -1;
-        /// <summary>R1 a déposé toute l'urgente au banc : il est rendu aux commandes
-        /// en pause pendant que R2 finit le chargement de l'urgente.</summary>
+        /// <summary>R1 has dropped the whole urgent order on the bench: it goes back to the
+        /// paused orders while R2 finishes loading the urgent one.</summary>
         private bool urgentPickDone;
         private int urgentReplanFails;
-        /// <summary>Commandes normales en cours de suspension.</summary>
+        /// <summary>Normal orders being suspended.</summary>
         private readonly HashSet<int> suspendingIds = new HashSet<int>();
-        /// <summary>Commandes normales en pause (état sauvegardé, reprise prévue).</summary>
+        /// <summary>Paused normal orders (state saved, resume planned).</summary>
         private readonly HashSet<int> pausedIds = new HashSet<int>();
-        /// <summary>Plan Muse d'origine de chaque commande en pause (reprise si réalisable).</summary>
+        /// <summary>Original Muse plan of each paused order (reused on resume if still feasible).</summary>
         private readonly Dictionary<int, MusePlan> pausedPlans = new Dictionary<int, MusePlan>();
-        /// <summary>Requête en vol (HUD) : "wh-3 (12s)" ou vide.</summary>
+        /// <summary>Request in flight (HUD): "wh-3 (12s)" or empty.</summary>
         public string PendingInfo => pending && !string.IsNullOrEmpty(latestRequestId)
             ? latestRequestId + " (" + (Time.time - pendingSince).ToString("F0") + "s)" : "";
         private float nextAllowedCall;
@@ -146,8 +146,8 @@ namespace RoboFactory.Logistics
         private WarehouseSnapshot lastSnapshot;
         private string injectedPlanError;
 
-        // affichage de la mission la plus récente (HUD de debug). Rapports partagés :
-        // un seul pick (R1) et un seul load (R2) ne tournent jamais simultanément.
+        // display of the most recent mission (debug HUD). Shared reports:
+        // a single pick (R1) and a single load (R2) never run at the same time.
         private string activeBenchId;
         private string activeTruckId;
         private readonly List<string> activePalletIds = new List<string>();
@@ -172,9 +172,9 @@ namespace RoboFactory.Logistics
         public string ActivePickPlan => pickPlanText;
         public string BenchAssigned => activeBenchId;
         public string TruckAssigned => activeTruckId;
-        public string IncidentsText => incidents.Count == 0 ? "aucun" : string.Join(" | ", incidents);
+        public string IncidentsText => incidents.Count == 0 ? "none" : string.Join(" | ", incidents);
         public IReadOnlyList<MuseDecisionRecord> History => history;
-        /// <summary>État du flux urgent pour le HUD (interprétation, suspension, exécution).</summary>
+        /// <summary>Urgent flow state for the HUD (interpretation, suspension, execution).</summary>
         public string UrgentStatus { get; private set; } = "";
         public int UrgentOrderId => urgentId;
         public int PausedCount => pausedIds.Count;
@@ -185,7 +185,7 @@ namespace RoboFactory.Logistics
         {
             proxy = new MetaProxyClient { BaseUrl = ProxyUrl };
             capacityClient = new MuseCapacityClient { BaseUrl = ProxyUrl };
-            // Les robots passent sous contrôle dirigé avant leur propre Start().
+            // The robots switch to directed control before their own Start().
             if (Robot1 == null) Robot1 = FindFirstObjectByType<WarehouseRobotAutopilot>();
             if (Robot2 == null) Robot2 = FindFirstObjectByType<TruckLoaderAgent>();
             if (Robot1 != null) Robot1.AutoStart = false;
@@ -196,11 +196,11 @@ namespace RoboFactory.Logistics
         {
             if (World() == null)
             {
-                Debug.LogError("[Muse] WarehouseWorld absent de la scène : orchestration impossible.");
+                Debug.LogError("[Muse] WarehouseWorld missing from the scene: orchestration impossible.");
                 enabled = false;
                 return;
             }
-            // Toutes les baies passent sous gestion orchestrateur (porte fermée au départ).
+            // Every bay switches to orchestrator management (door closed at start).
             foreach (string truckId in World().TruckIds)
             {
                 TruckBay bay = World().Truck(truckId);
@@ -209,21 +209,21 @@ namespace RoboFactory.Logistics
             if (Robot1 == null) Robot1 = World().R1;
             if (Robot2 == null) Robot2 = World().R2;
             if (Robot1 != null && !Robot1.Running) { Robot1.Stop(); Robot1.BeginDirected(); }
-            // Après une collecte, R1 ne rentre pas à la base si du travail arrive :
-            // décision Muse en vol (ex. reprise après urgente) ou commandes
-            // suspendues / en pause. Sinon il faisait l'aller-retour pour rien.
+            // After a pick, R1 does not go back to base if work is coming:
+            // a Muse decision in flight (e.g. resume after an urgent order) or orders
+            // suspended / paused. Otherwise it made the round trip for nothing.
             if (Robot1 != null)
                 Robot1.StayOut = () => pending || urgentPending ||
                                        suspendingIds.Count > 0 || pausedIds.Count > 0;
             if (Robot2 != null)
             {
                 if (!Robot2.Running) Robot2.BeginDirected();
-                // Tant que des commandes sont suspendues/en pause, R2 ne repart pas
-                // à la base entre deux chargements : la reprise est imminente.
+                // While orders are suspended/paused, R2 does not go back
+                // to base between two loads: the resume is imminent.
                 Robot2.StayOut = () => suspendingIds.Count > 0 || pausedIds.Count > 0;
             }
-            Debug.Log("[Muse] orchestrateur prêt : " + World().PalletCount + " palettes, " +
-                      World().BenchCount + " bancs, " + World().TruckCount + " camions, mode " + Mode);
+            Debug.Log("[Muse] orchestrator ready: " + World().PalletCount + " pallets, " +
+                      World().BenchCount + " benches, " + World().TruckCount + " trucks, mode " + Mode);
         }
 
         private WarehouseWorld world;
@@ -234,7 +234,7 @@ namespace RoboFactory.Logistics
             return world;
         }
 
-        // ------------------------------------------------------------------ commandes
+        // ------------------------------------------------------------------ orders
 
         public int SubmitOrder(string text)
         {
@@ -247,8 +247,8 @@ namespace RoboFactory.Logistics
         {
             if (a + b + c <= 0) return 0;
             WhOrderState order = CreateOrder(a, b, c, false);
-            Debug.Log("[Muse] commande #" + order.id + " : " + OrderText.Format(new[] { a, b, c }) +
-                      (activeOrderIds.Count > 0 ? " (décidée dès que ressources disponibles)" : ""));
+            Debug.Log("[Muse] order #" + order.id + ": " + OrderText.Format(new[] { a, b, c }) +
+                      (activeOrderIds.Count > 0 ? " (decided as soon as resources are available)" : ""));
             if (AutoDecide) RequestDecision("new_order");
             return order.id;
         }
@@ -275,7 +275,7 @@ namespace RoboFactory.Logistics
 
         public void ClearOrders()
         {
-            AbortExecution("commandes réinitialisées");
+            AbortExecution("orders reset");
             orders.Clear();
             deferredUntil.Clear();
             suspendingIds.Clear();
@@ -297,28 +297,28 @@ namespace RoboFactory.Logistics
             stateVersion++;
         }
 
-        // ------------------------------------------------------------------ boucle principale
+        // ------------------------------------------------------------------ main loop
 
         private void Update()
         {
             RefreshLiveCounts();
-            // Filet de sécurité : un appel jamais répondu ne doit pas bloquer la file.
+            // Safety net: a call that is never answered must not block the queue.
             if (pending && Time.time - pendingSince > PendingTimeout)
             {
                 pending = false;
                 nextAllowedCall = Time.time + 5f;
-                Incident("appel " + latestRequestId + " sans réponse après " +
-                         PendingTimeout.ToString("F0") + "s : relance");
+                Incident("call " + latestRequestId + " unanswered after " +
+                         PendingTimeout.ToString("F0") + "s: retrying");
             }
             if (World() == null || !AutoDecide) return;
             if (pending || urgentPending || urgentWaiting || suspendInProgress) return;
-            // Une commande urgente monopolise la boucle : les commandes normales
-            // (suspendues ou en file) ne reprennent des décisions qu'après sa livraison.
-            // Exception : collecte urgente terminée -> R1 est libre, les commandes
-            // reprises peuvent obtenir leurs décisions pendant que R2 charge l'urgente.
+            // An urgent order takes over the loop: normal orders
+            // (suspended or queued) only get decisions again after its delivery.
+            // Exception: urgent pick finished -> R1 is free, the resumed orders
+            // can get their decisions while R2 loads the urgent one.
             if (urgentId >= 0 && !urgentPickDone) return;
             if (Time.time < nextAllowedCall) return;
-            // ---- fin de la reprise : toutes les commandes reprises sont livrées
+            // ---- end of the resume: every resumed order has been delivered
             if (Stage == UrgentStage.Resuming && urgentId < 0)
             {
                 bool anyLeft = false;
@@ -330,8 +330,8 @@ namespace RoboFactory.Logistics
                 if (!anyLeft) Stage = urgentDelivered ? UrgentStage.Completed : UrgentStage.Failed;
             }
             if (NextPending() == null) return;
-            // Une commande n'est décidée que si elle peut réellement s'exécuter :
-            // banc libre + camion libre + stock disponible. Sinon elle attend en file.
+            // An order is only decided if it can really run:
+            // free bench + free truck + available stock. Otherwise it waits in the queue.
             if (!World().HasFreeBench(ReserveUrgentLane ? UrgentBenchId : null) ||
                 !World().HasFreeTruck(ReserveUrgentLane ? UrgentTruckId : null) || !World().HasAnyFreeStock()) return;
             RequestDecision("pending_order");
@@ -349,22 +349,22 @@ namespace RoboFactory.Logistics
             return best;
         }
 
-        // ------------------------------------------------------------------ appel Meta
+        // ------------------------------------------------------------------ Meta call
 
-        /// <summary>Force une demande de décision (async — la réponse arrive plus tard).</summary>
+        /// <summary>Forces a decision request (async — the answer arrives later).</summary>
         public void RequestDecision(string trigger)
         {
             if (pending || urgentPending) return;
-            // Urgente en cours (y compris en attente de capacité) : aucune nouvelle commande
-            // normale n'est planifiée — les ressources libérées vont à l'urgente.
+            // Urgent order in progress (including waiting for capacity): no new normal
+            // order is planned — freed resources go to the urgent one.
             if (urgentId >= 0 && !urgentPickDone && (trigger == "new_order" || trigger == "pending_order"))
             {
-                Debug.Log("[Muse] décision normale différée (" + trigger + ") : urgente #" + urgentId + " prioritaire");
+                Debug.Log("[Muse] normal decision deferred (" + trigger + "): urgent #" + urgentId + " has priority");
                 return;
             }
             if (Mode == "offline")
             {
-                lastValidation = "offline : pas d'appel Meta";
+                lastValidation = "offline: no Meta call";
                 lastRejection = "offline";
                 return;
             }
@@ -381,12 +381,12 @@ namespace RoboFactory.Logistics
                 state_json = JsonUtility.ToJson(lastSnapshot),
                 mock_plan_error = injectedPlanError
             };
-            injectedPlanError = null; // consommé : une seule injection par appel
+            injectedPlanError = null; // consumed: a single injection per call
             pending = true;
             pendingSince = Time.time;
             Calls++;
             StartCoroutine(proxy.Orchestrate(request, response => OnPlanResponse(request, response)));
-            Debug.Log("[Muse] demande " + latestRequestId + " (" + trigger + ", état v" + stateVersion + ")");
+            Debug.Log("[Muse] request " + latestRequestId + " (" + trigger + ", state v" + stateVersion + ")");
         }
 
         private void OnPlanResponse(WarehouseRequest request, WarehouseResponse response)
@@ -394,10 +394,10 @@ namespace RoboFactory.Logistics
             pending = false;
             nextAllowedCall = Time.time + CallCooldown;
 
-            // Réponse périmée : une demande plus récente a été émise entre-temps.
+            // Stale answer: a more recent request was sent in the meantime.
             if (request.request_id != latestRequestId)
             {
-                Debug.Log("[Muse] réponse ignorée (périmée) : " + request.request_id);
+                Debug.Log("[Muse] answer ignored (stale): " + request.request_id);
                 return;
             }
 
@@ -411,14 +411,14 @@ namespace RoboFactory.Logistics
 
             if (response == null || !response.ok)
             {
-                record.RejectReason = "appel Meta échoué" + (response != null ? " : " + response.error : "");
+                record.RejectReason = "Meta call failed" + (response != null ? ": " + response.error : "");
                 record.Mode = Mode;
                 Record(record);
                 lastValidation = record.RejectReason;
-                // Meta n'a pas répondu (timeout, proxy muet, erreur réseau) : on
-                // redemande SANS LIMITE, avec un court délai croissant (2 -> 10 s).
-                // Ce n'est pas un refus de Muse : ces essais ne comptent pas dans les
-                // 4 échecs qui rétrogradent une urgente.
+                // Meta did not answer (timeout, silent proxy, network error): we
+                // ask again WITHOUT LIMIT, with a short growing delay (2 -> 10 s).
+                // This is not a Muse refusal: these retries do not count in the
+                // 4 failures that demote an urgent order.
                 metaFailStreak++;
                 float delay = RetryDelay();
                 string trig = request.trigger ?? "";
@@ -426,12 +426,12 @@ namespace RoboFactory.Logistics
                 if (urgentCall)
                 {
                     record.OrderId = urgentId;
-                    UrgentStatus = "URGENTE #" + urgentId + " : Meta sans réponse (essai " + metaFailStreak +
-                                   ") — nouvelle demande dans " + delay.ToString("F0") + " s";
+                    UrgentStatus = "URGENT #" + urgentId + ": no answer from Meta (attempt " + metaFailStreak +
+                                   ") — new request in " + delay.ToString("F0") + " s";
                 }
-                Incident("Meta sans réponse (" + trig + ", essai " + metaFailStreak + ") : nouvelle demande dans " +
+                Incident("no answer from Meta (" + trig + ", attempt " + metaFailStreak + "): new request in " +
                          delay.ToString("F0") + " s");
-                nextAllowedCall = Time.time + delay; // la boucle auto (pending_order) relance aussi
+                nextAllowedCall = Time.time + delay; // the auto loop (pending_order) retries too
                 if (urgentCall || (trig != "pending_order" && trig != "new_order"))
                     StartCoroutine(RetryCallAfter(trig, delay));
                 return;
@@ -449,8 +449,8 @@ namespace RoboFactory.Logistics
             MusePlan plan = response.plan;
             if (plan == null)
             {
-                record.RejectReason = "réponse sans plan (" + (response.error ?? "json invalide") + ")";
-                Reject(record, "réponse sans plan");
+                record.RejectReason = "answer without a plan (" + (response.error ?? "invalid json") + ")";
+                Reject(record, "answer without a plan");
                 return;
             }
             record.Action = plan.action;
@@ -462,9 +462,9 @@ namespace RoboFactory.Logistics
             if (action == "wait" || action == "no_plan")
             {
                 record.Accepted = true;
-                record.AppliedResult = "attente : " + plan.reason;
+                record.AppliedResult = "waiting: " + plan.reason;
                 Record(record);
-                lastValidation = "accepté (" + plan.action + ")";
+                lastValidation = "accepted (" + plan.action + ")";
                 nextAllowedCall = Time.time + WaitRetryDelay;
                 MaybeRetryUrgent(plan.order_id);
                 return;
@@ -472,20 +472,20 @@ namespace RoboFactory.Logistics
             if (action == "defer_order")
             {
                 WhOrderState target = PlanValidator.FindOrder(lastSnapshot, plan.order_id);
-                if (target == null) { Reject(record, "defer sur commande inconnue"); return; }
+                if (target == null) { Reject(record, "defer on unknown order"); return; }
                 deferredUntil[plan.order_id] = Time.time + DeferredReactivateDelay;
                 WhOrderState local = FindLocal(plan.order_id);
                 if (local != null) local.status = "pending";
                 record.Accepted = true;
-                record.AppliedResult = "commande #" + plan.order_id + " différée";
+                record.AppliedResult = "order #" + plan.order_id + " deferred";
                 Record(record);
-                lastValidation = "accepté (defer)";
+                lastValidation = "accepted (defer)";
                 stateVersion++;
                 MaybeRetryUrgent(plan.order_id);
                 return;
             }
 
-            // Validation sur un état FRAIS — pas celui envoyé il y a plusieurs secondes.
+            // Validation on a FRESH state — not the one sent several seconds ago.
             WhOrderState planned = FindLocal(plan.order_id);
             var fresh = Snapshot("validate", planned != null && planned.urgent && plan.order_id == urgentId);
             string error = PlanValidator.FirstError(plan, fresh);
@@ -494,20 +494,20 @@ namespace RoboFactory.Logistics
             if (error != null) { Reject(record, error); return; }
 
             record.Accepted = true;
-            record.AppliedResult = "plan accepté : " + record.PlanSummary;
+            record.AppliedResult = "plan accepted: " + record.PlanSummary;
             Record(record);
-            lastValidation = "accepté";
+            lastValidation = "accepted";
             consecutiveRejects = 0;
             lastRejection = null;
             StartExecution(plan);
         }
 
-        // ------------------------------------------------------------------ commandes urgentes
+        // ------------------------------------------------------------------ urgent orders
 
         /// <summary>
-        /// Point d'entrée des commandes urgentes vocales : la transcription FINALE
-        /// (jamais un partial) est envoyée à Muse Wonder qui décide s'il s'agit d'une
-        /// vraie commande urgente, en extrait les quantités et produit le plan.
+        /// Entry point of spoken urgent orders: the FINAL transcription
+        /// (never a partial) is sent to Muse Wonder, which decides whether it is a
+        /// real urgent order, extracts the quantities and produces the plan.
         /// </summary>
         public void SubmitUrgentTranscript(string transcript)
         {
@@ -515,40 +515,40 @@ namespace RoboFactory.Logistics
             if (transcript.Length == 0) return;
             if (urgentId >= 0)
             {
-                UrgentStatus = "urgente #" + urgentId + " déjà en cours — nouvelle urgente refusée";
+                UrgentStatus = "urgent #" + urgentId + " already in progress — new urgent order refused";
                 return;
             }
             if (Mode == "offline")
             {
-                UrgentStatus = "mode offline : aucune décision Meta disponible";
+                UrgentStatus = "offline mode: no Meta decision available";
                 return;
             }
-            urgentVoiceGen++; // invalide un retry éventuellement armé par une ancienne prise
+            urgentVoiceGen++; // invalidates a retry possibly armed by an older utterance
             BeginUrgentStage(UrgentStage.Planning);
             StartCoroutine(UrgentVoiceFlow(transcript));
         }
 
-        /// <summary>Bouton manuel d'urgence : même pipeline sans reconnaissance vocale.</summary>
+        /// <summary>Manual urgent button: same pipeline without speech recognition.</summary>
         public int SubmitUrgentCounts(int a, int b, int c)
         {
             if (a + b + c <= 0) return 0;
             if (urgentId >= 0)
             {
-                UrgentStatus = "urgente #" + urgentId + " déjà en cours — nouvelle urgente refusée";
+                UrgentStatus = "urgent #" + urgentId + " already in progress — new urgent order refused";
                 return 0;
             }
-            urgentVoiceGen++; // invalide un retry vocal armé par une ancienne prise
-            // Planning : la suite (suspension directe ou attente de capacité) est décidée par UrgentAdmission.
+            urgentVoiceGen++; // invalidates a voice retry armed by an older utterance
+            // Planning: what comes next (direct suspension or waiting for capacity) is decided by UrgentAdmission.
             BeginUrgentStage(UrgentStage.Planning);
             WhOrderState order = CreateOrder(a, b, c, true);
-            UrgentStatus = "URGENTE #" + order.id + " : " + OrderText.Format(new[] { a, b, c }) +
-                           " — suspension des commandes normales";
-            Incident("commande urgente manuelle #" + order.id + " : suspension en cours");
+            UrgentStatus = "URGENT #" + order.id + ": " + OrderText.Format(new[] { a, b, c }) +
+                           " — suspending normal orders";
+            Incident("manual urgent order #" + order.id + ": suspension in progress");
             StartCoroutine(UrgentAdmission(order, null));
             return order.id;
         }
 
-        /// <summary>Prépare un nouveau flux urgent : stage, sorties et marqueurs remis à zéro.</summary>
+        /// <summary>Prepares a new urgent flow: stage, outputs and markers reset.</summary>
         private void BeginUrgentStage(UrgentStage stage)
         {
             Stage = stage;
@@ -562,11 +562,11 @@ namespace RoboFactory.Logistics
         }
 
         /// <summary>
-        /// La préemption libère les palettes des commandes normales (ParkSuspended ->
-        /// ReleasePallets) : pour la décision urgente, elles sont donc disponibles.
-        /// Bancs et camions restent réservés (ils portent des cartons préparés/chargés).
-        /// Le stock affiché exclut déjà les cartons pris par une commande (orderId).
-        /// Le plan reste revalidé sur l'état frais APRÈS suspension.
+        /// Preemption releases the pallets of normal orders (ParkSuspended ->
+        /// ReleasePallets): for the urgent decision they are therefore available.
+        /// Benches and trucks stay reserved (they hold staged/loaded boxes).
+        /// The displayed stock already excludes boxes taken by an order (orderId).
+        /// The plan is still revalidated on the fresh state AFTER suspension.
         /// </summary>
         private void ExposePreemptablePallets(WarehouseSnapshot snap)
         {
@@ -581,9 +581,9 @@ namespace RoboFactory.Logistics
             }
         }
 
-        /// <summary>Muse a dit "wait" : attendre 5 s puis redemander avec l'état frais.
-        /// Le garde urgentWaiting bloque les décisions normales pendant l'attente ;
-        /// le jeton gen invalide le retry si une nouvelle prise de parole est arrivée.</summary>
+        /// <summary>Muse said "wait": wait 5 s then ask again with the fresh state.
+        /// The urgentWaiting guard blocks normal decisions during the wait;
+        /// the gen token invalidates the retry if a new utterance has arrived.</summary>
         private IEnumerator RetryUrgentVoice(string transcript, int gen, float delay = 5f)
         {
             urgentWaiting = true;
@@ -593,27 +593,27 @@ namespace RoboFactory.Logistics
                 StartCoroutine(UrgentVoiceFlow(transcript));
         }
 
-        /// <summary>Suspend les normales puis demande un plan à Muse (urgence manuelle).</summary>
+        /// <summary>Suspends the normal orders then asks Muse for a plan (manual urgent order).</summary>
         private IEnumerator SuspendThenPlan(WhOrderState order)
         {
             yield return SuspendActiveOrders();
             yield return RequestDecisionWhenFree("urgent_order");
         }
 
-        /// <summary>Flux voix complet : /urgent -> suspension -> validation fraîche -> exécution.</summary>
+        /// <summary>Full voice flow: /urgent -> suspension -> fresh validation -> execution.</summary>
         private IEnumerator UrgentVoiceFlow(string transcript)
         {
             float deadline = Time.time + PendingTimeout + 10f;
-            while (pending && Time.time < deadline) yield return null; // un appel /warehouse peut être en vol
+            while (pending && Time.time < deadline) yield return null; // a /warehouse call may be in flight
             if (pending)
             {
-                UrgentStatus = "appel Meta précédent sans réponse : urgente reportée";
+                UrgentStatus = "previous Meta call unanswered: urgent order postponed";
                 yield break;
             }
 
             urgentPending = true;
             stateVersion++;
-            int assignedId = nextOrderId; // id que la commande recevra si elle est acceptée
+            int assignedId = nextOrderId; // id the order will get if it is accepted
             var snap = Snapshot("urgent_voice_order", true);
             ExposePreemptablePallets(snap);
             var request = new UrgentRequest
@@ -625,7 +625,7 @@ namespace RoboFactory.Logistics
                 urgent_order_id = assignedId,
                 state_json = JsonUtility.ToJson(snap)
             };
-            UrgentStatus = "interprétation Muse Wonder… (" + Mode + ")";
+            UrgentStatus = "Muse Wonder interpreting… (" + Mode + ")";
             UrgentResponse response = null;
             yield return proxy.AskUrgent(request, r => response = r);
             urgentPending = false;
@@ -641,17 +641,17 @@ namespace RoboFactory.Logistics
             if (response == null || !response.ok || response.result == null)
             {
                 record.Mode = Mode;
-                record.RejectReason = "appel urgent échoué" +
-                                      (response != null ? " : " + response.error : "");
+                record.RejectReason = "urgent call failed" +
+                                      (response != null ? ": " + response.error : "");
                 Record(record);
-                // Meta n'a pas répondu : la même transcription est renvoyée SANS LIMITE
-                // (une nouvelle prise de parole invalide ces essais via urgentVoiceGen).
+                // Meta did not answer: the same transcription is resent WITHOUT LIMIT
+                // (a new utterance invalidates these retries through urgentVoiceGen).
                 metaFailStreak++;
                 float delay = RetryDelay();
-                UrgentStatus = "Meta sans réponse (essai " + metaFailStreak + ") — nouvelle interprétation dans " +
+                UrgentStatus = "no answer from Meta (attempt " + metaFailStreak + ") — new interpretation in " +
                                delay.ToString("F0") + " s";
                 Stage = UrgentStage.Planning;
-                Incident(record.RejectReason + " : nouvel essai dans " + delay.ToString("F0") + " s");
+                Incident(record.RejectReason + ": retrying in " + delay.ToString("F0") + " s");
                 StartCoroutine(RetryUrgentVoice(transcript, urgentVoiceGen, delay));
                 yield break;
             }
@@ -666,19 +666,19 @@ namespace RoboFactory.Logistics
             record.Action = "urgent:" + result.action;
             record.Reason = result.reason;
 
-            // ---- jamais de mission sur une transcription incertaine ou non urgente
+            // ---- never a mission on an uncertain or non-urgent transcription
             if (result.action == "clarify")
             {
                 record.Accepted = true;
-                record.AppliedResult = "clarification : " + result.clarification;
+                record.AppliedResult = "clarification: " + result.clarification;
                 Record(record);
-                UrgentStatus = "À CONFIRMER : " +
+                UrgentStatus = "TO CONFIRM: " +
                     (result.clarification.Length > 0 ? result.clarification : result.reason);
-                Stage = UrgentStage.Idle; // retour au repos : reformuler et reparler
+                Stage = UrgentStage.Idle; // back to idle: rephrase and speak again
                 yield break;
             }
-            // Muse a compris l'urgence mais attend des ressources : retenter avec
-            // l'état frais au lieu d'échouer (spec : attendre la libération sûre).
+            // Muse understood the urgency but is waiting for resources: retry with
+            // the fresh state instead of failing (spec: wait for the safe release).
             if (result.urgent &&
                 (result.action == "wait" || result.action == "no_plan" ||
                  result.action == "defer_order"))
@@ -686,37 +686,37 @@ namespace RoboFactory.Logistics
                 record.Accepted = true;
                 record.AppliedResult = result.action + " : " + result.reason;
                 Record(record);
-                // Urgence comprise (quantités sûres) mais aucun banc + camion libre :
-                // FINISH TO FREE — l'urgente est créée et libère sa capacité en faisant
-                // finir une commande normale, au lieu d'attendre passivement.
+                // Urgency understood (quantities certain) but no free bench + truck:
+                // FINISH TO FREE — the urgent order is created and frees its capacity by
+                // having a normal order finish, instead of waiting passively.
                 if (result.order != null && result.order.Total > 0 && result.confidence >= MinUrgentConfidence &&
                     !HasUrgentCapacity(result.order.Total, out _, out _))
                 {
                     WhOrderState waitingUrgent = CreateOrder(result.order.A, result.order.B, result.order.C, true);
                     record.OrderId = waitingUrgent.id;
-                    UrgentStatus = "URGENTE #" + waitingUrgent.id + " : " +
+                    UrgentStatus = "URGENT #" + waitingUrgent.id + ": " +
                                    OrderText.Format(new[] { result.order.A, result.order.B, result.order.C }) +
-                                   " — tous les quais occupés";
-                    Incident("commande urgente #" + waitingUrgent.id + " validée : capacité à libérer (FINISH TO FREE)");
+                                   " — all docks busy";
+                    Incident("urgent order #" + waitingUrgent.id + " validated: capacity to free (FINISH TO FREE)");
                     yield return UrgentAdmission(waitingUrgent, null);
                     yield break;
                 }
                 urgentVoiceRetries++;
                 if (urgentVoiceRetries <= MaxUrgentVoiceRetries)
                 {
-                    UrgentStatus = "Muse attend des ressources (" + result.reason +
-                                   ") — nouvelle tentative " + urgentVoiceRetries +
-                                   "/" + MaxUrgentVoiceRetries + " dans 5 s";
+                    UrgentStatus = "Muse is waiting for resources (" + result.reason +
+                                   ") — new attempt " + urgentVoiceRetries +
+                                   "/" + MaxUrgentVoiceRetries + " in 5 s";
                     Stage = UrgentStage.Planning;
                     StartCoroutine(RetryUrgentVoice(transcript, urgentVoiceGen));
                 }
                 else
                 {
-                    UrgentStatus = "urgente impossible après " + MaxUrgentVoiceRetries +
-                                   " tentatives : " + result.reason;
+                    UrgentStatus = "urgent order impossible after " + MaxUrgentVoiceRetries +
+                                   " attempts: " + result.reason;
                     UrgentError = UrgentStatus;
                     LastUrgentOutcome = UrgentError;
-                    // Des commandes ont pu se garer pendant l'attente : les reprendre.
+                    // Orders may have parked during the wait: resume them.
                     ResumePaused();
                     Stage = resumedIds.Count > 0 ? UrgentStage.Resuming : UrgentStage.Failed;
                 }
@@ -726,14 +726,14 @@ namespace RoboFactory.Logistics
                 result.order == null || result.order.Total <= 0)
             {
                 record.Accepted = true;
-                record.AppliedResult = result.action + " : " + result.reason;
+                record.AppliedResult = result.action + ": " + result.reason;
                 Record(record);
                 UrgentStatus = !result.urgent
-                    ? "pas une commande urgente (" + result.reason + ")"
-                    : "Muse ne peut pas exécuter l'urgente : " + result.reason;
+                    ? "not an urgent order (" + result.reason + ")"
+                    : "Muse cannot execute the urgent order: " + result.reason;
                 if (!result.urgent)
                 {
-                    Stage = UrgentStage.Idle; // simple phrase normale : pas d'incident
+                    Stage = UrgentStage.Idle; // just a normal sentence: no incident
                 }
                 else
                 {
@@ -745,38 +745,38 @@ namespace RoboFactory.Logistics
             }
             if (result.confidence < MinUrgentConfidence)
             {
-                record.RejectReason = "confiance transcription " + result.confidence.ToString("F2") +
+                record.RejectReason = "transcription confidence " + result.confidence.ToString("F2") +
                                       " < " + MinUrgentConfidence;
                 Reject(record, record.RejectReason);
-                UrgentStatus = "transcription incertaine — reformulez la commande urgente";
+                UrgentStatus = "uncertain transcription — please rephrase the urgent order";
                 UrgentError = record.RejectReason;
                 LastUrgentOutcome = record.RejectReason;
                 Stage = UrgentStage.Failed;
                 yield break;
             }
 
-            // ---- commande urgente réelle : création + suspension des normales
+            // ---- real urgent order: creation + suspension of the normal orders
             WhOrderState order = CreateOrder(result.order.A, result.order.B, result.order.C, true);
             result.plan.order_id = order.id;
             record.OrderId = order.id;
             record.PlanSummary = Describe(result.plan);
             record.Accepted = true;
-            record.AppliedResult = "urgente acceptée : " + record.PlanSummary;
+            record.AppliedResult = "urgent accepted: " + record.PlanSummary;
             Record(record);
-            UrgentStatus = "URGENTE #" + order.id + " : " +
+            UrgentStatus = "URGENT #" + order.id + ": " +
                            OrderText.Format(new[] { result.order.A, result.order.B, result.order.C }) +
-                           " (confiance " + result.confidence.ToString("F2") + ") — suspension…";
-            Incident("commande urgente #" + order.id + " validée : suspension des commandes normales");
+                           " (confidence " + result.confidence.ToString("F2") + ") — suspending…";
+            Incident("urgent order #" + order.id + " validated: suspending normal orders");
             yield return UrgentAdmission(order, result.plan);
         }
 
-        /// <summary>Plan urgent (vocal) revalidé sur l'état FRAIS post-suspension, sinon replanifié.</summary>
+        /// <summary>Urgent (voice) plan revalidated on the FRESH post-suspension state, otherwise replanned.</summary>
         private IEnumerator ContinueUrgent(WhOrderState order, MusePlan plan)
         {
             if (urgentId != order.id) yield break;
             if (plan == null)
             {
-                UrgentStatus = "URGENTE #" + order.id + " : planification Muse";
+                UrgentStatus = "URGENT #" + order.id + ": Muse planning";
                 yield return RequestDecisionWhenFree("urgent_order");
                 yield break;
             }
@@ -785,29 +785,29 @@ namespace RoboFactory.Logistics
             string error = PlanValidator.FirstError(plan, fresh) ?? CheckRobotRoles(plan);
             if (error != null)
             {
-                Incident("plan urgent refusé après suspension (" + error + ") : replanification");
+                Incident("urgent plan refused after suspension (" + error + "): replanning");
                 urgentReplanFails++;
                 if (urgentReplanFails >= 4)
                 {
-                    DemoteUrgent("non planifiable après suspension (" + error + ")");
+                    DemoteUrgent("not plannable after suspension (" + error + ")");
                     yield break;
                 }
-                UrgentStatus = "URGENTE #" + order.id + " : plan refusé (" + error + "), nouvel essai";
+                UrgentStatus = "URGENT #" + order.id + ": plan refused (" + error + "), retrying";
                 yield return RequestDecisionWhenFree("urgent_replan");
                 yield break;
             }
-            UrgentStatus = "URGENTE #" + order.id + " : exécution (" + Describe(plan) + ")";
+            UrgentStatus = "URGENT #" + order.id + ": executing (" + Describe(plan) + ")";
             StartExecution(plan);
         }
 
-        /// <summary>État réel de l'entrepôt + règle de voie (banc/camion urgents).</summary>
+        /// <summary>Real warehouse state + lane rule (urgent bench/truck).</summary>
         private WarehouseSnapshot Snapshot(string trigger, bool urgent)
         {
             WarehouseSnapshot snap = World().BuildSnapshot(orders, stateVersion, trigger, Mode, incidents, lastRejection);
             ApplyLanes(snap, urgent);
-            // FINISH TO FREE : la décision « finish_for_urgent » ne concerne QUE la commande à
-            // finir ; les autres commandes en attente sont présentées retenues (copies — les
-            // commandes réelles ne sont jamais modifiées par cet affichage).
+            // FINISH TO FREE: the « finish_for_urgent » decision only concerns the order to
+            // finish; the other waiting orders are shown as held (copies — the
+            // real orders are never modified by this display).
             if (trigger == "finish_for_urgent" && finishingId >= 0 && snap.orders != null)
                 for (int i = 0; i < snap.orders.Length; i++)
                 {
@@ -821,11 +821,11 @@ namespace RoboFactory.Logistics
         }
 
         /// <summary>
-        /// Voie urgente : pour une décision normale, le banc et le camion urgents apparaissent
-        /// réservés ("urgent_lane") ; pour l'urgente, ce sont les autres ("normal_lane"). Muse
-        /// n'utilise jamais une ressource réservée et le validateur refuse tout plan qui le
-        /// ferait — la règle est donc respectée des deux côtés. Une ressource déjà réservée
-        /// par une vraie commande garde sa réservation réelle.
+        /// Urgent lane: for a normal decision, the urgent bench and truck appear
+        /// reserved ("urgent_lane"); for the urgent order, the others do ("normal_lane"). Muse
+        /// never uses a reserved resource and the validator refuses any plan that
+        /// would — so the rule is enforced on both sides. A resource already reserved
+        /// by a real order keeps its real reservation.
         /// </summary>
         private void ApplyLanes(WarehouseSnapshot snap, bool urgent)
         {
@@ -840,28 +840,28 @@ namespace RoboFactory.Logistics
                     if (t != null && string.IsNullOrEmpty(t.reserved_by) && (t.id == UrgentTruckId) != urgent)
                         t.reserved_by = tag;
             var notes = new List<string>(snap.incidents ?? new string[0]);
-            notes.Add("règle : banc " + UrgentBenchId + " et camion " + UrgentTruckId +
-                      " réservés aux commandes urgentes ; les commandes normales utilisent les autres");
+            notes.Add("rule: bench " + UrgentBenchId + " and truck " + UrgentTruckId +
+                      " reserved for urgent orders; normal orders use the others");
             snap.incidents = notes.ToArray();
         }
 
-        /// <summary>Appels Meta perdus d'affilée (remis à zéro dès qu'une réponse arrive).</summary>
+        /// <summary>Meta calls lost in a row (reset as soon as an answer arrives).</summary>
         private int metaFailStreak;
 
-        /// <summary>Délai avant de redemander après un appel perdu : 4, 6, 8 puis 10 s.</summary>
+        /// <summary>Delay before asking again after a lost call: 4, 6, 8 then 10 s.</summary>
         private float RetryDelay() { return Mathf.Min(10f, 2f + metaFailStreak * 2f); }
 
         /// <summary>
-        /// Nouvel essai d'un appel /warehouse perdu, tant qu'il a encore un objet :
-        /// l'urgente est toujours en attente de son plan, ou une commande attend une décision.
+        /// Retries a lost /warehouse call while it still has a purpose:
+        /// the urgent order is still waiting for its plan, or an order is waiting for a decision.
         /// </summary>
         private IEnumerator RetryCallAfter(string trigger, float delay)
         {
             yield return new WaitForSeconds(delay);
             if (trigger.StartsWith("urgent"))
             {
-                if (urgentId < 0 || urgentPickDone) yield break; // urgente livrée, rétrogradée ou déjà planifiée
-                if (activeOrderIds.Contains(urgentId)) yield break; // plan reçu entre-temps
+                if (urgentId < 0 || urgentPickDone) yield break; // urgent order delivered, demoted or already planned
+                if (activeOrderIds.Contains(urgentId)) yield break; // plan received in the meantime
             }
             else if (NextPending() == null && trigger != "stock_shortage") yield break;
             yield return RequestDecisionWhenFree(trigger);
@@ -869,32 +869,32 @@ namespace RoboFactory.Logistics
 
         // ================================================================== FINISH TO FREE
 
-        /// <summary>Commande normale que Muse a choisi de finir pour libérer la capacité (-1 = aucune).</summary>
+        /// <summary>Normal order Muse chose to finish to free capacity (-1 = none).</summary>
         private int finishingId = -1;
         public int FinishingOrderId => finishingId;
-        /// <summary>Banc / camion que la finalisation doit libérer (affichage HUD).</summary>
+        /// <summary>Bench / truck the finishing order must free (HUD display).</summary>
         public string FreeingBenchId { get; private set; } = "";
         public string FreeingTruckId { get; private set; } = "";
-        /// <summary>Motif visible de l'attente : quais occupés, banc libre sans camion vide, etc.</summary>
+        /// <summary>Visible reason for the wait: docks busy, free bench without an empty truck, etc.</summary>
         public string CapacityReason { get; private set; } = "";
-        /// <summary>Stratégie en cours (texte HUD) : "Finish Order #1", "selecting…", motif d'attente.</summary>
+        /// <summary>Current strategy (HUD text): "Finish Order #1", "selecting…", wait reason.</summary>
         public string CapacityStrategy { get; private set; } = "";
-        /// <summary>Note secondaire (ex. stratégie Muse indisponible) — jamais présentée comme un refus.</summary>
+        /// <summary>Secondary note (e.g. Muse strategy unavailable) — never shown as a refusal.</summary>
         public string CapacityNote { get; private set; } = "";
-        /// <summary>Estimation de libération (s) annoncée pour la commande à finir (-1 inconnue).</summary>
+        /// <summary>Announced release estimate (s) for the order to finish (-1 unknown).</summary>
         public float CapacityEtaS { get; private set; } = -1f;
-        /// <summary>L'urgente courante est passée par l'attente de capacité (bandeau « Resources available »).</summary>
+        /// <summary>The current urgent order went through the capacity wait (« Resources available » banner).</summary>
         public bool CapacityEpisode { get; private set; }
-        /// <summary>Banc + camion réellement disponibles trouvés pour l'urgente (affichage).</summary>
+        /// <summary>Bench + truck actually available found for the urgent order (display).</summary>
         public string CapacityBenchId { get; private set; } = "";
         public string CapacityTruckId { get; private set; } = "";
-        /// <summary>Couple banc + camion vide réellement disponible pour l'urgente (fin de l'attente).</summary>
+        /// <summary>Bench + empty truck pair actually available for the urgent order (end of the wait).</summary>
         public bool CapacityReady => !string.IsNullOrEmpty(CapacityBenchId) && !string.IsNullOrEmpty(CapacityTruckId);
 
-        [Header("Urgence : FINISH TO FREE")]
-        [Tooltip("Sans progression de la commande à finir pendant ce délai (s), elle est abandonnée et Muse en choisit une autre.")]
+        [Header("Urgent: FINISH TO FREE")]
+        [Tooltip("If the order to finish makes no progress during this delay (s), it is dropped and Muse picks another one.")]
         public float FinishWatchdog = 150f;
-        [Tooltip("Délai (s) entre deux réévaluations quand aucune commande ne peut libérer de capacité (pas de boucle d'appels).")]
+        [Tooltip("Delay (s) between two re-evaluations when no order can free capacity (no call loop).")]
         public float CapacityRecheck = 15f;
 
         private MuseCapacityClient capacityClient;
@@ -915,9 +915,9 @@ namespace RoboFactory.Logistics
         }
 
         /// <summary>
-        /// Couple banc + camion utilisable TOUT DE SUITE par l'urgente : banc non réservé avec
-        /// des niveaux libres ; camion non réservé, physiquement VIDE (aucun carton d'une autre
-        /// commande, jamais une remorque encore chargée), assez de places, porte au repos.
+        /// Bench + truck pair usable RIGHT NOW by the urgent order: unreserved bench with
+        /// free levels; unreserved truck, physically EMPTY (no box from another
+        /// order, never a trailer that is still loaded), enough slots, door at rest.
         /// </summary>
         private bool HasUrgentCapacity(int need, out string bench, out string truck)
         {
@@ -942,8 +942,8 @@ namespace RoboFactory.Logistics
         }
 
         /// <summary>
-        /// Une commande active n'a encore rien engagé (aucun carton préparé ni chargé, aucun robot
-        /// en mission pour elle) : sa mise en pause rend immédiatement son banc ET son camion.
+        /// An active order has not committed anything yet (no box staged or loaded, no robot
+        /// on a mission for it): pausing it immediately gives back its bench AND its truck.
         /// </summary>
         private bool PausingFreesCapacity()
         {
@@ -973,9 +973,9 @@ namespace RoboFactory.Logistics
         }
 
         /// <summary>
-        /// Entrée de toute urgente acceptée (bouton ou voix). Les nouvelles décisions normales sont
-        /// déjà bloquées (urgentId). Capacité disponible (ou libérable en mettant en pause une commande
-        /// qui n'a rien engagé) -> suspension sûre puis exécution immédiate. Sinon FINISH TO FREE.
+        /// Entry of every accepted urgent order (button or voice). New normal decisions are
+        /// already blocked (urgentId). Capacity available (or freeable by pausing an order
+        /// that has committed nothing) -> safe suspension then immediate execution. Otherwise FINISH TO FREE.
         /// </summary>
         private IEnumerator UrgentAdmission(WhOrderState order, MusePlan voicePlan)
         {
@@ -985,7 +985,7 @@ namespace RoboFactory.Logistics
             bool capacity = HasUrgentCapacity(need, out string b0, out string t0);
             if (!capacity && PausingFreesCapacity())
             {
-                MuseTrace.Log("URGENT", "urgente #" + order.id + " : une commande sans carton engagé libère un quai à la pause");
+                MuseTrace.Log("URGENT", "urgent #" + order.id + ": an order with no committed box frees a dock when paused");
                 yield return SuspendActiveOrders();
                 capacity = HasUrgentCapacity(need, out b0, out t0);
             }
@@ -999,27 +999,27 @@ namespace RoboFactory.Logistics
             }
             yield return FinishToFree(order);
             if (urgentId != order.id) yield break;
-            // filet : plus aucune commande normale ne tourne pendant l'urgente
+            // safety net: no normal order runs anymore during the urgent one
             if (ActiveNormalCount() > 0) yield return SuspendActiveOrders();
-            // le plan vocal éventuel visait l'ancien état : replanification sur la capacité libérée
+            // the possible voice plan targeted the old state: replanning on the freed capacity
             yield return ContinueUrgent(order, null);
         }
 
         /// <summary>
-        /// URGENT_WAITING_FOR_CAPACITY : Muse choisit LA commande normale dont la finalisation libère
-        /// le plus vite un banc ET un camion vide ; les autres sont suspendues (opérations indivisibles
-        /// respectées) ; la choisie est finie en priorité (vérifiée, fermée, expédiée). On attend la
-        /// disponibilité RÉELLE du couple, puis on rend la main à la planification urgente.
-        /// Aucun carton n'est déplacé ni supprimé ; aucune ressource n'est réservée deux fois.
+        /// URGENT_WAITING_FOR_CAPACITY: Muse chooses THE normal order whose completion frees
+        /// a bench AND an empty truck the fastest; the others are suspended (indivisible operations
+        /// respected); the chosen one is finished first (checked, closed, shipped). We wait for the
+        /// REAL availability of the pair, then hand over to urgent planning.
+        /// No box is moved or deleted; no resource is reserved twice.
         /// </summary>
         private IEnumerator FinishToFree(WhOrderState order)
         {
             int need = order.a + order.b + order.c;
             Stage = UrgentStage.WaitingForCapacity;
             CapacityEpisode = true;
-            UrgentStatus = "URGENTE #" + order.id + " : en attente de capacité (tous les quais occupés)";
-            Incident("URGENTE #" + order.id + " : tous les bancs/quais occupés — FINISH TO FREE");
-            MuseTrace.Log("URGENT", "WAITING_FOR_CAPACITY urgente #" + order.id + " (" + need + " carton(s))");
+            UrgentStatus = "URGENT #" + order.id + ": waiting for capacity (all docks busy)";
+            Incident("URGENT #" + order.id + ": all benches/docks busy — FINISH TO FREE");
+            MuseTrace.Log("URGENT", "WAITING_FOR_CAPACITY urgent #" + order.id + " (" + need + " box(es))");
             float progressAt = Time.time;
             int lastProgress = -1;
             int invalidChoices = 0;
@@ -1033,22 +1033,22 @@ namespace RoboFactory.Logistics
                     CapacityTruckId = truck;
                     CapacityReason = "Resources available: bench " + bench + " / dock " + truck;
                     CapacityStrategy = finishingId >= 0 ? "Finish Order #" + finishingId + " — done" : CapacityStrategy;
-                    Incident("URGENTE #" + order.id + " : capacité libérée — banc " + bench + " / camion vide " + truck);
-                    MuseTrace.Log("URGENT", "capacité disponible pour #" + order.id + " : " + bench + " / " + truck);
+                    Incident("URGENT #" + order.id + ": capacity freed — bench " + bench + " / empty truck " + truck);
+                    MuseTrace.Log("URGENT", "capacity available for #" + order.id + ": " + bench + " / " + truck);
                     finishingId = -1;
                     yield break;
                 }
                 CapacityReason = MissingReason(need);
 
-                // ---- une commande est en cours de finalisation : la surveiller
+                // ---- an order is being finished: watch it
                 if (finishingId >= 0)
                 {
                     WhOrderState f = FindLocal(finishingId);
                     if (f != null && f.status == "waiting" && !activeOrderIds.Contains(f.id))
                     {
-                        // terminée mais contenu inexact : son camion garde ses cartons (jamais
-                        // réattribué) ; on l'écarte et Muse choisit ce qui manque encore.
-                        Incident("commande #" + f.id + " finie incomplète : camion conservé, nouvelle stratégie");
+                        // finished but with the wrong content: its truck keeps its boxes (never
+                        // reassigned); we set it aside and Muse picks what is still missing.
+                        Incident("order #" + f.id + " finished incomplete: truck kept, new strategy");
                         finishExcluded.Add(f.id);
                         if (excludedSince < 0f) excludedSince = Time.time;
                         finishingId = -1;
@@ -1056,12 +1056,12 @@ namespace RoboFactory.Logistics
                     }
                     if (f == null || f.status == "loaded")
                     {
-                        Incident("commande #" + finishingId + " terminée pour l'urgente : ressources rendues");
-                        MuseTrace.Log("URGENT", "FINISHING_FOR_URGENT #" + finishingId + " terminée");
+                        Incident("order #" + finishingId + " finished for the urgent order: resources released");
+                        MuseTrace.Log("URGENT", "FINISHING_FOR_URGENT #" + finishingId + " finished");
                         finishingId = -1;
                         progressAt = Time.time;
-                        // Le couple n'est pas encore là (porte en mouvement, camion pas vide) :
-                        // la boucle le revérifie ; si un seul des deux manque, Muse rechoisira.
+                        // The pair is not there yet (door moving, truck not empty):
+                        // the loop checks it again; if only one of the two is missing, Muse will choose again.
                         yield return new WaitForSeconds(.5f);
                         continue;
                     }
@@ -1069,8 +1069,8 @@ namespace RoboFactory.Logistics
                     if (progress != lastProgress) { lastProgress = progress; progressAt = Time.time; }
                     if (Time.time - progressAt > FinishWatchdog)
                     {
-                        Incident("commande #" + f.id + " sans progression depuis " + FinishWatchdog.ToString("F0") +
-                                 " s : abandonnée comme commande à finir, mise en pause");
+                        Incident("order #" + f.id + " no progress for " + FinishWatchdog.ToString("F0") +
+                                 " s: dropped as the order to finish, paused");
                         finishExcluded.Add(f.id);
                         if (excludedSince < 0f) excludedSince = Time.time;
                         finishingId = -1;
@@ -1082,7 +1082,7 @@ namespace RoboFactory.Logistics
                     continue;
                 }
 
-                // ---- choisir la commande à finir (décision Muse)
+                // ---- choose the order to finish (Muse decision)
                 if (excludedSince > 0f && Time.time - excludedSince > 120f) { finishExcluded.Clear(); excludedSince = -1f; }
                 FtfContext ctx = BuildCapacityContext(order, need);
                 int usable = 0;
@@ -1091,9 +1091,9 @@ namespace RoboFactory.Logistics
                 {
                     CapacityStrategy = "Waiting for the first free bench + empty dock";
                     CapacityNote = "no normal order can be finished to free a bay";
-                    UrgentStatus = "URGENTE #" + order.id + " : en attente prioritaire — aucune commande normale ne peut libérer de quai";
-                    MuseTrace.Log("URGENT", "aucune candidate FINISH TO FREE (" + ctx.candidates.Length + " commande(s) examinée(s))");
-                    yield return WaitOrCapacity(CapacityRecheck, need); // réévaluation espacée, sans appel Meta en boucle
+                    UrgentStatus = "URGENT #" + order.id + ": priority wait — no normal order can free a dock";
+                    MuseTrace.Log("URGENT", "no FINISH TO FREE candidate (" + ctx.candidates.Length + " order(s) examined)");
+                    yield return WaitOrCapacity(CapacityRecheck, need); // spaced re-evaluation, no looping Meta calls
                     continue;
                 }
 
@@ -1114,11 +1114,11 @@ namespace RoboFactory.Logistics
                 };
                 if (r == null || !r.ok || r.result == null)
                 {
-                    // Pas de stratégie Muse pour l'instant : l'urgente ATTEND simplement la première
-                    // place libre (les commandes normales continuent et libèrent leurs quais). Ce
-                    // n'est ni un refus ni une décision : rien n'est inscrit dans l'historique des
-                    // décisions, le motif reste visible sur la carte et dans les incidents.
-                    string err = r != null && !string.IsNullOrEmpty(r.error) ? r.error : "pas de réponse";
+                    // No Muse strategy for now: the urgent order simply WAITS for the first
+                    // free slot (normal orders keep running and free their docks). This
+                    // is neither a refusal nor a decision: nothing is written in the decision
+                    // history, the reason stays visible on the card and in the incidents.
+                    string err = r != null && !string.IsNullOrEmpty(r.error) ? r.error : "no answer";
                     bool noRoute = err.Contains("not found");
                     metaFailStreak++;
                     float delay = noRoute ? 30f : RetryDelay();
@@ -1126,9 +1126,9 @@ namespace RoboFactory.Logistics
                     CapacityNote = noRoute
                         ? "Muse strategy unavailable: proxy without /capacity — restart meta_proxy.py"
                         : "Muse strategy unavailable (" + err + ") — new request in " + delay.ToString("F0") + " s";
-                    UrgentStatus = "URGENTE #" + order.id + " : en attente d'une place (banc + camion vide)";
+                    UrgentStatus = "URGENT #" + order.id + ": waiting for a slot (bench + empty truck)";
                     if (!noRoute || metaFailStreak == 1)
-                        Incident("URGENTE #" + order.id + " en attente d'une place — stratégie Muse indisponible (" + err + ")");
+                        Incident("URGENT #" + order.id + " waiting for a slot — Muse strategy unavailable (" + err + ")");
                     yield return WaitOrCapacity(delay, need);
                     continue;
                 }
@@ -1136,14 +1136,14 @@ namespace RoboFactory.Logistics
                 metaFailStreak = 0;
                 modelUsed = r.model;
                 lastLatencyMs = r.latency_ms;
-                // Entre-temps une commande a pu finir d'elle-même : la capacité est là, la
-                // stratégie n'a plus d'objet (aucune suspension inutile).
+                // Meanwhile an order may have finished by itself: capacity is there, the
+                // strategy no longer has a purpose (no useless suspension).
                 if (HasUrgentCapacity(need, out _, out _))
                 {
                     record.Action = r.result.action;
                     record.Reason = r.result.reason;
                     record.Accepted = true;
-                    record.AppliedResult = "capacité libérée avant application de la stratégie";
+                    record.AppliedResult = "capacity freed before the strategy was applied";
                     Record(record);
                     continue;
                 }
@@ -1154,7 +1154,7 @@ namespace RoboFactory.Logistics
                 if (action != "finish_order")
                 {
                     record.Accepted = true;
-                    record.AppliedResult = "attente : " + r.result.reason;
+                    record.AppliedResult = "waiting: " + r.result.reason;
                     Record(record);
                     CapacityStrategy = "Muse: wait — " + r.result.reason;
                     yield return WaitOrCapacity(CapacityRecheck, need);
@@ -1162,13 +1162,13 @@ namespace RoboFactory.Logistics
                 }
                 FtfCandidate chosen = null;
                 foreach (FtfCandidate c in ctx.candidates) if (c.order_id == r.result.order_id) chosen = c;
-                string why = chosen == null ? "commande #" + r.result.order_id + " absente des candidates"
-                           : !chosen.can_finish ? "commande #" + chosen.order_id + " ne peut pas finir (stock)"
-                           : !Covers(chosen, ctx) ? "la finir ne libère pas le banc et le camion manquants"
+                string why = chosen == null ? "order #" + r.result.order_id + " not among the candidates"
+                           : !chosen.can_finish ? "order #" + chosen.order_id + " cannot finish (stock)"
+                           : !Covers(chosen, ctx) ? "finishing it does not free the missing bench and truck"
                            : null;
                 if (why != null)
                 {
-                    Reject(record, "choix FINISH TO FREE refusé : " + why);
+                    Reject(record, "FINISH TO FREE choice refused: " + why);
                     if (++invalidChoices >= 3)
                     {
                         CapacityStrategy = "Muse choices rejected — re-evaluating in " + CapacityRecheck.ToString("F0") + " s";
@@ -1180,8 +1180,8 @@ namespace RoboFactory.Logistics
                 }
                 invalidChoices = 0;
                 record.Accepted = true;
-                record.PlanSummary = ""; // pas un plan de collecte : le HUD l'affiche « FINISH #n »
-                record.AppliedResult = "FINISH TO FREE : finir #" + chosen.order_id + " (libère " +
+                record.PlanSummary = ""; // not a pick plan: the HUD shows it as « FINISH #n »
+                record.AppliedResult = "FINISH TO FREE: finish #" + chosen.order_id + " (frees " +
                                        chosen.bench_id + " / " + chosen.truck_id + ")";
                 Record(record);
 
@@ -1190,13 +1190,13 @@ namespace RoboFactory.Logistics
                 FreeingTruckId = chosen.truck_id ?? "";
                 CapacityEtaS = r.result.expected_free_s > 0f ? r.result.expected_free_s : chosen.eta_free_s;
                 CapacityStrategy = "Finish Order #" + finishingId;
-                UrgentStatus = "URGENTE #" + order.id + " : Muse fait finir #" + finishingId + " (libère " +
+                UrgentStatus = "URGENT #" + order.id + ": Muse has #" + finishingId + " finished (frees " +
                                FreeingBenchId + " / " + FreeingTruckId + ")";
-                Incident("Muse — FINISH TO FREE : finir #" + finishingId + " pour libérer " + FreeingBenchId + " / " +
-                         FreeingTruckId + " (~" + CapacityEtaS.ToString("F0") + " s) — urgente #" + order.id + " en attente");
-                MuseTrace.Log("URGENT", "FINISHING_FOR_URGENT #" + finishingId + " choisie par Muse : " + r.result.reason);
+                Incident("Muse — FINISH TO FREE: finish #" + finishingId + " to free " + FreeingBenchId + " / " +
+                         FreeingTruckId + " (~" + CapacityEtaS.ToString("F0") + " s) — urgent #" + order.id + " waiting");
+                MuseTrace.Log("URGENT", "FINISHING_FOR_URGENT #" + finishingId + " chosen by Muse: " + r.result.reason);
 
-                // Les autres commandes normales sont suspendues ; la choisie continue.
+                // The other normal orders are suspended; the chosen one continues.
                 yield return SuspendActiveOrders(finishingId);
                 Stage = UrgentStage.WaitingForCapacity;
                 WhOrderState sel = FindLocal(finishingId);
@@ -1206,14 +1206,14 @@ namespace RoboFactory.Logistics
             }
         }
 
-        /// <summary>Attente qui s'interrompt dès qu'un banc + camion vide se libère.</summary>
+        /// <summary>Wait that stops as soon as a bench + empty truck becomes free.</summary>
         private IEnumerator WaitOrCapacity(float seconds, int need)
         {
             float until = Time.time + seconds;
             while (Time.time < until && !HasUrgentCapacity(need, out _, out _)) yield return new WaitForSeconds(.5f);
         }
 
-        /// <summary>Ce qui manque à l'urgente, en clair pour le HUD.</summary>
+        /// <summary>What the urgent order is missing, in plain words for the HUD.</summary>
         private string MissingReason(int need)
         {
             bool bench = false, truck = false;
@@ -1230,7 +1230,7 @@ namespace RoboFactory.Logistics
             return "Truck " + truckId + " empty — no free bench";
         }
 
-        /// <summary>La finalisation de c apporte ce qui manque (banc et/ou camion vide compatible).</summary>
+        /// <summary>Finishing c provides what is missing (bench and/or compatible empty truck).</summary>
         private static bool Covers(FtfCandidate c, FtfContext ctx)
         {
             bool needBench = ctx.free_benches == null || ctx.free_benches.Length == 0;
@@ -1241,9 +1241,9 @@ namespace RoboFactory.Logistics
         }
 
         /// <summary>
-        /// Données envoyées à Muse : progression réelle de chaque commande normale qui tient un banc
-        /// et/ou un camion (active ou en pause), reste à collecter / charger, ressources rendues, et
-        /// une ETA calculée sur les distances réelles de la scène (vitesse robot, temps de manutention).
+        /// Data sent to Muse: real progress of each normal order holding a bench
+        /// and/or a truck (active or paused), what is left to pick / load, released resources, and
+        /// an ETA computed on the scene's real distances (robot speed, handling time).
         /// </summary>
         private FtfContext BuildCapacityContext(WhOrderState urgent, int need)
         {
@@ -1288,7 +1288,7 @@ namespace RoboFactory.Logistics
                 int remPick = Mathf.Max(0, total - loaded - staged);
                 int remLoad = Mathf.Max(0, total - loaded);
 
-                // stock libre suffisant pour finir la collecte (par type)
+                // enough free stock to finish the pick (per type)
                 bool canFinish = true;
                 int[] remByType =
                 {
@@ -1300,7 +1300,7 @@ namespace RoboFactory.Logistics
                 for (int i = 0; i < 3; i++)
                     if (remByType[i] > 0 && World().FreeStock(types[i]) < remByType[i]) canFinish = false;
 
-                // ETA sur distances réelles
+                // ETA on real distances
                 MusePlan plan = activePlans.TryGetValue(o.id, out MusePlan ap) ? ap
                               : pausedPlans.TryGetValue(o.id, out MusePlan pp) ? pp : null;
                 Vector3 benchPos = Vector3.zero;
@@ -1363,9 +1363,9 @@ namespace RoboFactory.Logistics
                 capacity_json = JsonUtility.ToJson(ctx),
                 state_json = JsonUtility.ToJson(Snapshot("urgent_capacity", false))
             };
-            urgentPending = true; // aucun autre appel Meta pendant ce choix
+            urgentPending = true; // no other Meta call during this choice
             Calls++;
-            Debug.Log("[Muse] demande " + request.request_id + " (urgent_capacity : quelle commande finir pour l'urgente #" +
+            Debug.Log("[Muse] request " + request.request_id + " (urgent_capacity: which order to finish for urgent #" +
                       urgent.id + ", " + ctx.candidates.Length + " candidate(s))");
             CapacityResponse response = null;
             yield return capacityClient.Ask(request, x => response = x);
@@ -1375,8 +1375,8 @@ namespace RoboFactory.Logistics
         }
 
         /// <summary>
-        /// La commande choisie était en pause : reprise d'ELLE SEULE (expédition directe si complète,
-        /// plan d'origine si encore valable, sinon décision Muse ciblée « finish_for_urgent »).
+        /// The chosen order was paused: resume IT ALONE (direct shipping if complete,
+        /// original plan if still valid, otherwise a targeted Muse decision « finish_for_urgent »).
         /// </summary>
         private void ResumeForFinish(WhOrderState order)
         {
@@ -1396,7 +1396,7 @@ namespace RoboFactory.Logistics
             stateVersion++;
             if (FullyLoaded(order, out TruckBay fullBay))
             {
-                Incident("FINISH TO FREE #" + order.id + " : déjà complète dans " + order.truck_id + " — expédition");
+                Incident("FINISH TO FREE #" + order.id + ": already complete in " + order.truck_id + " — shipping");
                 running.Add(StartCoroutine(ShipCompleteOrder(order, fullBay)));
                 return;
             }
@@ -1405,15 +1405,15 @@ namespace RoboFactory.Logistics
             if (reuse != null && (reuse.picks.Length == 0 ||
                                   (PlanValidator.FirstError(reuse, snap) == null && CheckRobotRoles(reuse) == null)))
             {
-                Incident("FINISH TO FREE #" + order.id + " : reprise sur son plan d'origine");
+                Incident("FINISH TO FREE #" + order.id + ": resuming on its original plan");
                 StartExecution(reuse);
                 return;
             }
-            Incident("FINISH TO FREE #" + order.id + " : plan d'origine irréalisable — décision Muse ciblée");
+            Incident("FINISH TO FREE #" + order.id + ": original plan not feasible — targeted Muse decision");
             StartCoroutine(RequestDecisionWhenFree("finish_for_urgent"));
         }
 
-        /// <summary>Un appel de décision est envoyé dès qu'aucun appel Meta n'est en vol.</summary>
+        /// <summary>A decision call is sent as soon as no Meta call is in flight.</summary>
         private IEnumerator RequestDecisionWhenFree(string trigger)
         {
             float deadline = Time.time + PendingTimeout + 5f;
@@ -1422,11 +1422,11 @@ namespace RoboFactory.Logistics
         }
 
         /// <summary>
-        /// Préemption sécurisée : chaque commande normale active passe en SUSPENDING.
-        /// R1 termine son opération indivisible (le carton en main rejoint le banc),
-        /// puis R2 finit son chargement engagé et sort du quai. Les coroutines
-        /// d'exécution se garent elles-mêmes via ParkSuspended (cartons, réservations
-        /// et compteurs sauvegardés — rien n'est téléporté ni détruit).
+        /// Safe preemption: each active normal order switches to SUSPENDING.
+        /// R1 finishes its indivisible operation (the box in hand goes to the bench),
+        /// then R2 finishes its committed load and leaves the dock. The execution
+        /// coroutines park themselves through ParkSuspended (boxes, reservations
+        /// and counters saved — nothing is teleported or destroyed).
         /// </summary>
         private IEnumerator SuspendActiveOrders(int keepId = -1)
         {
@@ -1436,11 +1436,11 @@ namespace RoboFactory.Logistics
             {
                 if (o == null || o.urgent || !activeOrderIds.Contains(o.id) || o.status == "loaded")
                     continue;
-                // FINISH TO FREE : la commande choisie par Muse continue jusqu'au bout.
+                // FINISH TO FREE: the order chosen by Muse keeps going until the end.
                 if (o.id == keepId) continue;
-                // Tous ses cartons sont déjà dans le camion : elle n'a plus besoin des
-                // robots, elle se ferme et part — la mettre en pause bloquait sa porte
-                // (et la commande) jusqu'à la fin de l'urgente.
+                // All its boxes are already in the truck: it no longer needs the
+                // robots, it closes and leaves — pausing it blocked its door
+                // (and the order) until the end of the urgent one.
                 if (FullyLoaded(o, out _)) continue;
                 o.status = "suspending";
                 suspendingIds.Add(o.id);
@@ -1448,19 +1448,19 @@ namespace RoboFactory.Logistics
             stateVersion++;
             if (suspendingIds.Count > 0)
             {
-                Incident("SUSPENSION de " + suspendingIds.Count + " commande(s) : arrêt sûr des robots");
-                // Les deux robots sont suspendus IMMEDIATEMENT : chacun finit son
-                // opération indivisible en parallèle (R1 dépose au banc, R2 finit le
-                // carton engagé puis sort du quai). N'attendre que R1 : l'urgente peut
-                // démarrer sa collecte dès qu'il est à l'arrêt sûr. Le retour de R2
-                // et la fermeture des portes normales se font en tâche de fond —
-                // la mission urgente de R2 l'attendra naturellement (LoadWhenFree).
-                // R1 qui collecte pour la commande gardée (FINISH TO FREE) n'est pas arrêté.
+                Incident("SUSPENSION of " + suspendingIds.Count + " order(s): safe stop of the robots");
+                // Both robots are suspended IMMEDIATELY: each one finishes its
+                // indivisible operation in parallel (R1 drops at the bench, R2 finishes the
+                // committed box then leaves the dock). Only wait for R1: the urgent order can
+                // start its pick as soon as R1 is safely stopped. R2's return
+                // and the closing of the normal doors happen in the background —
+                // R2's urgent mission will naturally wait for it (LoadWhenFree).
+                // R1 picking for the kept order (FINISH TO FREE) is not stopped.
                 bool r1Keep = Robot1 != null && Robot1.LastReport != null && Robot1.LastReport.OrderId == keepId;
                 bool r1Suspended = Robot1 != null && Robot1.MissionActive && !r1Keep;
                 if (r1Suspended) Robot1.SuspendMission();
-                // R2 qui termine (sortie de remorque) une commande déjà complète n'est
-                // pas suspendu : sa mission se clôt normalement et la commande part.
+                // R2 finishing (leaving the trailer) an order that is already complete is
+                // not suspended: its mission closes normally and the order leaves.
                 if (Robot2 != null && Robot2.MissionActive && Robot2.DirectedOrderId != keepId)
                 {
                     WhOrderState r2Order = FindLocal(Robot2.DirectedOrderId);
@@ -1471,11 +1471,11 @@ namespace RoboFactory.Logistics
                 if (r1Suspended && Robot1.MissionActive)
                 {
                     Robot1.AbortMission();
-                    Incident("R1 forcé à l'arrêt après " + SuspendTimeout.ToString("F0") + "s");
+                    Incident("R1 forced to stop after " + SuspendTimeout.ToString("F0") + "s");
                     deadline = Time.time + 6f;
                     while (Robot1.MissionActive && Time.time < deadline) yield return null;
                 }
-                // Les Execute concernés se garent via ParkSuspended ; filet final.
+                // The Execute coroutines involved park through ParkSuspended; final safety net.
                 deadline = Time.time + 8f;
                 while (suspendingIds.Count > 0 && Time.time < deadline) yield return null;
             }
@@ -1483,35 +1483,35 @@ namespace RoboFactory.Logistics
         }
 
         /// <summary>
-        /// Mise en pause d'UNE commande (appelée depuis sa coroutine Execute, ou en
-        /// dernier recours par l'orchestrateur) : sauvegarde l'état réel — cartons
-        /// préparés, contenu camion, réservations — puis libère les robots.
+        /// Pauses ONE order (called from its Execute coroutine, or as a
+        /// last resort by the orchestrator): saves the real state — staged
+        /// boxes, truck content, reservations — then releases the robots.
         /// </summary>
         private IEnumerator ParkSuspended(WhOrderState order, MusePlan plan,
                                           TruckBay bay, ShelfStorage bench, Coroutine loadCo)
         {
-            // Ne JAMAIS tuer une mission R2 en cours : la coroutine contient le
-            // volant physique du robot. On stoppe seulement la file d'attente
-            // (mission pas encore démarrée) ; une mission live se termine sûrement.
-            // La fermeture de la porte est DIFFÉRÉE (CloseNormalDockWhenSafe) :
-            // attendre ici le retour de R2 retarderait le lancement de l'urgente —
-            // la commande passe en pause tout de suite, la porte fermera dès que
-            // R2 aura fini le carton engagé et quitté le quai.
+            // NEVER kill a running R2 mission: the coroutine holds the
+            // robot's physical steering. We only stop the waiting queue
+            // (mission not started yet); a live mission ends safely.
+            // Closing the door is DEFERRED (CloseNormalDockWhenSafe):
+            // waiting here for R2 to come back would delay the start of the urgent order —
+            // the order is paused right away, the door will close as soon as
+            // R2 has finished the committed box and left the dock.
             bool r2MissionLive = Robot2 != null && Robot2.MissionActive &&
                                  Robot2.DirectedOrderId == order.id;
             if (r2MissionLive)
             {
-                Robot2.SuspendMission(); // finir le carton en main puis sortir du quai
+                Robot2.SuspendMission(); // finish the box in hand then leave the dock
                 StartCoroutine(CloseNormalDockWhenSafe(order, bay));
             }
             else if (loadCo != null)
             {
                 StopCoroutine(loadCo);
                 running.Remove(loadCo);
-                // File tuée entre r2Busy=true et le lancement : libérer le verrou,
-                // et décrémenter la file signalée (sinon R2 ne rentrerait plus
-                // jamais à la base — QueuedLoads ne se décrémente que si la
-                // coroutine atteint la fin de son attente).
+                // Queue killed between r2Busy=true and the launch: release the lock,
+                // and decrement the signalled queue (otherwise R2 would never go back
+                // to base again — QueuedLoads is only decremented if the
+                // coroutine reaches the end of its wait).
                 if (r2BusyOwner == order.id) { r2Busy = false; r2BusyOwner = -1; }
                 if (Robot2 != null && Robot2.QueuedLoads > 0) Robot2.QueuedLoads--;
             }
@@ -1522,9 +1522,9 @@ namespace RoboFactory.Logistics
                 order.loaded_a = inTruck[0];
                 order.loaded_b = inTruck[1];
                 order.loaded_c = inTruck[2];
-                // La fermeture différée recalculera et gardera la réservation si
-                // des cartons restent dedans ; si R2 n'avait rien engagé on peut
-                // fermer tout de suite (r2MissionLive false => aucun carton en vol).
+                // The deferred closing will recompute and keep the reservation if
+                // boxes remain inside; if R2 had not committed anything we can
+                // close right away (r2MissionLive false => no box in flight).
                 if (!r2MissionLive)
                 {
                     int loaded = inTruck[0] + inTruck[1] + inTruck[2];
@@ -1532,33 +1532,33 @@ namespace RoboFactory.Logistics
                     if (loaded <= 0) order.truck_id = null;
                 }
             }
-            ReleasePallets(plan); // le stock redevient disponible pour l'urgente
+            ReleasePallets(plan); // the stock becomes available again for the urgent order
             if (StagedTotal(order) <= 0 && !string.IsNullOrEmpty(order.bench_id))
             {
                 World().ReleaseBench(order.bench_id, order.id);
                 order.bench_id = null;
             }
-            // EndExecution AVANT l'inscription en pause : il retire l'id de
-            // pausedIds (nettoyage de fin de commande) — appelé après, il vidait
-            // la liste et ResumePaused ne reprenait jamais rien.
+            // EndExecution BEFORE registering the pause: it removes the id from
+            // pausedIds (end-of-order cleanup) — called afterwards, it emptied
+            // the list and ResumePaused never resumed anything.
             EndExecution(order);
             suspendingIds.Remove(order.id);
             pausedIds.Add(order.id);
             pausedPlans[order.id] = plan;
             order.status = "paused";
-            MuseTrace.Log("SUSPEND", "commande #" + order.id + " inscrite en pause (paused=" +
+            MuseTrace.Log("SUSPEND", "order #" + order.id + " registered as paused (paused=" +
                           pausedIds.Count + ")");
             stateVersion++;
-            Incident("commande #" + order.id + " en pause : préparé " + StagedTotal(order) +
-                     ", chargé " + (order.loaded_a + order.loaded_b + order.loaded_c));
+            Incident("order #" + order.id + " paused: staged " + StagedTotal(order) +
+                     ", loaded " + (order.loaded_a + order.loaded_b + order.loaded_c));
             yield return null;
         }
 
         /// <summary>
-        /// Fermeture différée du camion d'une commande suspendue pendant que R2
-        /// finissait encore un chargement pour elle : attendre la fin sûre de cette
-        /// mission (carton engagé terminé + sortie du quai), puis fermer la porte.
-        /// Règle d'or : finir le chargement engagé, sortir R2 du quai, PUIS fermer.
+        /// Deferred closing of the truck of an order suspended while R2
+        /// was still finishing a load for it: wait for the safe end of that
+        /// mission (committed box done + left the dock), then close the door.
+        /// Golden rule: finish the committed load, get R2 out of the dock, THEN close.
         /// </summary>
         private IEnumerator CloseNormalDockWhenSafe(WhOrderState order, TruckBay bay)
         {
@@ -1567,22 +1567,22 @@ namespace RoboFactory.Logistics
             while (Robot2 != null && Robot2.MissionActive &&
                    Robot2.DirectedOrderId == order.id && Time.time < deadline)
                 yield return null;
-            MuseTrace.Log("SUSPEND", "commande #" + order.id + " : mission R2 terminée=" +
+            MuseTrace.Log("SUSPEND", "order #" + order.id + ": R2 mission finished=" +
                           !(Robot2 != null && Robot2.MissionActive &&
-                            Robot2.DirectedOrderId == order.id) + " avant fermeture porte");
-            // Entre-temps la commande a pu être reprise : son nouveau plan gère
-            // lui-même la porte — ne pas lui fermer le camion sous le nez.
+                            Robot2.DirectedOrderId == order.id) + " before closing the door");
+            // Meanwhile the order may have been resumed: its new plan handles
+            // the door itself — do not close the truck under its nose.
             if (order.status != "paused") yield break;
-            // La baie a pu passer à l'urgente : ne pas lui voler sa réservation.
+            // The bay may have gone to the urgent order: do not steal its reservation.
             if (bay.ReservedOrderId != order.id && bay.ReservedOrderId >= 0) yield break;
             int[] inTruck = bay.CountByTypeForOrder(order.id);
             order.loaded_a = inTruck[0];
             order.loaded_b = inTruck[1];
             order.loaded_c = inTruck[2];
             int loaded = inTruck[0] + inTruck[1] + inTruck[2];
-            UpdateStaged(order); // le carton engagé a pu être remis au banc
-            // Porte fermée AVANT de libérer le quai ; réservation conservée si des
-            // cartons de la commande restent dedans (jamais déplacés).
+            UpdateStaged(order); // the committed box may have been put back on the bench
+            // Door closed BEFORE releasing the dock; reservation kept if
+            // boxes of the order remain inside (never moved).
             bay.CloseDoor(false, keepReservation: loaded > 0 && bay.ReservedOrderId == order.id);
             if (loaded <= 0 && !string.IsNullOrEmpty(order.truck_id) &&
                 World() != null && World().Truck(order.truck_id) == bay)
@@ -1591,16 +1591,16 @@ namespace RoboFactory.Logistics
         }
 
         /// <summary>
-        /// Reprise exacte après livraison de l'urgente : revalidation des stocks et
-        /// réservations sur l'état FRAIS, réutilisation du plan d'origine si encore
-        /// réalisable, sinon nouvelle demande de plan à Muse (état repassé pending).
+        /// Exact resume after the urgent order is delivered: stocks and
+        /// reservations revalidated on the FRESH state, original plan reused if still
+        /// feasible, otherwise a new plan request to Muse (state set back to pending).
         /// </summary>
         private void ResumePaused()
         {
             if (pausedIds.Count == 0) return;
-            // 1) Recollage à la vérité physique et repassage en planifiable AVANT
-            //    de figer le snapshot (sinon le validateur verrait des commandes
-            //    encore "paused" et refuserait tout plan de reprise).
+            // 1) Re-align with the physical truth and switch back to plannable BEFORE
+            //    freezing the snapshot (otherwise the validator would see orders
+            //    still "paused" and would refuse any resume plan).
             var resumable = new List<WhOrderState>();
             var oldPlans = new Dictionary<int, MusePlan>();
             foreach (int id in new List<int>(pausedIds))
@@ -1619,14 +1619,14 @@ namespace RoboFactory.Logistics
                     order.loaded_b = inTruck[1];
                     order.loaded_c = inTruck[2];
                 }
-                order.status = "pending"; // redevient planifiable (validateur + file)
+                order.status = "pending"; // plannable again (validator + queue)
                 resumable.Add(order);
-                resumedIds.Add(order.id); // suivi de la reprise pour le stage démo
+                resumedIds.Add(order.id); // resume tracking for the demo stage
             }
-            // Priorité de reprise : la commande la plus AVANCÉE reprend d'abord
-            // (cartons déjà préparés/chargés = travail engagé à préserver), puis
-            // la plus ancienne à égalité. Sans ce tri, une commande jamais
-            // commencée pouvait passer devant une commande à moitié chargée.
+            // Resume priority: the most ADVANCED order resumes first
+            // (boxes already staged/loaded = committed work to preserve), then
+            // the oldest one on a tie. Without this sort, an order never
+            // started could overtake a half-loaded order.
             resumable.Sort((x, y) =>
             {
                 int px = x.staged_a + x.staged_b + x.staged_c +
@@ -1641,8 +1641,8 @@ namespace RoboFactory.Logistics
             {
                 if (FullyLoaded(order, out TruckBay fullBay))
                 {
-                    Incident("reprise #" + order.id + " : tous les cartons sont déjà dans " + order.truck_id +
-                             " — fermeture et expédition");
+                    Incident("resume #" + order.id + ": all boxes are already in " + order.truck_id +
+                             " — closing and shipping");
                     running.Add(StartCoroutine(ShipCompleteOrder(order, fullBay)));
                     continue;
                 }
@@ -1650,26 +1650,26 @@ namespace RoboFactory.Logistics
                 MusePlan reuse = ResumePlanner.TryReuse(oldPlan, order, snap);
                 if (reuse != null && reuse.picks.Length == 0)
                 {
-                    Incident("reprise #" + order.id + " : fin du chargement sans nouveau prélèvement");
+                    Incident("resume #" + order.id + ": finishing the load without a new pick");
                     StartExecution(reuse);
                 }
                 else if (reuse != null && PlanValidator.FirstError(reuse, snap) == null &&
                          CheckRobotRoles(reuse) == null)
                 {
-                    Incident("reprise #" + order.id + " : plan d'origine réutilisé (pas de nouvel appel)");
+                    Incident("resume #" + order.id + ": original plan reused (no new call)");
                     StartExecution(reuse);
                 }
                 else
                 {
-                    Incident("reprise #" + order.id +
-                             " : ancien plan irréalisable, nouvelle décision Muse");
+                    Incident("resume #" + order.id +
+                             ": old plan not feasible, new Muse decision");
                 }
             }
             stateVersion++;
             if (NextPending() != null) RequestDecision("resume_after_urgent");
         }
 
-        /// <summary>La commande a tout son contenu dans son camion (comptage physique).</summary>
+        /// <summary>The order has all its content in its truck (physical count).</summary>
         private bool FullyLoaded(WhOrderState o, out TruckBay bay)
         {
             bay = o != null && !string.IsNullOrEmpty(o.truck_id) && World() != null ? World().Truck(o.truck_id) : null;
@@ -1679,10 +1679,10 @@ namespace RoboFactory.Logistics
         }
 
         /// <summary>
-        /// Commande déjà entièrement chargée mais porte refermée (mise en pause à 100 %) :
-        /// rouvrir, vérifier le contenu réel, refermer -> expédition. Sans cela elle
-        /// redevenait "pending" et Muse ne pouvait plus rien planifier pour elle
-        /// (validateur : « déjà complète ») — elle restait bloquée à jamais.
+        /// Order already fully loaded but door closed again (paused at 100 %):
+        /// reopen, check the real content, close again -> shipping. Without this it
+        /// went back to "pending" and Muse could no longer plan anything for it
+        /// (validator: « already complete ») — it stayed stuck forever.
         /// </summary>
         private IEnumerator ShipCompleteOrder(WhOrderState order, TruckBay bay)
         {
@@ -1707,13 +1707,13 @@ namespace RoboFactory.Logistics
                 new TruckLoaderAgent.LoadMissionReport { OrderId = order.id });
         }
 
-        /// <summary>Contrainte physique : seul R1 collecte, seul R2 charge.</summary>
+        /// <summary>Physical constraint: only R1 picks, only R2 loads.</summary>
         private string CheckRobotRoles(MusePlan plan)
         {
             if (!string.IsNullOrEmpty(plan.robot_pick) && plan.robot_pick != "R1")
-                return "robot_pick=" + plan.robot_pick + " : seul R1 collecte les palettes";
+                return "robot_pick=" + plan.robot_pick + ": only R1 picks from the pallets";
             if (!string.IsNullOrEmpty(plan.robot_load) && plan.robot_load != "R2")
-                return "robot_load=" + plan.robot_load + " : seul R2 charge les camions";
+                return "robot_load=" + plan.robot_load + ": only R2 loads the trucks";
             return null;
         }
 
@@ -1722,23 +1722,23 @@ namespace RoboFactory.Logistics
             record.RejectReason = error;
             record.Accepted = false;
             Record(record);
-            lastValidation = "refusé : " + error;
+            lastValidation = "refused: " + error;
             lastRejection = error;
             consecutiveRejects++;
-            incidents.Add("plan refusé: " + error);
+            incidents.Add("plan refused: " + error);
             if (incidents.Count > 8) incidents.RemoveAt(0);
-            // La cause + un état neuf repartent à Muse à la prochaine demande.
+            // The cause + a fresh state go back to Muse on the next request.
             nextAllowedCall = Time.time + (consecutiveRejects >= MaxConsecutiveRejects
                 ? WaitRetryDelay * 2f : CallCooldown);
-            Debug.LogWarning("[Muse] plan refusé : " + error);
+            Debug.LogWarning("[Muse] plan refused: " + error);
             MaybeRetryUrgent(record.OrderId);
         }
 
         /// <summary>
-        /// La boucle auto est bloquée tant qu'une urgente existe : tout résultat
-        /// non exécutable la concernant (refus, wait, no_plan, defer) doit relancer
-        /// explicitement une décision, sinon elle resterait en file à jamais.
-        /// Après 4 échecs elle redevient une commande normale et les pauses reprennent.
+        /// The auto loop is blocked while an urgent order exists: any
+        /// non-executable result concerning it (refusal, wait, no_plan, defer) must explicitly
+        /// trigger a new decision, otherwise it would stay in the queue forever.
+        /// After 4 failures it becomes a normal order again and the paused orders resume.
         /// </summary>
         private void MaybeRetryUrgent(int orderId)
         {
@@ -1746,26 +1746,26 @@ namespace RoboFactory.Logistics
             urgentReplanFails++;
             if (urgentReplanFails >= 4)
             {
-                DemoteUrgent("non planifiable après 4 essais");
+                DemoteUrgent("not plannable after 4 attempts");
                 return;
             }
-            UrgentStatus = "URGENTE #" + urgentId + " : nouvelle tentative Muse";
+            UrgentStatus = "URGENT #" + urgentId + ": new Muse attempt";
             StartCoroutine(RequestDecisionWhenFree("urgent_replan"));
         }
 
-        /// <summary>L'urgente ne peut plus être planifiée : elle redevient une
-        /// commande normale et les commandes en pause reprennent.</summary>
+        /// <summary>The urgent order can no longer be planned: it becomes a
+        /// normal order again and the paused orders resume.</summary>
         private void DemoteUrgent(string why)
         {
             WhOrderState urgent = FindLocal(urgentId);
-            Incident("urgente #" + urgentId + " " + why +
-                     " : redevient normale, reprise des commandes en pause");
+            Incident("urgent #" + urgentId + " " + why +
+                     ": back to normal, resuming the paused orders");
             if (urgent != null) urgent.urgent = false;
             urgentId = -1;
             urgentDelivered = false;
             urgentWaiting = false;
             urgentPickDone = false;
-            UrgentError = "urgente non livrée : " + why;
+            UrgentError = "urgent order not delivered: " + why;
             LastUrgentOutcome = UrgentError;
             UrgentStatus = "";
             ClearCapacityState();
@@ -1778,16 +1778,16 @@ namespace RoboFactory.Logistics
             lastDecision = record;
             history.Add(record);
             if (history.Count > 20) history.RemoveAt(0);
-            Debug.Log("[Muse] " + (record.Accepted ? "ACCEPTE" : "REFUSE") +
+            Debug.Log("[Muse] " + (record.Accepted ? "ACCEPTED" : "REFUSED") +
                       " [" + record.Model + ", " + record.LatencyMs + " ms] " +
                       (record.Action ?? "-") +
                       (record.Accepted ? " " + record.AppliedResult : " — " + record.RejectReason));
             MuseTrace.Log("MUSE", record.RequestId + " trigger=" + record.Trigger + " mode=" + record.Mode +
-                          " modèle=" + record.Model + " " + record.LatencyMs + " ms action=" + record.Action +
-                          " commande=#" + record.OrderId + " v" + record.StateVersion +
-                          (record.Accepted ? " ACCEPTÉ" : " REFUSÉ: " + record.RejectReason) +
+                          " model=" + record.Model + " " + record.LatencyMs + " ms action=" + record.Action +
+                          " order=#" + record.OrderId + " v" + record.StateVersion +
+                          (record.Accepted ? " ACCEPTED" : " REFUSED: " + record.RejectReason) +
                           (string.IsNullOrEmpty(record.PlanSummary) ? "" : " plan=" + record.PlanSummary) +
-                          (string.IsNullOrEmpty(record.Reason) ? "" : " raison=\"" + record.Reason + "\""));
+                          (string.IsNullOrEmpty(record.Reason) ? "" : " reason=\"" + record.Reason + "\""));
         }
 
         private static string Describe(MusePlan plan)
@@ -1801,12 +1801,12 @@ namespace RoboFactory.Logistics
             return sb.ToString().TrimEnd();
         }
 
-        // ------------------------------------------------------------------ exécution
+        // ------------------------------------------------------------------ execution
 
         private void StartExecution(MusePlan plan)
         {
-            // Chaque commande acceptée tourne dans sa propre coroutine : les
-            // exécutions se chevauchent, seuls les robots servent en séquence.
+            // Each accepted order runs in its own coroutine: the
+            // executions overlap, only the robots serve in sequence.
             running.Add(StartCoroutine(Execute(plan)));
         }
 
@@ -1819,29 +1819,29 @@ namespace RoboFactory.Logistics
             phase = Phase.Preparing;
             activeBenchId = plan.bench_id;
             activeTruckId = plan.truck_id;
-            // ---- réservations propres à cette commande
+            // ---- reservations specific to this order
             ShelfStorage bench = World().Bench(plan.bench_id);
             TruckBay bay = World().Truck(plan.truck_id);
             World().ReserveBench(plan.bench_id, plan.order_id);
-            // Seules les palettes de prélèvement sont réservées. Les palettes de
-            // secours ne le sont PAS : sinon une commande monopolise tout le stock
-            // (Muse en liste souvent 4-5) et bloque les autres commandes et
-            // l'urgente. Les cartons restent protégés individuellement (orderId +
-            // CargoRegistry) si un secours est réellement utilisé.
+            // Only the pick pallets are reserved. The fallback pallets
+            // are NOT: otherwise one order monopolises the whole stock
+            // (Muse often lists 4-5 of them) and blocks the other orders and
+            // the urgent one. Boxes stay protected individually (orderId +
+            // CargoRegistry) if a fallback is actually used.
             foreach (MusePlanPick p in plan.picks ?? new MusePlanPick[0])
                 if (p != null) World().ReservePallet(p.pallet_id, plan.order_id);
-            MuseTrace.Log("EXEC", "démarrage " + (order.urgent ? "URGENTE " : "") + Describe(plan) +
-                          "  secours=[" + string.Join(",", plan.fallback_pallets ?? new string[0]) + "]");
-            order.status = "queued"; // ressources réservées, missions pas encore lancées
+            MuseTrace.Log("EXEC", "start " + (order.urgent ? "URGENT " : "") + Describe(plan) +
+                          "  fallback=[" + string.Join(",", plan.fallback_pallets ?? new string[0]) + "]");
+            order.status = "queued"; // resources reserved, missions not launched yet
             order.bench_id = plan.bench_id;
             order.truck_id = plan.truck_id;
             stateVersion++;
             highlightedOrder = order.id;
             ResourceHighlighter.Show(this, plan);
 
-            // ---- préemption : une exécution normale acceptée pendant la suspension
-            // OU pendant la vie de la commande urgente se gare immédiatement
-            // (réservations relâchées par ParkSuspended).
+            // ---- preemption: a normal execution accepted during the suspension
+            // OR during the life of the urgent order parks immediately
+            // (reservations released by ParkSuspended).
             if ((suspendInProgress || (urgentId >= 0 && !urgentPickDone) || urgentWaiting) &&
                 !order.urgent && order.id != finishingId)
             {
@@ -1851,14 +1851,14 @@ namespace RoboFactory.Logistics
                 yield break;
             }
 
-            // ---- porte du camion choisi par Muse (chaque camion a sa porte)
+            // ---- door of the truck chosen by Muse (each truck has its own door)
             if (order.urgent) Stage = UrgentStage.UrgentActive;
             if (bay != null) bay.OpenDoor(plan.order_id);
 
             if (!plan.start_immediately && plan.start_delay_s > 0f)
                 yield return new WaitForSeconds(plan.start_delay_s);
 
-            // ---- étapes de prélèvement R1
+            // ---- R1 pick steps
             var legs = new List<WarehouseRobotAutopilot.PickLeg>();
             foreach (MusePlanPick p in plan.picks ?? new MusePlanPick[0])
             {
@@ -1881,25 +1881,25 @@ namespace RoboFactory.Logistics
             }
             UpdatePickPlanText(legs);
 
-            // Reprise "chargement seul" : tout est déjà au banc ou dans le camion,
-            // R1 n'a rien à collecter — inutile de l'exiger ni de l'attendre.
+            // "Load only" resume: everything is already on the bench or in the truck,
+            // R1 has nothing to pick — no need to require it or wait for it.
             if (bench == null || (legs.Count > 0 && (Robot1 == null || !Robot1.Running)))
             {
-                Incident((bench == null ? "banc" : "R1") + " indisponible : mission impossible");
+                Incident((bench == null ? "bench" : "R1") + " unavailable: mission impossible");
                 order.status = "pending";
                 if (bay != null) bay.CloseDoor(false);
                 yield return FinishOrder(order, bay, plan, false);
                 yield break;
             }
 
-            // ---- R2 charge EN PARALLELE : il prend chaque carton de la commande dès
-            // que R1 le dépose sur le banc. S'il finit encore la commande précédente,
-            // sa mission démarre automatiquement à son retour.
+            // ---- R2 loads IN PARALLEL: it takes each box of the order as soon as
+            // R1 drops it on the bench. If it is still finishing the previous order,
+            // its mission starts automatically when it comes back.
             int[] prevLoaded = bay != null ? bay.CountByTypeForOrder(order.id) : new int[3];
             int expected = (order.a - prevLoaded[0]) + (order.b - prevLoaded[1]) + (order.c - prevLoaded[2]);
             if (expected <= 0 || Robot2 == null || !Robot2.Running || bay == null)
             {
-                Incident("R2 ou camion indisponible pour commande #" + order.id);
+                Incident("R2 or truck unavailable for order #" + order.id);
                 order.status = "pending";
                 if (bay != null) bay.CloseDoor(false);
                 yield return FinishOrder(order, bay, plan, false);
@@ -1910,9 +1910,9 @@ namespace RoboFactory.Logistics
                 r => { loadReport = r; loadDone = true; }));
             running.Add(loadCo);
 
-            // ---- R1 : il finit d'abord la collecte d'une autre commande le cas échéant.
-            // La file signalée évite le retour base : R1 enchaîne directement sur celle-ci.
-            // Sans étape de prélèvement (reprise chargement seul) : aucune attente.
+            // ---- R1: it first finishes picking for another order if needed.
+            // The signalled queue avoids the return to base: R1 chains directly on this one.
+            // Without a pick step (load-only resume): no wait.
             if (legs.Count > 0)
             {
                 Robot1.QueuedPicks++;
@@ -1942,23 +1942,23 @@ namespace RoboFactory.Logistics
                     {
                         pickReport = r;
                         pickDone = true;
-                        // Appelé AVANT la décision de retour base de R1 : la reprise
-                        // lui met la collecte suivante en file -> il y va directement.
+                        // Called BEFORE R1's return-to-base decision: the resume
+                        // queues the next pick for it -> it goes there directly.
                         if (order.urgent) OnUrgentPickFinished(order, plan, r);
                     });
-                while (!pickDone) yield return null; // sécurité si la coroutine est interrompue
+                while (!pickDone) yield return null; // safety if the coroutine is interrupted
                 Robot1.RouteChanged -= OnRouteChanged;
                 Robot1.LegFinished -= OnLegFinished;
                 r1Busy = false;
 
-                // ---- suspension demandée pendant la collecte : mise en pause sûre
+                // ---- suspension requested during the pick: safe pause
                 if (suspendingIds.Contains(order.id))
                 {
                     yield return ParkSuspended(order, plan, bay, bench, loadCo);
                     yield break;
                 }
 
-                // ---- inventaire après collecte
+                // ---- inventory after the pick
                 UpdateStaged(order);
                 pickPlanText = Summarize(pickReport);
                 int missingTotal = pickReport != null
@@ -1966,14 +1966,14 @@ namespace RoboFactory.Logistics
 
                 if (missingTotal > 0)
                 {
-                    // Aucune palette de secours approuvée n'a pu combler : nouvelle décision
-                    // de Muse avec les stocks actualisés. R2 vide d'abord le banc : les
-                    // cartons réellement déposés restent dans le camion qui GARDE la
-                    // commande (jamais déclarée complète tant que le contenu est inexact).
-                    Incident("rupture sur commande #" + order.id + " : manque " +
-                             MissingText(pickReport.Missing) + " — nouvelle décision demandée");
-                    // R2 charge en parallèle : s'il a déjà commencé CETTE commande il vide
-                    // le banc ; sinon on annule sa file d'attente (mission jamais démarrée).
+                    // No approved fallback pallet could fill the gap: new decision
+                    // from Muse with the updated stocks. R2 empties the bench first: the
+                    // boxes actually dropped stay in the truck that KEEPS the
+                    // order (never declared complete while the content is wrong).
+                    Incident("stock-out on order #" + order.id + ": missing " +
+                             MissingText(pickReport.Missing) + " — new decision requested");
+                    // R2 loads in parallel: if it has already started THIS order it empties
+                    // the bench; otherwise its waiting queue is cancelled (mission never started).
                     if (Robot2.MissionActive && Robot2.DirectedOrderId == order.id)
                     {
                         yield return DrainBench(order, bench);
@@ -1989,12 +1989,12 @@ namespace RoboFactory.Logistics
                     }
 
                     order.status = "waiting";
-                    lastRejection = "stock insuffisant: manque " + MissingText(pickReport.Missing);
+                    lastRejection = "insufficient stock: missing " + MissingText(pickReport.Missing);
                     if (bay != null)
                     {
                         int[] inTruck = bay.CountByTypeForOrder(order.id);
                         order.loaded_a = inTruck[0]; order.loaded_b = inTruck[1]; order.loaded_c = inTruck[2];
-                        // Cartons déjà chargés : même camion imposé au prochain plan ; sinon libéré.
+                        // Boxes already loaded: same truck imposed on the next plan; otherwise released.
                         order.truck_id = inTruck[0] + inTruck[1] + inTruck[2] > 0 ? plan.truck_id : null;
                         bay.CloseDoor(false);
                     }
@@ -2013,11 +2013,11 @@ namespace RoboFactory.Logistics
             }
             else
             {
-                // Rien à prélever : la commande passe directement au chargement.
+                // Nothing to pick: the order goes straight to loading.
                 UpdateStaged(order);
             }
 
-            // ---- R2 poursuit jusqu'à la quantité attendue (chargement déjà commencé).
+            // ---- R2 keeps going up to the expected quantity (loading already started).
             phase = Phase.Loading;
             order.status = "loading";
             stateVersion++;
@@ -2028,46 +2028,46 @@ namespace RoboFactory.Logistics
                 yield break;
             }
 
-            // ---- vérification du contenu livré puis fermeture
+            // ---- check of the delivered content then closing
             phase = Phase.Verifying;
             yield return VerifyAndClose(order, bay, plan, prevLoaded, expected, loadReport);
         }
 
         /// <summary>
-        /// Collecte urgente terminée (tous les cartons au banc) : R1 n'attend pas la
-        /// fin du chargement par R2 — les commandes en pause reprennent tout de suite.
-        /// Leurs chargements passent en file derrière celui de l'urgente (LoadWhenFree).
+        /// Urgent pick finished (all boxes on the bench): R1 does not wait for
+        /// R2 to finish loading — the paused orders resume right away.
+        /// Their loads are queued behind the urgent one (LoadWhenFree).
         /// </summary>
         private void OnUrgentPickFinished(WhOrderState order, MusePlan plan,
                                           WarehouseRobotAutopilot.PickMissionReport r)
         {
             if (r == null || r.Aborted || urgentId != order.id || pausedIds.Count == 0) return;
-            if (r.Missing[0] + r.Missing[1] + r.Missing[2] > 0) return; // rupture : flux normal
+            if (r.Missing[0] + r.Missing[1] + r.Missing[2] > 0) return; // stock-out: normal flow
             urgentPickDone = true;
-            ReleasePallets(plan); // les palettes de l'urgente redeviennent prélevables
+            ReleasePallets(plan); // the urgent order's pallets can be picked again
             stateVersion++;
-            UrgentStatus = "URGENTE #" + order.id + " : collecte terminée, R2 charge — " +
-                           "R1 reprend les commandes en pause";
-            Incident("urgente #" + order.id + " déposée au banc : R1 reprend les commandes en pause");
-            MuseTrace.Log("URGENT", "collecte urgente #" + order.id + " terminée : reprise anticipée R1");
+            UrgentStatus = "URGENT #" + order.id + ": pick finished, R2 loading — " +
+                           "R1 resumes the paused orders";
+            Incident("urgent #" + order.id + " dropped on the bench: R1 resumes the paused orders");
+            MuseTrace.Log("URGENT", "urgent pick #" + order.id + " finished: early R1 resume");
             ResumePaused();
         }
 
-        /// <summary>La mission de chargement attend que R2 ait terminé la précédente.</summary>
+        /// <summary>The load mission waits for R2 to finish the previous one.</summary>
         private IEnumerator LoadWhenFree(TruckBay bay, ShelfStorage bench, WhOrderState order,
             int expected, System.Action<TruckLoaderAgent.LoadMissionReport> done)
         {
-            // La file signalée évite le retour base : R2 enchaîne directement sur le
-            // chargement suivant (repos seulement quand plus aucun travail).
+            // The signalled queue avoids the return to base: R2 chains directly on the
+            // next load (rest only when there is no work left).
             Robot2.QueuedLoads++;
-            // File R2 explicite : quand plusieurs chargements attendent, ce n'est plus
-            // la première coroutine réveillée qui prend R2 (ordre arbitraire de Unity —
-            // la #2 passait devant la #1 à moitié chargée), mais IsR2Turn.
+            // Explicit R2 queue: when several loads are waiting, R2 no longer goes to
+            // the first coroutine that wakes up (arbitrary Unity order —
+            // #2 overtook the half-loaded #1), but to IsR2Turn.
             r2Waiters[order.id] = new R2Waiter { Ticket = ++r2TicketSeq, Bench = bench, Seen = Time.frameCount };
-            // Une mission live peut durer plusieurs minutes (un carton = ~20 s) :
-            // JAMAIS d'arrêt forcé dessus — cela lâchait un carton au sol et
-            // faussait le contenu des camions. Le seul cas récupérable est le
-            // verrou mort : r2Busy pris alors qu'aucune mission ne tourne.
+            // A live mission can last several minutes (one box = ~20 s):
+            // NEVER force-stop it — that dropped a box on the floor and
+            // corrupted the truck contents. The only recoverable case is the
+            // dead lock: r2Busy taken while no mission is running.
             float staleSince = -1f;
             while (Robot2.MissionActive || r2Busy || !IsR2Turn(order.id))
             {
@@ -2078,7 +2078,7 @@ namespace RoboFactory.Logistics
                     if (staleSince < 0f) staleSince = Time.time;
                     else if (Time.time - staleSince > 15f)
                     {
-                        Incident("verrou R2 sans mission depuis 15 s : libéré pour #" + order.id);
+                        Incident("R2 lock without a mission for 15 s: released for #" + order.id);
                         r2Busy = false;
                         r2BusyOwner = -1;
                     }
@@ -2090,8 +2090,8 @@ namespace RoboFactory.Logistics
             r2Busy = true;
             r2BusyOwner = order.id;
             yield return Robot2.LoadMission(bay, bench, order.id, expected, done);
-            // Libérer seulement si le verrou est encore à nous (un arrêt forcé ou une
-            // suspension a pu le réattribuer entre-temps).
+            // Only release if the lock is still ours (a forced stop or a
+            // suspension may have reassigned it in the meantime).
             if (r2BusyOwner == order.id)
             {
                 r2Busy = false;
@@ -2106,19 +2106,19 @@ namespace RoboFactory.Logistics
             public int Seen;
         }
 
-        /// <summary>Chargements en attente de R2 (commande -> ordre d'arrivée).</summary>
+        /// <summary>Loads waiting for R2 (order -> arrival rank).</summary>
         private readonly Dictionary<int, R2Waiter> r2Waiters = new Dictionary<int, R2Waiter>();
         private int r2TicketSeq;
 
         /// <summary>
-        /// Arbitrage déterministe de R2 entre les chargements en attente :
-        /// 1) la commande urgente ; 2) une commande dont des cartons attendent déjà
-        /// sur son banc (sinon R2 resterait planté devant un banc vide pendant que
-        /// les cartons prêts d'une autre commande s'accumulent) ; 3) la plus
-        /// ancienne demande (FIFO). Une commande reprise après l'urgente passe donc
-        /// avant une commande arrivée plus tard.
+        /// Deterministic R2 arbitration between the waiting loads:
+        /// 1) the urgent order; 2) an order whose boxes are already waiting
+        /// on its bench (otherwise R2 would stand in front of an empty bench while
+        /// another order's ready boxes pile up); 3) the oldest
+        /// request (FIFO). An order resumed after the urgent one therefore goes
+        /// before an order that arrived later.
         /// </summary>
-        /// <summary>R1 sert l'urgente / la commande à finir d'abord, puis dans l'ordre des décisions.</summary>
+        /// <summary>R1 serves the urgent order / the order to finish first, then in decision order.</summary>
         private bool IsR1Turn(int orderId)
         {
             int best = -1, bestRank = int.MaxValue, bestTicket = int.MaxValue;
@@ -2144,7 +2144,7 @@ namespace RoboFactory.Logistics
             {
                 int id = kv.Key;
                 R2Waiter w = kv.Value;
-                // entrée orpheline (coroutine arrêtée) ou commande qui se gare : ignorée
+                // orphan entry (stopped coroutine) or order that is parking: ignored
                 if (id != orderId && (w.Seen < Time.frameCount - 2 || !activeOrderIds.Contains(id) ||
                                       suspendingIds.Contains(id)))
                     continue;
@@ -2166,7 +2166,7 @@ namespace RoboFactory.Logistics
             return best < 0 || best == orderId;
         }
 
-        /// <summary>Attend que R2 ait chargé tous les cartons de la commande déposés sur le banc.</summary>
+        /// <summary>Waits until R2 has loaded all the order's boxes dropped on the bench.</summary>
         private IEnumerator DrainBench(WhOrderState order, ShelfStorage bench)
         {
             float deadline = Time.time + 120f;
@@ -2178,7 +2178,7 @@ namespace RoboFactory.Logistics
                 if (benchEmpty && handsFree) yield break;
                 yield return new WaitForSeconds(.25f);
             }
-            Incident("vidage du banc incomplet pour commande #" + order.id);
+            Incident("bench unloading incomplete for order #" + order.id);
         }
 
         private IEnumerator VerifyAndClose(WhOrderState order, TruckBay bay, MusePlan plan,
@@ -2187,19 +2187,19 @@ namespace RoboFactory.Logistics
             int[] byType = bay != null ? bay.CountByTypeForOrder(order.id) : new int[3];
             int delivered = byType[0] - prevLoaded[0] + byType[1] - prevLoaded[1] + byType[2] - prevLoaded[2];
             bool deliveredExact = loadReport != null && !loadReport.Aborted && delivered == expected;
-            // Vérité physique : la commande n'est complète que si le camion contient
-            // exactement le contenu commandé — jamais sur une livraison partielle.
+            // Physical truth: the order is only complete if the truck contains
+            // exactly the ordered content — never on a partial delivery.
             bool complete = byType[0] == order.a && byType[1] == order.b && byType[2] == order.c;
             if (!deliveredExact || !complete)
-                Incident("contenu camion inexact commande #" + order.id + " : " +
-                         byType[0] + "A/" + byType[1] + "B/" + byType[2] + "C dans " + order.truck_id +
-                         ", attendu " + order.a + "A/" + order.b + "B/" + order.c + "C");
+                Incident("wrong truck content for order #" + order.id + ": " +
+                         byType[0] + "A/" + byType[1] + "B/" + byType[2] + "C in " + order.truck_id +
+                         ", expected " + order.a + "A/" + order.b + "B/" + order.c + "C");
 
             phase = Phase.Closing;
             if (bay != null)
             {
                 bay.CloseDoor(complete);
-                // La porte descend seulement quand R2 est sorti (TruckBay.LoaderOutside).
+                // The door only goes down once R2 is out (TruckBay.LoaderOutside).
                 float deadline = Time.time + 20f;
                 while (Time.time < deadline &&
                        bay.Door != TruckBay.TruckDoorState.Loaded &&
@@ -2207,18 +2207,18 @@ namespace RoboFactory.Logistics
                     yield return null;
             }
 
-            // Les cartons livrés sont comptabilisés (cumul dans le camion), complets ou non.
+            // Delivered boxes are counted (accumulated in the truck), complete or not.
             order.loaded_a = byType[0]; order.loaded_b = byType[1]; order.loaded_c = byType[2];
             UpdateStaged(order);
             if (complete)
             {
                 order.status = "loaded";
-                Debug.Log("[Muse] commande #" + order.id + " LIVREE dans " + order.truck_id +
-                          " — porte refermée");
+                Debug.Log("[Muse] order #" + order.id + " DELIVERED in " + order.truck_id +
+                          " — door closed");
             }
             else
             {
-                order.status = "waiting"; // jamais "loaded" sur une livraison partielle/fausse
+                order.status = "waiting"; // never "loaded" on a partial/wrong delivery
                 order.truck_id = bay != null && delivered > 0 ? order.truck_id : null;
             }
             yield return FinishOrder(order, bay, plan, complete);
@@ -2236,19 +2236,19 @@ namespace RoboFactory.Logistics
                     urgentId = -1;
                     urgentDelivered = true;
                     urgentPickDone = false;
-                    LastUrgentOutcome = "urgente #" + order.id + " livrée";
+                    LastUrgentOutcome = "urgent #" + order.id + " delivered";
                     ClearCapacityState();
-                    UrgentStatus = "URGENTE #" + order.id +
-                                   " livrée — reprise des commandes en pause";
-                    Incident("urgente #" + order.id + " livrée : reprise des commandes");
+                    UrgentStatus = "URGENT #" + order.id +
+                                   " delivered — resuming the paused orders";
+                    Incident("urgent #" + order.id + " delivered: resuming the orders");
                     ResumePaused();
                     Stage = resumedIds.Count > 0 ? UrgentStage.Resuming : UrgentStage.Completed;
                 }
                 else
                 {
-                    // L'urgente garde la priorité tant qu'elle n'est pas livrée.
+                    // The urgent order keeps priority as long as it is not delivered.
                     urgentPickDone = false;
-                    UrgentStatus = "URGENTE #" + order.id + " non livrée — nouvelle tentative";
+                    UrgentStatus = "URGENT #" + order.id + " not delivered — retrying";
                     if (order.status == "pending" || order.status == "waiting")
                         yield return RequestDecisionWhenFree("urgent_retry");
                 }
@@ -2256,7 +2256,7 @@ namespace RoboFactory.Logistics
             yield return null;
         }
 
-        /// <summary>Fin de l'exécution d'UNE commande (les autres continuent).</summary>
+        /// <summary>End of the execution of ONE order (the others keep going).</summary>
         private void EndExecution(WhOrderState order)
         {
             activeOrderIds.Remove(order.id);
@@ -2287,7 +2287,7 @@ namespace RoboFactory.Logistics
             return -1;
         }
 
-        /// <summary>Libère les réservations logiques du plan (banc, palettes, camion).</summary>
+        /// <summary>Releases the plan's logical reservations (bench, pallets, truck).</summary>
         private void ReleasePlanResources(MusePlan plan)
         {
             if (plan == null) return;
@@ -2297,7 +2297,7 @@ namespace RoboFactory.Logistics
             if (bay != null) bay.ReleaseReservation();
         }
 
-        /// <summary>Libère uniquement les réservations de palettes du plan.</summary>
+        /// <summary>Releases only the plan's pallet reservations.</summary>
         private void ReleasePallets(MusePlan plan)
         {
             if (plan == null) return;
@@ -2354,12 +2354,12 @@ namespace RoboFactory.Logistics
             if (!string.IsNullOrEmpty(reason)) Incident(reason);
         }
 
-        // ------------------------------------------------------------------ suivi d'inventaire
+        // ------------------------------------------------------------------ inventory tracking
 
         /// <summary>
-        /// Compteurs temps réel des commandes actives : 'preparé' (cartons orderId sur
-        /// les bancs) et 'chargé' (cartons orderId dans leur camion) — le HUD et les
-        /// instantanés envoyés à Muse reflètent l'état physique à ~1 Hz.
+        /// Real-time counters of the active orders: 'staged' (orderId boxes on the
+        /// benches) and 'loaded' (orderId boxes in their truck) — the HUD and the
+        /// snapshots sent to Muse reflect the physical state at ~1 Hz.
         /// </summary>
         private float invNext;
         private void RefreshLiveCounts()
@@ -2379,7 +2379,7 @@ namespace RoboFactory.Logistics
             stateVersion++;
         }
 
-        /// <summary>Recompte les cartons de la commande posés sur TOUS les bancs.</summary>
+        /// <summary>Recounts the order's boxes sitting on ALL benches.</summary>
         private void UpdateStaged(WhOrderState order)
         {
             order.staged_a = order.staged_b = order.staged_c = 0;
@@ -2401,7 +2401,7 @@ namespace RoboFactory.Logistics
             }
         }
 
-        /// <summary>Compteurs par type des cartons de la commande sur CE banc précis.</summary>
+        /// <summary>Per-type counters of the order's boxes on THIS specific bench.</summary>
         private static int[] CountByTypeOnBench(ShelfStorage bench, int orderId)
         {
             var counts = new int[3];
@@ -2476,7 +2476,7 @@ namespace RoboFactory.Logistics
                 sb.Append(leg.PalletId).Append(" ").Append(leg.Picked).Append("/").Append(leg.Planned);
             }
             if (report.Missing[0] + report.Missing[1] + report.Missing[2] > 0)
-                sb.Append("  MANQUE ").Append(MissingText(report.Missing));
+                sb.Append("  MISSING ").Append(MissingText(report.Missing));
             return sb.ToString();
         }
 
@@ -2487,7 +2487,7 @@ namespace RoboFactory.Logistics
 
         private void OnRouteChanged(string change)
         {
-            Incident("itinéraire modifié: " + change);
+            Incident("route changed: " + change);
             UpdatePickPlanText(pickReport != null ? null : new List<WarehouseRobotAutopilot.PickLeg>());
             pickPlanText = pickPlanText + "  -> " + change;
         }
@@ -2496,10 +2496,10 @@ namespace RoboFactory.Logistics
         {
             incidents.Add(message);
             if (incidents.Count > 8) incidents.RemoveAt(0);
-            Debug.LogWarning("[Muse] incident : " + message);
+            Debug.LogWarning("[Muse] incident: " + message);
         }
 
-        // ------------------------------------------------------------------ lecture monde (HUD/tests)
+        // ------------------------------------------------------------------ world reading (HUD/tests)
 
         private WhOrderState FindLocal(int id)
         {
@@ -2510,14 +2510,14 @@ namespace RoboFactory.Logistics
         public string DoorStateOf(string truckId)
         {
             TruckBay bay = World() != null ? World().Truck(truckId) : null;
-            return bay != null ? bay.Door.ToString() : "inconnu";
+            return bay != null ? bay.Door.ToString() : "unknown";
         }
 
         public string RobotStatusOf(string robotId)
         {
             if (robotId == "R1") return Robot1 != null ? Robot1.Status : "absent";
             if (robotId == "R2") return Robot2 != null ? Robot2.Status : "absent";
-            return "inconnu";
+            return "unknown";
         }
 
         public int BoxesOnBenchForOrder(int orderId)
@@ -2559,12 +2559,12 @@ namespace RoboFactory.Logistics
             if (best < WorkerProximityAlert && Time.time > workerAlertCooldown)
             {
                 workerAlertCooldown = Time.time + 5f;
-                Incident("employé à " + best.ToString("F2") + " m de " + robotId);
+                Incident("employee at " + best.ToString("F2") + " m from " + robotId);
             }
             return best;
         }
 
-        // ------------------------------------------------------------------ pilotage (tests)
+        // ------------------------------------------------------------------ driving (tests)
 
         public void SetMode(string mode)
         {
@@ -2576,10 +2576,10 @@ namespace RoboFactory.Logistics
             }
         }
 
-        /// <summary>Test : la prochaine demande mock renverra un plan volontairement invalide.</summary>
+        /// <summary>Test: the next mock request will return a deliberately invalid plan.</summary>
         public void InjectPlanError(string error) { injectedPlanError = error; }
 
-        /// <summary>Phase courante de l'orchestrateur (diagnostic HUD).</summary>
+        /// <summary>Current orchestrator phase (HUD diagnostics).</summary>
         public string CurrentPhase => phase.ToString();
     }
 }

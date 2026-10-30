@@ -1,4 +1,4 @@
-// Généré depuis Tools/MetaProxy/meta_proxy.py : textes identiques au proxy Python.
+// Generated from Tools/MetaProxy/meta_proxy.py: texts identical to the Python proxy.
 namespace RoboFactory.MetaServer
 {
     internal static class MetaPrompts
@@ -15,7 +15,7 @@ namespace RoboFactory.MetaServer
         public static readonly string[] URGENT_ACTIONS = { "execute_order", "clarify", "wait", "no_plan" };
         public static readonly string[] WAREHOUSE_TYPES = { "A", "B", "C" };
         public const string PLACEHOLDER = "PASTE_YOUR_MODEL_API_KEY_HERE";
-        // _WORD_NUMBERS dans l'ordre d'insertion Python (l'ordre compte pour l'alternance regex)
+        // _WORD_NUMBERS in Python insertion order (the order matters for the regex alternation)
         public static readonly string[] WordNumberKeys = { "un", "une", "one", "deux", "two", "trois", "three", "quatre", "four", "cinq", "five", "six", "sept", "seven", "huit", "eight", "neuf", "nine", "dix", "ten" };
         public static readonly int[] WordNumberValues = { 1, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 7, 7, 8, 8, 9, 9, 10, 10 };
     }

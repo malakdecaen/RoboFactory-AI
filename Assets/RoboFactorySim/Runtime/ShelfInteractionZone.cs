@@ -3,8 +3,8 @@ using UnityEngine;
 namespace RoboFactory.Sim
 {
     /// <summary>
-    /// Point d'accès d'un robot à une colonne de stockage : le robot s'arrime sur dockPoint
-    /// (position et orientation) avant de prendre ou de poser un carton.
+    /// A robot's access point to a storage column: the robot docks on dockPoint
+    /// (position and orientation) before taking or placing a box.
     /// </summary>
     public class ShelfInteractionZone : MonoBehaviour
     {
@@ -17,7 +17,7 @@ namespace RoboFactory.Sim
         public float positionTolerance = .05f;
         public float angleTolerance = 5f;
 
-        /// <summary>Vrai si le robot est sur le point d'arrimage, à la tolérance près, et bien orienté.</summary>
+        /// <summary>True if the robot is on the docking point, within tolerance, and correctly oriented.</summary>
         public bool IsRobotCorrectlyDocked(Transform robot)
         {
             if (robot == null || dockPoint == null) return false;

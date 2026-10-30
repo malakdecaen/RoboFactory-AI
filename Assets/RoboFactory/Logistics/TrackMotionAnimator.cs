@@ -4,20 +4,20 @@ using RoboFactory.Sim;
 namespace RoboFactory.Logistics
 {
     /// <summary>
-    /// Anime les chenilles d'un robot déplacé par script quand son GridRobotController est
-    /// désactivé (cas de R2 dans la scène : le contrôleur clavier y est coupé, donc
-    /// DualProceduralTracksFromWheels ne reçoit plus aucune distance et les chenilles restent
-    /// figées). Même calcul que GridRobotController.AnimateTracks : avance / recul d'après le
-    /// déplacement, rotation sur place d'après l'angle (chenille gauche et droite en sens
-    /// opposés). Purement visuel : ne déplace rien et ne touche à aucune logique de robot.
-    /// Si le contrôleur est actif (cas de R1), il anime déjà les chenilles : ce composant ne fait rien.
+    /// Animates the tracks of a robot moved by script when its GridRobotController is
+    /// disabled (the case of R2 in the scene: its keyboard controller is turned off, so
+    /// DualProceduralTracksFromWheels no longer receives any distance and the tracks stay
+    /// frozen). Same computation as GridRobotController.AnimateTracks: forward / backward from the
+    /// displacement, rotation in place from the angle (left and right tracks in opposite
+    /// directions). Purely visual: moves nothing and touches no robot logic.
+    /// If the controller is active (the case of R1), it already animates the tracks: this component does nothing.
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class TrackMotionAnimator : MonoBehaviour
     {
         public DualProceduralTracksFromWheels Tracks;
         public GridRobotController Controller;
-        [Tooltip("Entraxe des chenilles (m) ; repris du GridRobotController s'il existe.")]
+        [Tooltip("Track spacing (m); taken from the GridRobotController if there is one.")]
         public float TrackWidth = .45f;
 
         private Vector3 previousPosition;
@@ -43,7 +43,7 @@ namespace RoboFactory.Logistics
         private void LateUpdate()
         {
             if (Tracks == null) return;
-            // Contrôleur d'origine actif : il anime déjà les chenilles (R1).
+            // Original controller active: it already animates the tracks (R1).
             if (Controller != null && Controller.enabled && Controller.gameObject.activeInHierarchy)
             {
                 primed = false;

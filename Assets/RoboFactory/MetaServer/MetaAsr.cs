@@ -11,9 +11,9 @@ using Newtonsoft.Json.Linq;
 namespace RoboFactory.MetaServer
 {
     /// <summary>
-    /// Une transcription PUSH_TO_TALK reliée au WebSocket temps réel de Meta (AsrSession du proxy Python).
-    /// Unity envoie des morceaux PCM (s16le mono 24 kHz) ; le « pacer » les ré-émet en trames de 80 ms
-    /// cadencées en temps réel (Meta ferme la session sur retard ou backlog) ; le lecteur collecte les
+    /// One PUSH_TO_TALK transcription linked to Meta's real-time WebSocket (AsrSession of the Python proxy).
+    /// Unity sends PCM chunks (s16le mono 24 kHz); the « pacer » re-emits them in 80 ms frames
+    /// paced in real time (Meta closes the session on lag or backlog); the reader collects the
     /// transcriptions.
     /// </summary>
     internal sealed class AsrSession
@@ -85,7 +85,7 @@ namespace RoboFactory.MetaServer
             new Thread(Reader) { IsBackground = true, Name = "MetaAsrReader" }.Start();
         }
 
-        // ---- envoi (Unity -> Meta)
+        // ---- sending (Unity -> Meta)
 
         private bool Send(ArraySegment<byte> data, WebSocketMessageType type)
         {
@@ -112,8 +112,8 @@ namespace RoboFactory.MetaServer
         }
 
         /// <summary>
-        /// Émission horlogée à temps réel exact : sans audio disponible on émet du silence (Meta ferme sur
-        /// « Ingress audio slower than real-time ») ; l'audio réel n'est jamais réordonné ni accéléré.
+        /// Clocked emission at exact real time: without available audio, silence is emitted (Meta closes on
+        /// « Ingress audio slower than real-time »); real audio is never reordered or sped up.
         /// </summary>
         private void Pacer()
         {
@@ -152,7 +152,7 @@ namespace RoboFactory.MetaServer
                     nextT += frameS;
                     double delay = nextT - clock.Elapsed.TotalSeconds;
                     if (delay > 0) Thread.Sleep(TimeSpan.FromSeconds(delay));
-                    else if (delay < -.5) nextT = clock.Elapsed.TotalSeconds; // gros décrochage : resynchroniser
+                    else if (delay < -.5) nextT = clock.Elapsed.TotalSeconds; // big drop-out: resynchronise
                 }
                 SendText("{\"type\": \"endStream\"}");
             }
@@ -162,14 +162,14 @@ namespace RoboFactory.MetaServer
             }
             finally
             {
-                // Le lecteur continue : Meta répond encore (transcription finale + close 1000).
+                // The reader keeps going: Meta still answers (final transcription + close 1000).
                 SendDone.Set();
             }
         }
 
-        // ---- réception (Meta -> Unity)
+        // ---- reception (Meta -> Unity)
 
-        /// <summary>Un message complet ; kind = text | binary | close.</summary>
+        /// <summary>A complete message; kind = text | binary | close.</summary>
         private string ReceiveText(TimeSpan? timeout, out string kind)
         {
             var buffer = new byte[16384];

@@ -3,7 +3,7 @@ using UnityEngine.UI;
 
 namespace RoboFactory.HUD
 {
-    /// <summary>Segment de droite entre deux points du canvas (traits de rappel des étiquettes).</summary>
+    /// <summary>Straight segment between two canvas points (leader lines of the labels).</summary>
     [RequireComponent(typeof(CanvasRenderer))]
     public sealed class SegmentGraphic : MaskableGraphic
     {

@@ -3,45 +3,45 @@ using UnityEngine;
 namespace RoboFactory.Hackathon.Orchestration
 {
     /// <summary>
-    /// Façade publique de l'orchestrateur Muse Wonder. Elle vit dans l'assembly Hackathon
-    /// pour que les tests PlayMode (qui ne voient pas Assembly-CSharp) pilotent l'entrepôt
-    /// via l'interface, sans réflexion. L'implémentation scène est MuseOrchestrator
+    /// Public facade of the Muse Wonder orchestrator. It lives in the Hackathon assembly
+    /// so that the PlayMode tests (which cannot see Assembly-CSharp) drive the warehouse
+    /// through the interface, without reflection. The scene implementation is MuseOrchestrator
     /// (RoboFactory.Logistics).
     /// </summary>
     public interface IMuseOrchestration
     {
-        // ---- état des appels
+        // ---- call state
         int StateVersion { get; }
-        bool Pending { get; }                 // un appel Meta est en vol
+        bool Pending { get; }                 // a Meta call is in flight
         int Calls { get; }
         string Mode { get; }                  // live | mock | offline
-        string ModelUsed { get; }             // modèle réellement utilisé par la dernière réponse
+        string ModelUsed { get; }             // model actually used by the last answer
         int LastLatencyMs { get; }
-        string LastValidation { get; }        // dernier verdict du validateur
+        string LastValidation { get; }        // last validator verdict
         MuseDecisionRecord LastDecision { get; }
         WarehouseSnapshot LastSnapshot { get; }
 
-        // ---- commandes
-        int SubmitOrder(string text);         // "A x3, B x2" -> id de commande (0 = illisible)
+        // ---- orders
+        int SubmitOrder(string text);         // "A x3, B x2" -> order id (0 = unreadable)
         int SubmitOrderCounts(int a, int b, int c);
         WhOrderState[] OrdersSnapshot { get; }
         int ActiveOrderId { get; }
         void ClearOrders();
 
-        // ---- commandes urgentes (préemption sécurisée)
-        /// <summary>Transcription FINALE de Muse Voice -> interprétation + plan /urgent.</summary>
+        // ---- urgent orders (safe preemption)
+        /// <summary>FINAL Muse Voice transcription -> interpretation + /urgent plan.</summary>
         void SubmitUrgentTranscript(string transcript);
-        /// <summary>Bouton manuel d'urgence : même pipeline sans reconnaissance vocale.</summary>
+        /// <summary>Manual urgent button: same pipeline without speech recognition.</summary>
         int SubmitUrgentCounts(int a, int b, int c);
-        string UrgentStatus { get; }          // état du flux urgent pour le HUD
-        int UrgentOrderId { get; }            // -1 = aucune urgente en cours
-        int PausedCount { get; }              // commandes normales en pause
-        int SuspendingCount { get; }          // commandes en cours de suspension
+        string UrgentStatus { get; }          // urgent flow state for the HUD
+        int UrgentOrderId { get; }            // -1 = no urgent order in progress
+        int PausedCount { get; }              // paused normal orders
+        int SuspendingCount { get; }          // orders being suspended
 
-        // ---- monde (accès lecture via ids stables "P01","B02","T03","R1","R2")
+        // ---- world (read access through stable ids "P01","B02","T03","R1","R2")
         string DoorStateOf(string truckId);
         string RobotStatusOf(string robotId);
-        string ActivePickPlan { get; }        // "P03 A x3 (reste 2) | P07 B x2"
+        string ActivePickPlan { get; }        // "P03 A x3 | P07 B x2" (then "P03 2/3" during the pick)
         string BenchAssigned { get; }
         string TruckAssigned { get; }
         int BoxesOnBenchForOrder(int orderId);
@@ -49,10 +49,10 @@ namespace RoboFactory.Hackathon.Orchestration
         Vector3 PositionOf(string resourceId);
         float MinRobotWorkerDistance(string robotId);
 
-        // ---- pilotage
+        // ---- driving
         void SetMode(string mode);            // live | mock | offline
-        void RequestDecision(string trigger); // force un appel Meta maintenant
-        void InjectPlanError(string error);   // test : force un plan invalide en mode mock
+        void RequestDecision(string trigger); // forces a Meta call now
+        void InjectPlanError(string error);   // test: forces an invalid plan in mock mode
         string IncidentsText { get; }
     }
 }

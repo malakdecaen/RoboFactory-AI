@@ -8,15 +8,15 @@ using Newtonsoft.Json.Linq;
 namespace RoboFactory.MetaServer
 {
     /// <summary>
-    /// Petites fonctions qui reproduisent la sémantique Python du proxy d'origine
-    /// (vérité d'une valeur, int()/float()/str(), json.dumps) pour que le serveur C#
-    /// produise exactement les mêmes réponses et les mêmes prompts.
+    /// Small functions reproducing the Python semantics of the original proxy
+    /// (truthiness, int()/float()/str(), json.dumps) so that the C# server
+    /// produces exactly the same answers and the same prompts.
     /// </summary>
     internal static class Py
     {
         private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
-        /// <summary>json.loads : dates jamais converties, objet attendu.</summary>
+        /// <summary>json.loads: dates never converted, object expected.</summary>
         public static JToken Parse(string text)
         {
             using (var reader = new JsonTextReader(new StringReader(text))
@@ -26,7 +26,7 @@ namespace RoboFactory.MetaServer
                    })
             {
                 JToken token = JToken.ReadFrom(reader);
-                // rien d'autre que des espaces après la valeur (comme json.loads)
+                // nothing but whitespace after the value (like json.loads)
                 while (reader.Read())
                     if (reader.TokenType != JsonToken.Comment)
                         throw new JsonReaderException("extra data");
@@ -40,7 +40,7 @@ namespace RoboFactory.MetaServer
             catch (Exception) { return null; }
         }
 
-        /// <summary>dict.get(key) : null si la clé est absente (≠ JSON null).</summary>
+        /// <summary>dict.get(key): null if the key is missing (≠ JSON null).</summary>
         public static JToken Get(JObject o, string key)
         {
             if (o == null) return null;
@@ -49,7 +49,7 @@ namespace RoboFactory.MetaServer
 
         public static bool IsNone(JToken t) => t == null || t.Type == JTokenType.Null;
 
-        /// <summary>bool(x) en Python.</summary>
+        /// <summary>Python's bool(x).</summary>
         public static bool Truthy(JToken t)
         {
             if (t == null) return false;
@@ -67,7 +67,7 @@ namespace RoboFactory.MetaServer
             }
         }
 
-        /// <summary>str(x) en Python.</summary>
+        /// <summary>Python's str(x).</summary>
         public static string Str(JToken t)
         {
             if (t == null || t.Type == JTokenType.Null) return "None";
@@ -84,7 +84,7 @@ namespace RoboFactory.MetaServer
         /// <summary>str(x or "") / str(x or default).</summary>
         public static string StrOr(JToken t, string fallback = "") => Truthy(t) ? Str(t) : fallback;
 
-        /// <summary>str(o.get(key, default)) : défaut uniquement si la clé est absente.</summary>
+        /// <summary>str(o.get(key, default)): default only if the key is missing.</summary>
         public static string GetStr(JObject o, string key, string fallback = "")
         {
             JToken v = Get(o, key);
@@ -95,7 +95,7 @@ namespace RoboFactory.MetaServer
 
         public static string Cut(string s, int max) => s == null ? "" : s.Length <= max ? s : s.Substring(0, max);
 
-        /// <summary>int(x) en Python ; false = ValueError / TypeError.</summary>
+        /// <summary>Python's int(x); false = ValueError / TypeError.</summary>
         public static bool TryInt(JToken t, out long value)
         {
             value = 0;
@@ -125,7 +125,7 @@ namespace RoboFactory.MetaServer
             return TryInt(t, out value);
         }
 
-        /// <summary>float(x) en Python.</summary>
+        /// <summary>Python's float(x).</summary>
         public static bool TryFloat(JToken t, out double value)
         {
             value = 0;
@@ -153,7 +153,7 @@ namespace RoboFactory.MetaServer
             return TryFloat(t, out value);
         }
 
-        /// <summary>repr(float) en Python : plus court aller-retour, ".0" pour les entiers, exposant à 2 chiffres.</summary>
+        /// <summary>Python's repr(float): shortest round trip, ".0" for integers, 2-digit exponent.</summary>
         public static string Repr(double d)
         {
             if (double.IsNaN(d)) return "nan";
@@ -194,7 +194,7 @@ namespace RoboFactory.MetaServer
             return sign + "0." + new string('0', -exp10 - 1) + digits;
         }
 
-        /// <summary>json.dumps(x) en Python (séparateurs ", " / ": ", ensure_ascii=True).</summary>
+        /// <summary>Python's json.dumps(x) (separators ", " / ": ", ensure_ascii=True).</summary>
         public static string Dumps(JToken t)
         {
             var sb = new StringBuilder();
@@ -267,7 +267,7 @@ namespace RoboFactory.MetaServer
             sb.Append('"');
         }
 
-        /// <summary>Sérialisation compacte d'une réponse (le format exact n'importe pas pour Unity).</summary>
+        /// <summary>Compact serialisation of an answer (the exact format does not matter to Unity).</summary>
         public static string Compact(JToken t) => t.ToString(Formatting.None);
     }
 }

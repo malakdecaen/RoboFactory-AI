@@ -9,11 +9,11 @@ using UnityEngine.UI;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// HUD MUSE WONDER — point d'entrée. Construit le canvas, la grille de mise en page
-    /// responsive (zone centrale contrainte en ultra-large et multi-écran), les vues,
-    /// les modes CINEMATIC / OPERATIONS / DEBUG, et relie les vues à HudDataSource.
-    /// Ne contient AUCUNE logique logistique : les seules actions sont des appels aux
-    /// API publiques existantes (SubmitOrder, SubmitUrgent*, VoiceCommandController.Toggle).
+    /// MUSE WONDER HUD — entry point. Builds the canvas, the responsive layout grid
+    /// (central area constrained on ultra-wide and multi-screen), the views,
+    /// the CINEMATIC / OPERATIONS / DEBUG modes, and wires the views to HudDataSource.
+    /// Contains NO logistics logic: the only actions are calls to the
+    /// existing public APIs (SubmitOrder, SubmitUrgent*, VoiceCommandController.Toggle).
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class MuseHudRoot : MonoBehaviour
@@ -31,10 +31,10 @@ namespace RoboFactory.HUD
         [Header("Sons")]
         [Range(0f, 1f)] public float SoundVolume = .55f;
 
-        [Header("Mise en page")]
-        [Tooltip("Au-delà de ce rapport (ex. 32:9), l'interface reste dans une zone centrale 21:9.")]
+        [Header("Layout")]
+        [Tooltip("Beyond this ratio (e.g. 32:9), the interface stays in a central 21:9 area.")]
         public float MaxSingleScreenAspect = 2.45f;
-        [Tooltip("Au-delà de ce rapport (triple écran), l'interface reste dans une zone centrale 16:9 (3840×2160 en 12288×2160).")]
+        [Tooltip("Beyond this ratio (triple screen), the interface stays in a central 16:9 area (3840×2160 in 12288×2160).")]
         public float MultiScreenAspect = 4.2f;
         public int SortingOrder = 50;
 
@@ -81,7 +81,7 @@ namespace RoboFactory.HUD
         private float voiceSearchUntil;
         private bool built;
 
-        // ------------------------------------------------------------------ cycle de vie
+        // ------------------------------------------------------------------ lifecycle
 
         private void Start()
         {
@@ -96,7 +96,7 @@ namespace RoboFactory.HUD
             data.Refresh();
             StartCoroutine(HealthLoop());
             voiceSearchUntil = Time.unscaledTime + 3f;
-            Debug.Log("[HUD] Muse Wonder HUD prêt (mode " + Mode + ", F2/F3/F4 pour changer de mode, H pour masquer).");
+            Debug.Log("[HUD] Muse Wonder HUD ready (mode " + Mode + ", F2/F3/F4 to change mode, H to hide).");
         }
 
         private void OnDestroy()
@@ -139,12 +139,12 @@ namespace RoboFactory.HUD
             canvasRect = (RectTransform)go.transform;
             HudInput.EnsureEventSystem();
 
-            // étiquettes monde : plein écran, sous les panneaux
+            // world labels: full screen, under the panels
             tags = new WorldTagsView();
             tags.Build(canvasRect);
             Fade(tags.Root, false, true, true);
 
-            // zone de mise en page contrainte (16:9 / 21:9 central selon l'écran)
+            // constrained layout area (central 16:9 / 21:9 depending on the screen)
             frame = HudFactory.Rect("Layout Frame", canvasRect);
             frame.anchorMin = frame.anchorMax = new Vector2(.5f, .5f);
             frame.pivot = new Vector2(.5f, .5f);
@@ -200,7 +200,7 @@ namespace RoboFactory.HUD
             debugConsole.Build(frame);
             Fade(debugConsole.Root, false, false, true);
 
-            // le cercle et les bandeaux passent au-dessus de tout
+            // the circle and the banners go above everything
             core = new MuseCoreView();
             core.Build(frame);
             Fade(core.Root, true, true, true);
@@ -208,7 +208,7 @@ namespace RoboFactory.HUD
             banner.Build(frame);
             Fade(banner.Root, true, true, true);
 
-            // sous-canvas : les éléments animés chaque frame ne forcent pas la reconstruction du reste
+            // sub-canvas: elements animated every frame do not force a rebuild of the rest
             Isolate(core.Root);
             Isolate(tags.Root);
             Isolate(banner.Root);
@@ -259,7 +259,7 @@ namespace RoboFactory.HUD
             return rt != null && rt.gameObject.activeInHierarchy && !hidden;
         }
 
-        // ------------------------------------------------------------------ boucle
+        // ------------------------------------------------------------------ loop
 
         private void Update()
         {
@@ -308,10 +308,10 @@ namespace RoboFactory.HUD
             {
                 tags.SafeArea = TagSafeArea();
                 Vector2 c0 = LocalEdge(core.Root, tags.Root, 0), c2 = LocalEdge(core.Root, tags.Root, 2);
-                // cercle + pastille d'état : ±130 autour du centre horizontal, du haut jusqu'au bas de la pastille
+                // circle + status pill: ±130 around the horizontal center, from the top to the bottom of the pill
                 float cx = (c0.x + c2.x) * .5f, cy = (c0.y + c2.y) * .5f;
                 tags.AvoidArea = Rect.MinMaxRect(cx - 135f, cy - 185f, cx + 135f, c2.y);
-                // bulles au survol : position souris (hors panneaux du HUD) ; DEBUG = tout afficher
+                // hover bubbles: mouse position (outside the HUD panels); DEBUG = show everything
                 tags.ShowAll = Mode == HudMode.Debug;
                 bool overUi = UnityEngine.EventSystems.EventSystem.current != null &&
                               UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject();
@@ -335,13 +335,13 @@ namespace RoboFactory.HUD
             if (HudInput.KeyDown(MicKey) && data.Voice != null) data.Voice.Toggle();
             if (HudInput.KeyDown(SoundKey)) ToggleSound();
             if (HudInput.KeyDown(CameraKey)) ToggleCamera();
-            // flèches : la caméra orbite suit R1 (←) ou R2 (→) ; ↑ / ↓ : vue d'ensemble
+            // arrows: the orbit camera follows R1 (←) or R2 (→); ↑ / ↓: overview
             if (HudInput.KeyDown(KeyCode.LeftArrow)) FocusCamera(HudCameraRig.Focus.R1);
             if (HudInput.KeyDown(KeyCode.RightArrow)) FocusCamera(HudCameraRig.Focus.R2);
             if (HudInput.KeyDown(KeyCode.UpArrow) || HudInput.KeyDown(KeyCode.DownArrow)) FocusCamera(HudCameraRig.Focus.Warehouse);
         }
 
-        /// <summary>Vue de la scène <-> vue orbite (bouton caméra, touche C).</summary>
+        /// <summary>Scene view <-> orbit view (camera button, C key).</summary>
         public void ToggleCamera()
         {
             cameraRig.Toggle(data.World);
@@ -361,7 +361,7 @@ namespace RoboFactory.HUD
             cameraRig.LateTick(Mathf.Min(Time.unscaledDeltaTime, .1f));
         }
 
-        /// <summary>Contrainte de la zone d'interface selon le rapport d'aspect réel.</summary>
+        /// <summary>Constraint of the interface area according to the real aspect ratio.</summary>
         private void UpdateFrame()
         {
             Rect r = canvasRect.rect;
@@ -377,7 +377,7 @@ namespace RoboFactory.HUD
 
         private readonly Vector3[] corners = new Vector3[4];
 
-        /// <summary>Rectangle (repère local des étiquettes) de la zone libre entre les panneaux.</summary>
+        /// <summary>Rectangle (labels' local space) of the free area between the panels.</summary>
         private Rect TagSafeArea()
         {
             RectTransform t = tags.Root;
@@ -390,7 +390,7 @@ namespace RoboFactory.HUD
             return Rect.MinMaxRect(xMin, yMin, Mathf.Max(xMin + 1f, xMax), Mathf.Max(yMin + 1f, yMax));
         }
 
-        /// <summary>Coin du RectTransform rt exprimé dans le repère de target (0 = bas-gauche, 1 = haut-gauche, 2 = haut-droit).</summary>
+        /// <summary>Corner of RectTransform rt expressed in target's space (0 = bottom-left, 1 = top-left, 2 = top-right).</summary>
         private Vector2 LocalEdge(RectTransform rt, RectTransform target, int corner)
         {
             rt.GetWorldCorners(corners);
@@ -404,7 +404,7 @@ namespace RoboFactory.HUD
             return Mathf.Max(160f, frameH - HudTheme.SideTop - visionTop - 16f);
         }
 
-        // ------------------------------------------------------------------ événements de données
+        // ------------------------------------------------------------------ data events
 
         private void OnDecision(DecisionVM d)
         {
@@ -444,7 +444,7 @@ namespace RoboFactory.HUD
             bool wasCalm = previous == "Idle" || previous == "Planning" || previous == "Completed" || previous == "Failed";
             if (next == "WaitingForCapacity" && capacityBannerFor != u.OrderId)
             {
-                // FINISH TO FREE : tous les quais occupés, Muse va choisir une commande à finir
+                // FINISH TO FREE: all docks busy, Muse is going to choose an order to finish
                 capacityBannerFor = u.OrderId;
                 banner.ShowCapacityOverride(u.OrderId);
                 sounds.Play(HudSound.PriorityOverride);
@@ -484,7 +484,7 @@ namespace RoboFactory.HUD
 
         public bool SoundMuted => sounds.Muted;
 
-        // ------------------------------------------------------------------ actions (API existantes)
+        // ------------------------------------------------------------------ actions (existing APIs)
 
         private int SubmitOrder(string text)
         {
@@ -492,7 +492,7 @@ namespace RoboFactory.HUD
             return o != null ? o.SubmitOrder(text) : 0;
         }
 
-        /// <summary>Même traitement que le bouton « Urgence manuelle » de l'ancien HUD.</summary>
+        /// <summary>Same handling as the « Manual urgent » button of the old HUD.</summary>
         private void SubmitUrgent(string text)
         {
             MuseOrchestrator o = data.Orchestrator;
@@ -502,14 +502,14 @@ namespace RoboFactory.HUD
             else o.SubmitUrgentCounts(counts[0], counts[1], counts[2]);
         }
 
-        /// <summary>Comme l'ancien HUD : le contrôleur vocal est installé s'il manque à la scène.</summary>
+        /// <summary>Like the old HUD: the voice controller is installed if it is missing from the scene.</summary>
         private void EnsureVoice()
         {
             if (data.Voice != null || data.Orchestrator == null || Time.unscaledTime < voiceSearchUntil) return;
             if (FindFirstObjectByType<VoiceCommandController>() == null)
             {
                 gameObject.AddComponent<VoiceCommandController>().Orchestrator = data.Orchestrator;
-                Debug.Log("[HUD] VoiceCommandController absent : installé sur le HUD.");
+                Debug.Log("[HUD] VoiceCommandController missing: installed on the HUD.");
             }
             voiceSearchUntil = Time.unscaledTime + 5f;
         }

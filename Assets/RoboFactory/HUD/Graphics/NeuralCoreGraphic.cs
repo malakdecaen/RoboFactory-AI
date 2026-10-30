@@ -4,8 +4,8 @@ using UnityEngine.UI;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Noyau « réseau neuronal » du cercle Muse : nœuds reliés, influx lumineux qui parcourt
-    /// le réseau. Intensity (0..1) accélère et densifie l'activité selon l'état réel de Muse.
+    /// « Neural network » core of the Muse circle: linked nodes, a glowing impulse travelling
+    /// through the network. Intensity (0..1) speeds up and densifies the activity according to Muse's real state.
     /// </summary>
     [RequireComponent(typeof(CanvasRenderer))]
     public sealed class NeuralCoreGraphic : MaskableGraphic
@@ -50,7 +50,7 @@ namespace RoboFactory.HUD
             for (int i = 0; i < linkCount; i++)
             {
                 Vector2 a = nodes[Links[i, 0]], b = nodes[Links[i, 1]];
-                // influx : un « paquet » lumineux circule sur chaque liaison, décalé dans le temps
+                // impulse: a glowing « packet » travels along each link, offset in time
                 float t = Mathf.Repeat(travel + i * .37f, 1f);
                 float lit = Mathf.Pow(1f - Mathf.Abs(t - .5f) * 2f, 3f) * (.35f + .65f * Intensity);
                 byte alpha = (byte)(c.a * Mathf.Clamp01(.22f + lit * .6f));

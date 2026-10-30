@@ -8,14 +8,14 @@ using UnityEngine;
 namespace RoboFactory.Logistics.EditorTools
 {
     /// <summary>
-    /// Build Windows autonome de la démo (scène warehouse_robot_demo, ou la scène en cubes du dépôt public) dans Builds/RoboFactoryAI_&lt;date&gt;/.
-    /// Le serveur Meta est intégré au jeu (C#) : rien d'autre à copier. Les Build Settings du projet ne
-    /// sont pas modifiés. Résultat détaillé dans Builds/last_build.txt.
+    /// Standalone Windows build of the demo (warehouse_robot_demo scene, or the public repository's cube scene) into Builds/RoboFactoryAI_&lt;date&gt;/.
+    /// The Meta server is built into the game (C#): nothing else to copy. The project's Build Settings are
+    /// not modified. Detailed result in Builds/last_build.txt.
     /// </summary>
     public static class RoboFactoryBuild
     {
         public const string Scene = "Assets/Warehouse_Robot_Controller/Scenes/warehouse_robot_demo.unity";
-        /// <summary>Scène en cubes du dépôt public (utilisée quand la scène complète n'existe pas).</summary>
+        /// <summary>Cube scene of the public repository (used when the full scene does not exist).</summary>
         public const string PublicScene = "Assets/RoboFactorySim/Scenes/warehouse_simplified.unity";
 
         private static string SceneToBuild() => File.Exists(Path.Combine(Directory.GetParent(Application.dataPath).FullName, Scene)) ? Scene : PublicScene;
@@ -36,24 +36,24 @@ namespace RoboFactory.Logistics.EditorTools
                 targetGroup = BuildTargetGroup.Standalone,
                 options = BuildOptions.None
             };
-            Debug.Log("[Build] démarrage : " + exe);
+            Debug.Log("[Build] starting: " + exe);
             BuildReport report = BuildPipeline.BuildPlayer(options);
             BuildSummary s = report.summary;
-            string lines = "résultat : " + s.result + "\n" +
-                           "sortie   : " + exe + "\n" +
-                           "durée    : " + s.totalTime + "\n" +
-                           "taille   : " + (s.totalSize / (1024f * 1024f)).ToString("F0") + " Mo\n" +
-                           "erreurs  : " + s.totalErrors + "   avertissements : " + s.totalWarnings + "\n";
+            string lines = "result   : " + s.result + "\n" +
+                           "output   : " + exe + "\n" +
+                           "duration : " + s.totalTime + "\n" +
+                           "size     : " + (s.totalSize / (1024f * 1024f)).ToString("F0") + " MB\n" +
+                           "errors   : " + s.totalErrors + "   warnings : " + s.totalWarnings + "\n";
             foreach (BuildStep step in report.steps)
                 foreach (BuildStepMessage m in step.messages.Where(m => m.type == LogType.Error || m.type == LogType.Exception))
-                    lines += "ERREUR [" + step.name + "] " + m.content + "\n";
+                    lines += "ERROR [" + step.name + "] " + m.content + "\n";
             File.WriteAllText(summaryFile, lines);
             if (s.result == BuildResult.Succeeded)
             {
-                Debug.Log("[Build] OK : " + exe + " (" + (s.totalSize / (1024f * 1024f)).ToString("F0") + " Mo, " + s.totalTime + ")");
+                Debug.Log("[Build] OK: " + exe + " (" + (s.totalSize / (1024f * 1024f)).ToString("F0") + " MB, " + s.totalTime + ")");
                 EditorUtility.RevealInFinder(exe);
             }
-            else Debug.LogError("[Build] " + s.result + " — " + s.totalErrors + " erreur(s), détail dans Builds/last_build.txt");
+            else Debug.LogError("[Build] " + s.result + " — " + s.totalErrors + " error(s), details in Builds/last_build.txt");
         }
     }
 }

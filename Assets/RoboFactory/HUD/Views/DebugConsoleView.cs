@@ -6,7 +6,7 @@ using UnityEngine.UI;
 
 namespace RoboFactory.HUD
 {
-    /// <summary>Tampon circulaire des logs Unity (lecture seule via Application.logMessageReceived).</summary>
+    /// <summary>Circular buffer of Unity logs (read-only through Application.logMessageReceived).</summary>
     public sealed class HudLogBuffer
     {
         public struct Entry
@@ -39,8 +39,8 @@ namespace RoboFactory.HUD
     }
 
     /// <summary>
-    /// Mode DEBUG : journal technique, états internes de l'orchestrateur, réservations,
-    /// incidents, statuts bruts des robots. Masqué en CINEMATIC et OPERATIONS.
+    /// DEBUG mode: technical journal, internal orchestrator states, reservations,
+    /// incidents, raw robot statuses. Hidden in CINEMATIC and OPERATIONS.
     /// </summary>
     public sealed class DebugConsoleView
     {

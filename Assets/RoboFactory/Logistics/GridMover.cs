@@ -6,53 +6,53 @@ using RoboFactory.Sim;
 namespace RoboFactory.Logistics
 {
     /// <summary>
-    /// Navigation grille partagée — logique pure, aucune connaissance métier.
+    /// Shared grid navigation — pure logic, no business knowledge.
     ///
-    /// Le robot avance sur une grille de 0,25 m, tourne par pas de 45° et termine
-    /// par une approche fine sur le dock. Même moteur que l'autopilot, extrait en
-    /// composant réutilisable : les agents (TruckLoaderAgent, futur bras mobile...)
-    /// ne font que demander NavigateTo() et lire le résultat.
+    /// The robot moves on a 0.25 m grid, turns in 45° steps and ends
+    /// with a fine approach on the dock. Same engine as the autopilot, extracted as a
+    /// reusable component: the agents (TruckLoaderAgent, future mobile arm...)
+    /// only call NavigateTo() and read the result.
     ///
-    /// Si le trajet est bloqué, le robot attend sur place et réessaie périodiquement :
-    /// un obstacle (ouvrier, autre robot, carton) est le plus souvent temporaire.
+    /// If the path is blocked, the robot waits in place and retries periodically:
+    /// an obstacle (worker, other robot, box) is most often temporary.
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class GridMover : MonoBehaviour
     {
-        public enum NavResult { Inconnu, Arrive, Arrete }
+        public enum NavResult { Unknown, Arrived, Stopped }
 
         [Header("Robot")]
         public GridRobotController Controller;
         public Animator Animator;
 
-        [Header("Grille (doit correspondre au GridRobotController)")]
+        [Header("Grid (must match the GridRobotController)")]
         public float Cell = .25f;
         public float RotationStep = 45f;
-        [Tooltip("Colliders pris en compte par le calcul d'itinéraire.")]
+        [Tooltip("Colliders taken into account by route planning.")]
         public LayerMask ObstacleMask = ~0;
         public Vector3 CheckHalfExtents = new Vector3(.18f, .28f, .18f);
         public Vector3 CheckOffset = new Vector3(0f, .28f, 0f);
-        [Tooltip("Demi-portée de la zone navigable en mètres. 0 = automatique (grille du GridRobotController).")]
+        [Tooltip("Half-extent of the navigable area in metres. 0 = automatic (GridRobotController grid).")]
         public float MapHalfExtent = 0f;
 
-        [Header("Conduite")]
+        [Header("Driving")]
         public float MoveSpeed = 1.8f;
         public float TurnSpeed = 260f;
         public float StepPause = 0f;
         public float ArriveTolerance = .01f;
-        [Tooltip("Aucun trajet trouvé : attente sur place et nouvel essai après ce délai.")]
+        [Tooltip("No path found: wait in place and retry after this delay.")]
         public float ReplanInterval = .6f;
 
-        /// <summary>Chemin restant, consommé cellule par cellule (pour l'affichage).</summary>
+        /// <summary>Remaining path, consumed cell by cell (for display).</summary>
         public IReadOnlyList<Vector3> CurrentPath => displayPath;
-        public NavResult LastResult { get; private set; } = NavResult.Inconnu;
-        /// <summary>Cible du trajet en cours (dock monde).</summary>
+        public NavResult LastResult { get; private set; } = NavResult.Unknown;
+        /// <summary>Target of the current trip (world dock).</summary>
         public Vector3 Target { get; private set; }
         public bool EnRoute { get; private set; }
-        /// <summary>Réutilisé par l'agent : faux -> tous les déplacements s'arrêtent.</summary>
+        /// <summary>Reused by the agent: false -> every movement stops.</summary>
         public bool Enabled = true;
 
-        /// <summary>Condition externe d'abandon du trajet en cours (ex. du travail qui apparaît).</summary>
+        /// <summary>External condition to abort the current trip (e.g. work showing up).</summary>
         private System.Func<bool> abortWhen;
         private bool CanDrive => Enabled && (abortWhen == null || !abortWhen());
 
@@ -71,7 +71,7 @@ namespace RoboFactory.Logistics
             if (Animator == null) Animator = GetComponent<Animator>();
             if (Controller != null)
             {
-                // Le mover possède le mouvement : le clavier ne doit pas le contrer.
+                // The mover owns the movement: the keyboard must not fight it.
                 Controller.controlsLocked = true;
                 halfExtent = MapHalfExtent > 0f ? MapHalfExtent
                     : Mathf.Max(1f, Mathf.Max(Controller.gridCellsX, Controller.gridCellsZ) * Controller.cellSize * .5f);
@@ -79,21 +79,21 @@ namespace RoboFactory.Logistics
             overlapHits = new Collider[24];
         }
 
-        /// <summary>Demande un recalcul d'itinéraire (obstacle détecté sur le trajet).</summary>
+        /// <summary>Requests a route replan (obstacle detected on the path).</summary>
         public void RequestReplan() { replanRequested = true; }
 
-        // ------------------------------------------------------------------ trajet complet
+        // ------------------------------------------------------------------ full trip
 
         /// <summary>
-        /// Conduit le robot sur le point de dock avec le cap demandé.
-        /// Attend et réessaie tant qu'aucun itinéraire n'existe (robuste aux blocages).
-        /// Se termine sur Arrivé, quand Enabled/la coroutine s'arrête,
-        /// ou quand abortWhen (optionnel) devient vrai -> résultat Arrete.
+        /// Drives the robot onto the dock point with the requested heading.
+        /// Waits and retries as long as no route exists (robust to blockages).
+        /// Ends on Arrived, when Enabled/the coroutine stops,
+        /// or when abortWhen (optional) becomes true -> result Stopped.
         /// </summary>
         public IEnumerator NavigateTo(Vector3 dock, Vector3 heading, System.Func<bool> abortWhen = null)
         {
             this.abortWhen = abortWhen;
-            LastResult = NavResult.Inconnu;
+            LastResult = NavResult.Unknown;
             Target = dock;
             EnRoute = true;
             heading.y = 0f;
@@ -104,8 +104,8 @@ namespace RoboFactory.Logistics
             bool planned = TryPlan(Snap(transform.position), goalCell);
             if (!planned || path.Count == 0)
             {
-                Debug.Log("[Mover:" + name + "] aucun itinéraire vers " + goalCell.ToString("F2") +
-                          " : attente sur place, essai toutes les " + ReplanInterval + " s.");
+                Debug.Log("[Mover:" + name + "] no route to " + goalCell.ToString("F2") +
+                          ": waiting in place, retrying every " + ReplanInterval + " s.");
                 while (CanDrive)
                 {
                     yield return new WaitForSeconds(ReplanInterval);
@@ -119,7 +119,7 @@ namespace RoboFactory.Logistics
                 ClearPath();
                 EnRoute = false;
                 abortWhen = null;
-                LastResult = NavResult.Arrete;
+                LastResult = NavResult.Stopped;
                 yield break;
             }
 
@@ -130,7 +130,7 @@ namespace RoboFactory.Logistics
                 replanRequested = false;
                 yield return FollowPath();
                 if (!replanRequested) break;
-                // Replan mid-route : même logique qu'au départ, avec attente si bloqué.
+                // Mid-route replan: same logic as at the start, with a wait if blocked.
                 planned = TryPlan(Snap(transform.position), goalCell);
                 while ((!planned || path.Count == 0) && CanDrive)
                 {
@@ -146,40 +146,40 @@ namespace RoboFactory.Logistics
             {
                 EnRoute = false;
                 abortWhen = null;
-                LastResult = NavResult.Arrete;
+                LastResult = NavResult.Stopped;
                 yield break;
             }
 
-            // Approche fine uniquement à courte portée : jamais un raccourci à travers la map.
+            // Fine approach only at short range: never a shortcut across the map.
             if (Vector3.Distance(transform.position, dock) > 1.2f)
             {
-                Debug.LogWarning("[Mover:" + name + "] arrivée à " +
+                Debug.LogWarning("[Mover:" + name + "] arrived at " +
                                  Vector3.Distance(transform.position, dock).ToString("F2") +
-                                 " m du dock : arrimage abandonné.");
+                                 " m from the dock: docking aborted.");
                 ClearPath();
                 EnRoute = false;
                 abortWhen = null;
-                LastResult = NavResult.Arrete;
+                LastResult = NavResult.Stopped;
                 yield break;
             }
 
-            replanRequested = false; // arrimage engagé : les replans ne concernent que le trajet grille
+            replanRequested = false; // docking engaged: replans only concern the grid path
             yield return TurnTo(heading);
             yield return FineApproach(dock, heading);
             yield return new WaitForSeconds(.1f);
             displayPath.Clear();
             EnRoute = false;
             abortWhen = null;
-            LastResult = NavResult.Arrive;
+            LastResult = NavResult.Arrived;
         }
 
-        /// <summary>Arrête tout déplacement en cours.</summary>
+        /// <summary>Stops any movement in progress.</summary>
         public void StopNavigation()
         {
             Enabled = false;
             ClearPath();
             EnRoute = false;
-            LastResult = NavResult.Arrete;
+            LastResult = NavResult.Stopped;
         }
 
         private void ClearPath()
@@ -189,9 +189,9 @@ namespace RoboFactory.Logistics
             displayPath.Clear();
         }
 
-        // ------------------------------------------------------------------ suivi du chemin
+        // ------------------------------------------------------------------ path following
 
-        /// <summary>Suit la grille par segments droits continus (un virage par changement de cap).</summary>
+        /// <summary>Follows the grid in continuous straight segments (one turn per heading change).</summary>
         private IEnumerator FollowPath()
         {
             int index = 0;
@@ -217,15 +217,15 @@ namespace RoboFactory.Logistics
 
                 for (int i = index; i <= end && CanDrive; i++)
                 {
-                    // Re-vérifie chaque cellule avant d'y entrer : un collider apparu
-                    // sur la route déclenche un replan au lieu d'être traversé.
+                    // Re-checks each cell before entering it: a collider that appeared
+                    // on the route triggers a replan instead of being crossed.
                     if (!IsFree(path[i]))
                     {
                         RequestReplan();
                         yield break;
                     }
                     yield return MoveTo(path[i]);
-                    if (replanRequested) yield break; // cellule interrompue : pas consommée
+                    if (replanRequested) yield break; // cell interrupted: not consumed
                     pathCursor = i + 1;
                     if (displayPath.Count > 0) displayPath.RemoveAt(0);
                     if (StepPause > 0f && i < end) yield return new WaitForSeconds(StepPause);
@@ -260,7 +260,7 @@ namespace RoboFactory.Logistics
             transform.rotation = target;
         }
 
-        /// <summary>Derniers centimètres : position et cap exacts pour l'arrimage.</summary>
+        /// <summary>Last centimetres: exact position and heading for docking.</summary>
         private IEnumerator FineApproach(Vector3 dock, Vector3 heading)
         {
             Quaternion target = Quaternion.LookRotation(heading, Vector3.up);
@@ -280,7 +280,7 @@ namespace RoboFactory.Logistics
             transform.position = flatDock;
         }
 
-        // ------------------------------------------------------------------ grille + recherche
+        // ------------------------------------------------------------------ grid + search
 
         public Vector3 Snap(Vector3 world)
         {
@@ -289,13 +289,13 @@ namespace RoboFactory.Logistics
 
         public float HalfExtent => halfExtent;
 
-        /// <summary>Cellule libre pour le debug overlay (clearance pleine).</summary>
+        /// <summary>Free cell for the debug overlay (full clearance).</summary>
         public bool CellFree(Vector3 world)
         {
             return CellFreeAt(world, 1f);
         }
 
-        /// <summary>Cellule traversable pour le planificateur (colliders seulement).</summary>
+        /// <summary>Traversable cell for the planner (colliders only).</summary>
         public bool IsFree(Vector3 world)
         {
             return CellFreeAt(world, clearance);
@@ -304,7 +304,7 @@ namespace RoboFactory.Logistics
         private bool CellFreeAt(Vector3 world, float clearanceScale)
         {
             Vector3 center = new Vector3(world.x, transform.position.y, world.z) + CheckOffset;
-            // Volumes logiques interdits (NavBlocker) : bloquants même sans collider physique.
+            // Forbidden logical volumes (NavBlocker): blocking even without a physical collider.
             if (NavBlocker.BlocksCell(center, CheckHalfExtents * clearanceScale)) return false;
             int count = Physics.OverlapBoxNonAlloc(center, CheckHalfExtents * clearanceScale, overlapHits,
                                                    Quaternion.identity, ObstacleMask, QueryTriggerInteraction.Ignore);
@@ -313,14 +313,14 @@ namespace RoboFactory.Logistics
             {
                 Collider hit = overlapHits[i];
                 if (hit == null || hit.isTrigger) continue;
-                if (hit.bounds.max.y <= floorCut) continue; // sol / marquages au ras du plancher
-                if (hit.transform.IsChildOf(transform)) continue; // soi-même, charge comprise
+                if (hit.bounds.max.y <= floorCut) continue; // floor / markings flush with the floor
+                if (hit.transform.IsChildOf(transform)) continue; // itself, load included
                 return false;
             }
             return true;
         }
 
-        /// <summary>Route vers le but, ou vers une cellule voisine si le dock est occupé.</summary>
+        /// <summary>Route to the goal, or to a neighbouring cell if the dock is occupied.</summary>
         private bool TryPlan(Vector3 start, Vector3 goal)
         {
             if (Plan(start, goal) && path.Count > 0) return true;
@@ -336,7 +336,7 @@ namespace RoboFactory.Logistics
 
         private bool Plan(Vector3 start, Vector3 goal)
         {
-            // Allées étroites : réessaie avec une marge réduite avant de déclarer impossible.
+            // Narrow aisles: retry with a smaller margin before declaring it impossible.
             float[] clearances = { 1f, .75f, .5f };
             foreach (float scale in clearances)
                 if (PlanWith(start, goal, scale)) return true;
@@ -353,7 +353,7 @@ namespace RoboFactory.Logistics
             Vector2Int from = ToCell(start);
             Vector2Int to = ToCell(goal);
             if (from == to) return true;
-            // La cellule du dock est toujours acceptée : elle touche l'étagère par construction.
+            // The dock cell is always accepted: it touches the shelf by construction.
 
             var came = new Dictionary<Vector2Int, Vector2Int> { [from] = from };
             var open = new Queue<Vector2Int>();
@@ -397,7 +397,7 @@ namespace RoboFactory.Logistics
         private void LateUpdate()
         {
             if (Animator == null) return;
-            // GridRobotController force IsMoving=false tant que controlsLocked : le mover le pilote.
+            // GridRobotController forces IsMoving=false while controlsLocked: the mover drives it.
             bool moving = Enabled && (path.Count > pathCursor ||
                           Vector3.Distance(transform.position, lastPosition) > .0005f);
             Animator.SetBool("IsMoving", moving);

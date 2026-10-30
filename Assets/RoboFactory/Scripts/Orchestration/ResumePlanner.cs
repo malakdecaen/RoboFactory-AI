@@ -4,19 +4,19 @@ using System.Collections.Generic;
 namespace RoboFactory.Hackathon.Orchestration
 {
     /// <summary>
-    /// Replanification locale après une commande urgente : tente de réutiliser le
-    /// plan d'origine d'une commande suspendue au lieu de redemander une décision
-    /// à Muse. Ne choisit JAMAIS de nouvelles ressources — il ne fait que réajuster
-    /// les quantités des étapes sur les palettes que Muse avait déjà assignées,
-    /// et le résultat repasse toujours par PlanValidator avant exécution.
-    /// Retourne null quand l'ancienne affectation n'est plus réalisable.
+    /// Local replanning after an urgent order: tries to reuse the
+    /// original plan of a suspended order instead of asking Muse for a new
+    /// decision. NEVER chooses new resources — it only readjusts
+    /// the step quantities on the pallets Muse had already assigned,
+    /// and the result always goes through PlanValidator before execution.
+    /// Returns null when the old assignment is no longer feasible.
     /// </summary>
     public static class ResumePlanner
     {
         /// <summary>
-        /// Construit un plan de reprise pour 'order' à partir de 'oldPlan' sur
-        /// l'état FRAIS 'snap'. L'ordre doit déjà être repassé en statut
-        /// pending|waiting|planned pour que PlanValidator l'accepte.
+        /// Builds a resume plan for 'order' from 'oldPlan' on the
+        /// FRESH state 'snap'. The order must already be back in status
+        /// pending|waiting|planned for PlanValidator to accept it.
         /// </summary>
         public static MusePlan TryReuse(MusePlan oldPlan, WhOrderState order, WarehouseSnapshot snap)
         {
@@ -29,14 +29,14 @@ namespace RoboFactory.Hackathon.Orchestration
                 robot_load = "R2",
                 start_immediately = true,
                 start_delay_s = 0f,
-                reason = "reprise après préemption urgente (plan réutilisé)",
+                reason = "resume after urgent preemption (plan reused)",
                 fallback_pallets = oldPlan.fallback_pallets != null
                     ? (string[])oldPlan.fallback_pallets.Clone() : new string[0]
             };
 
-            // ---- banc : s'il contient encore des cartons de la commande, il est
-            // resté réservé et le plan doit le garder ; sinon le banc d'origine
-            // doit être redevenu libre (ou un autre choix Muse sera nécessaire).
+            // ---- bench: if it still holds boxes of the order, it has
+            // stayed reserved and the plan must keep it; otherwise the original bench
+            // must be free again (or another Muse choice will be needed).
             string benchId = !string.IsNullOrEmpty(order.bench_id) ? order.bench_id : oldPlan.bench_id;
             WhBench bench = PlanValidator.FindBench(snap, benchId);
             if (bench == null) return null;
@@ -45,8 +45,8 @@ namespace RoboFactory.Hackathon.Orchestration
                 bench.reserved_by != order.id.ToString()) return null;
             plan.bench_id = benchId;
 
-            // ---- camion : cartons déjà chargés -> même camion imposé (réservation
-            // conservée) ; sinon le camion d'origine doit être libre à nouveau.
+            // ---- truck: boxes already loaded -> same truck imposed (reservation
+            // kept); otherwise the original truck must be free again.
             string truckId = !string.IsNullOrEmpty(order.truck_id) ? order.truck_id : oldPlan.truck_id;
             WhTruck truck = PlanValidator.FindTruck(snap, truckId);
             if (truck == null) return null;
@@ -59,15 +59,15 @@ namespace RoboFactory.Hackathon.Orchestration
             if (truck.free < needTruckSpace) return null;
             plan.truck_id = truckId;
 
-            // ---- étapes : couvrir le besoin restant avec les palettes du plan
-            // d'origine, dans leur ordre, plafonné par le stock réel actuel.
+            // ---- steps: cover the remaining need with the pallets of the original
+            // plan, in their order, capped by the current real stock.
             int needA = PlanValidator.Remaining(order, "A");
             int needB = PlanValidator.Remaining(order, "B");
             int needC = PlanValidator.Remaining(order, "C");
             if (needA + needB + needC <= 0)
             {
-                // Plus rien à prélever : plan "chargement seul" des cartons déjà
-                // sur le banc (jamais si le banc n'a plus rien -> incohérent).
+                // Nothing left to pick: "load only" plan for the boxes already
+                // on the bench (never if the bench has nothing left -> inconsistent).
                 if (staged <= 0 || !benchKept) return null;
                 plan.picks = new MusePlanPick[0];
                 plan.fallback_pallets = new string[0];
@@ -86,7 +86,7 @@ namespace RoboFactory.Hackathon.Orchestration
                     if (typeIndex < 0 || needs[typeIndex] <= 0) continue;
                     WhPallet pallet = PlanValidator.FindPallet(snap, old.pallet_id);
                     if (pallet == null) return null;
-                    // Palette réservée par une autre commande ou commande urgente : pas réutilisable.
+                    // Pallet reserved by another order or an urgent order: not reusable.
                     if (!string.IsNullOrEmpty(pallet.reserved_by) &&
                         pallet.reserved_by != order.id.ToString()) return null;
                     int stock = pallet.stock != null ? pallet.stock.Of(types[typeIndex]) : 0;
@@ -101,9 +101,9 @@ namespace RoboFactory.Hackathon.Orchestration
                     usedPallets.Add(old.pallet_id);
                     needs[typeIndex] -= take;
                 }
-            if (needs[0] + needs[1] + needs[2] > 0) return null; // anciennes palettes insuffisantes
+            if (needs[0] + needs[1] + needs[2] > 0) return null; // old pallets insufficient
 
-            // Garder uniquement les palettes de secours non réservées et hors picks.
+            // Keep only the fallback pallets that are unreserved and not in the picks.
             var keptFallback = new List<string>();
             foreach (string fb in plan.fallback_pallets ?? new string[0])
             {

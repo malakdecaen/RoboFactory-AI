@@ -25,21 +25,21 @@ namespace RoboFactory.Integration
         public Animator Animator;
         public RobotCargoInteractor Interactor;
 
-        [Header("Grille (doit correspondre au GridRobotController)")]
+        [Header("Grid (must match the GridRobotController)")]
         public float Cell = .25f;
         public float RotationStep = 45f;
-        [Tooltip("Colliders ignorés par le calcul d'itinéraire. Vide = tous les layers.")]
+        [Tooltip("Colliders considered by path planning. Everything = all layers.")]
         public LayerMask ObstacleMask = ~0;
         public Vector3 CheckHalfExtents = new Vector3(.18f, .28f, .18f);
         public Vector3 CheckOffset = new Vector3(0f, .28f, 0f);
 
-        [Header("Conduite")]
+        [Header("Driving")]
         public float MoveSpeed = 1.8f;
         public float TurnSpeed = 260f;
-        [Tooltip("Petite pause à chaque case: le robot avance bien case par case.")]
+        [Tooltip("Short pause on each cell so the robot visibly moves cell by cell.")]
         public float StepPause = 0f;
         public float ArriveTolerance = .01f;
-        [Tooltip("Aucun trajet trouvé : le robot attend sur place et réessaie après ce délai.")]
+        [Tooltip("No path found: the robot waits in place and retries after this delay.")]
         public float ReplanInterval = .6f;
 
         [Header("Mission")]
@@ -48,7 +48,7 @@ namespace RoboFactory.Integration
         public bool LogActions = true;
 
         public ShelfInteractionZone CurrentTarget { get; private set; }
-        public string Status { get; private set; } = "arrêt";
+        public string Status { get; private set; } = "stopped";
         public int Delivered { get; private set; }
         public int SortedCount => sorted.Count;
         private readonly HashSet<CargoBox> sorted = new HashSet<CargoBox>();
@@ -80,39 +80,39 @@ namespace RoboFactory.Integration
         public bool Running { get; private set; }
         public static bool Verbose = true;
         private readonly List<Vector3> displayPath = new List<Vector3>();
-        /// <summary>Itineraire courant, conserve pendant les recalculs (affichage stable).</summary>
+        /// <summary>Current path, kept while replanning (stable display).</summary>
         public IReadOnlyList<Vector3> CurrentPath => displayPath;
         private bool replanRequested;
-        /// <summary>Demande un nouveau calcul d'itineraire (obstacle detecte sur le trajet).</summary>
+        /// <summary>Requests a new path (obstacle detected on the route).</summary>
         public void RequestReplan() { replanRequested = true; }
-        [Tooltip("Trie par famille : caisses bois ensemble, gros cartons ensemble, cartons moyens ensemble.")]
+        [Tooltip("Sort by family: wooden crates together, big boxes together, medium boxes together.")]
         public bool SortByKind = true;
-        [Tooltip("Autorise à poser un colis dans une colonne d'une autre famille quand il n'y a plus de place. Désactivé = sécurité de tri.")]
+        [Tooltip("Allows placing a box in a column of another family when there is no room left. Disabled = strict sorting.")]
         public bool AllowMixing = false;
-        [Tooltip("Force la destination sur ce rangement (banc). Vide = le banc libre le plus proche de la palette en cours.")]
+        [Tooltip("Forces this storage (bench) as destination. Empty = the free bench closest to the current pallet.")]
         public ShelfStorage ForcedBench;
 
-        [Header("Commande client")]
-        [Tooltip("A = caisses bois, B = gros cartons, C = cartons moyens. Exemple : A x2, B x3, C x1.")]
+        [Header("Customer order")]
+        [Tooltip("A = wooden crates, B = big boxes, C = medium boxes. Example: A x2, B x3, C x1.")]
         public string OrderText = "A x2, B x3, C x1";
-        [Tooltip("Zone de dechargement ou la commande est livree. Vide = le banc libre le plus proche.")]
+        [Tooltip("Drop zone where the order is delivered. Empty = the closest free bench.")]
         public ShelfStorage DeliveryZone;
-        [Tooltip("Execute la commande saisie au demarrage. Sinon le robot trie tout le stock.")]
+        [Tooltip("Runs the typed order on start. Otherwise the robot sorts the whole stock.")]
         public bool RunOrderOnStart = true;
 
-        [Header("Planification")]
-        [Tooltip("Demi-portée de la zone navigable en mètres. 0 = automatique (grille du GridRobotController).")]
+        [Header("Planning")]
+        [Tooltip("Half-extent of the navigable area in meters. 0 = automatic (GridRobotController grid).")]
         public float MapHalfExtent = 0f;
 
-        [Header("Affichage")]
-        [Tooltip("Dessine l'itinéraire dans la Game view et dans le build (les gizmos ne marchent que dans l'éditeur).")]
+        [Header("Display")]
+        [Tooltip("Draws the path in the Game view and in builds (gizmos only work in the editor).")]
         public bool ShowPathInGame = true;
         public float PathLineWidth = .03f;
 
-        [Header("Debug grille")]
-        [Tooltip("Colore les cases de la grille : vert = franchissable, rouge = bloquée.")]
+        [Header("Grid debug")]
+        [Tooltip("Colors the grid cells: green = walkable, red = blocked.")]
         public bool ShowGridDebug = true;
-        [Tooltip("Délai entre deux rafraîchissements de la grille de debug, en secondes.")]
+        [Tooltip("Delay between two refreshes of the debug grid, in seconds.")]
         public float GridRefresh = .5f;
         public Color FreeCellColor = new Color(0f, .9f, .3f, .22f);
         public Color BlockedCellColor = new Color(1f, .15f, .1f, .35f);
@@ -120,7 +120,7 @@ namespace RoboFactory.Integration
         private readonly List<ShelfInteractionZone> zones = new List<ShelfInteractionZone>();
         private readonly List<ShelfInteractionZone> orderedZones = new List<ShelfInteractionZone>();
         private readonly List<Vector3> path = new List<Vector3>();
-        private int pathCursor; // nombre de cellules déjà parcourues dans path
+        private int pathCursor; // number of cells of path already driven
         private float halfExtent;
         private bool ready;
 
@@ -133,8 +133,8 @@ namespace RoboFactory.Integration
 
         private void Start()
         {
-            Debug.Log("[Autopilot] Start sur " + name + " (AutoStart=" + AutoStart + ", controller=" +
-                      (Controller != null) + ", actif=" + gameObject.activeInHierarchy + ")");
+            Debug.Log("[Autopilot] Start on " + name + " (AutoStart=" + AutoStart + ", controller=" +
+                      (Controller != null) + ", active=" + gameObject.activeInHierarchy + ")");
             if (AutoStart) Begin();
         }
 
@@ -143,7 +143,7 @@ namespace RoboFactory.Integration
             if (Running) return;
             if (Controller == null)
             {
-                Debug.LogError("[Autopilot] GridRobotController introuvable sur " + name);
+                Debug.LogError("[Autopilot] GridRobotController not found on " + name);
                 return;
             }
             // The pilot owns the motion: the keyboard controller must not fight it.
@@ -160,20 +160,20 @@ namespace RoboFactory.Integration
         {
             Running = false;
             StopAllCoroutines();
-            Status = "arrêt";
+            Status = "stopped";
         }
 
         /// <summary>
-        /// Démarre en mode dirigé : le robot est prêt (grille, inventaire, contrôles
-        /// verrouillés) mais la boucle autonome Mission() ne tourne PAS. Seules les
-        /// missions PickMission envoyées par l'orchestrateur s'exécutent.
+        /// Starts in directed mode: the robot is ready (grid, inventory, controls
+        /// locked) but the autonomous Mission() loop does NOT run. Only the
+        /// PickMission missions sent by the orchestrator are executed.
         /// </summary>
         public void BeginDirected()
         {
             if (Running) return;
             if (Controller == null)
             {
-                Debug.LogError("[Autopilot] GridRobotController introuvable sur " + name);
+                Debug.LogError("[Autopilot] GridRobotController not found on " + name);
                 return;
             }
             Controller.controlsLocked = true;
@@ -188,8 +188,8 @@ namespace RoboFactory.Integration
                 homeCaptured = true;
             }
             Running = true;
-            Status = "en attente d'une mission dirigée";
-            Debug.Log("[Autopilot] mode dirigé sur " + name + " : " + zones.Count + " zones, en attente de l'orchestrateur");
+            Status = "waiting for a directed mission";
+            Debug.Log("[Autopilot] directed mode on " + name + ": " + zones.Count + " zones, waiting for the orchestrator");
         }
 
         private void RefreshZones()
@@ -199,13 +199,13 @@ namespace RoboFactory.Integration
             int found = zones.Count;
             int removed = zones.RemoveAll(z => z == null || z.shelf == null || z.dockPoint == null);
             SortZones();
-            Debug.Log("[Autopilot] scan: trouves=" + found + " retires=" + removed + " retenus=" + zones.Count +
-                      " ordonnes=" + orderedZones.Count + " scene=" + UnityEngine.SceneManagement.SceneManager.GetActiveScene().name);
+            Debug.Log("[Autopilot] scan: found=" + found + " removed=" + removed + " kept=" + zones.Count +
+                      " ordered=" + orderedZones.Count + " scene=" + UnityEngine.SceneManagement.SceneManager.GetActiveScene().name);
         }
 
         // ------------------------------------------------------------------ mission
 
-        /// <summary>Famille de colis, déduite du prefab (les CargoBox n'ont pas de type sérialisé).</summary>
+        /// <summary>Box family, deduced from the prefab name.</summary>
         public enum CargoKind { Unknown, WoodenCrate, BigCardboard, MediumCardboard, Mixed }
 
         public static CargoKind KindOf(CargoBox box)
@@ -218,7 +218,7 @@ namespace RoboFactory.Integration
             return CargoKind.Unknown;
         }
 
-        /// <summary>Famille déjà rangée dans une colonne (Unknown = colonne vide).</summary>
+        /// <summary>Family already stored in a column (Unknown = empty column).</summary>
         public static CargoKind ZoneKind(ShelfInteractionZone zone)
         {
             if (zone == null || zone.shelf == null || zone.shelf.columns == null) return CargoKind.Unknown;
@@ -233,7 +233,7 @@ namespace RoboFactory.Integration
                 if (box == null) continue;
                 CargoKind kind = KindOf(box);
                 if (result == CargoKind.Unknown) result = kind;
-                else if (result != kind) return CargoKind.Mixed; // colonne déjà mélangée : jamais réutilisée
+                else if (result != kind) return CargoKind.Mixed; // column already mixed: never reused
             }
             return result;
         }
@@ -262,7 +262,7 @@ namespace RoboFactory.Integration
                 }
             }
             if (carryRoot == null) BuildCarryRoot();
-            if (LogActions) Debug.Log("[Autopilot] inventaire : " + total + " colis dans " + zones.Count + " zones.");
+            if (LogActions) Debug.Log("[Autopilot] inventory: " + total + " boxes in " + zones.Count + " zones.");
         }
 
         /// <summary>ShelfStorage builds its table in Awake; a disabled component never runs it.</summary>
@@ -304,7 +304,7 @@ namespace RoboFactory.Integration
             return 0;
         }
 
-        /// <summary>A=0 caisses bois, B=1 gros cartons, C=2 cartons moyens.</summary>
+        /// <summary>A=0 wooden crates, B=1 big boxes, C=2 medium boxes.</summary>
         private static int KindIndex(CargoKind kind)
         {
             switch (kind)
@@ -327,7 +327,7 @@ namespace RoboFactory.Integration
             }
         }
 
-        /// <summary>Lit une commande du type "A x2, B x3, C x1".</summary>
+        /// <summary>Parses an order like "A x2, B x3, C x1".</summary>
         public bool ParseOrder(string text)
         {
             orderRemaining[0] = orderRemaining[1] = orderRemaining[2] = 0;
@@ -349,7 +349,7 @@ namespace RoboFactory.Integration
             return orderActive;
         }
 
-        /// <summary>Carton le plus haut de la colonne, lu directement dans la scène.</summary>
+        /// <summary>Topmost box of the column, read directly from the scene.</summary>
         private CargoBox TopBox(ShelfInteractionZone zone)
         {
             Transform[] levels = ColumnLevels(zone);
@@ -367,8 +367,8 @@ namespace RoboFactory.Integration
         {
             Transform[] levels = ColumnLevels(zone);
             if (levels == null) return false;
-            // Colonne dont le carton du dessus est réservé (Robot 2 vient le chercher) :
-            // déposer par-dessus l'enterrerait — on choisit une autre colonne.
+            // Column whose top box is reserved (Robot 2 is coming for it):
+            // dropping on top would bury it, so another column is chosen.
             var registry = RoboFactory.Logistics.CargoRegistry.Instance;
             if (registry != null)
             {
@@ -386,7 +386,7 @@ namespace RoboFactory.Integration
             return false;
         }
 
-        /// <summary>Numero entre parentheses du nom (pallet (2) -> 2, pallet -> 0).</summary>
+        /// <summary>Number in parentheses in the name (pallet (2) -> 2, pallet -> 0).</summary>
         private static int NaturalIndex(string name)
         {
             if (string.IsNullOrEmpty(name)) return 0;
@@ -400,8 +400,8 @@ namespace RoboFactory.Integration
         }
 
         /// <summary>
-        /// Ordre de travail deterministe : palettes d'abord (palette 1, puis 2, ...), bancs ensuite.
-        /// Le pilote vide donc entierement la palette 1 avant de toucher a la suivante.
+        /// Deterministic work order: pallets first (pallet 1, then 2, ...), benches next.
+        /// The pilot fully empties pallet 1 before touching the next one.
         /// </summary>
         private void SortZones()
         {
@@ -419,7 +419,7 @@ namespace RoboFactory.Integration
             });
         }
 
-        /// <summary>Niveaux réels de la colonne, ou null si la zone ne pointe pas sur une colonne valide.</summary>
+        /// <summary>Actual levels of the column, or null if the zone does not point to a valid column.</summary>
         public static Transform[] ColumnLevels(ShelfInteractionZone zone)
         {
             if (zone == null || zone.shelf == null || zone.shelf.columns == null) return null;
@@ -428,7 +428,7 @@ namespace RoboFactory.Integration
             return column != null ? column.levels : null;
         }
 
-        /// <summary>Vrai si aucun colis n'occupe la colonne (lecture directe de la scène).</summary>
+        /// <summary>True if no box occupies the column (read directly from the scene).</summary>
         public static bool IsEmptyColumn(ShelfInteractionZone zone)
         {
             Transform[] levels = ColumnLevels(zone);
@@ -438,13 +438,13 @@ namespace RoboFactory.Integration
             return true;
         }
 
-        /// <summary>Banc de tri (shelving) ou zone de stockage (palette).</summary>
+        /// <summary>Sorting bench (shelving) or storage zone (pallet).</summary>
         public static bool IsBench(ShelfInteractionZone zone)
         {
             return zone != null && zone.shelf != null && zone.shelf.name.ToLowerInvariant().Contains("shelving");
         }
 
-        /// <summary>Zone montée sur le camion — jamais une source pour le robot 1.</summary>
+        /// <summary>Zone inside a truck: never a source for robot 1.</summary>
         private static bool IsTruck(ShelfInteractionZone zone)
         {
             return zone != null && zone.shelf != null &&
@@ -455,11 +455,11 @@ namespace RoboFactory.Integration
         {
             switch (kind)
             {
-                case CargoKind.WoodenCrate: return "caisse bois";
-                case CargoKind.BigCardboard: return "gros carton";
-                case CargoKind.MediumCardboard: return "carton moyen";
-                case CargoKind.Mixed: return "colonne mélangée";
-                default: return "inconnu";
+                case CargoKind.WoodenCrate: return "wooden crate";
+                case CargoKind.BigCardboard: return "big box";
+                case CargoKind.MediumCardboard: return "medium box";
+                case CargoKind.Mixed: return "mixed column";
+                default: return "unknown";
             }
         }
 
@@ -467,7 +467,7 @@ namespace RoboFactory.Integration
         {
             yield return null; // let GridRobotController.Start snap the robot on the grid
             if (RunOrderOnStart && ParseOrder(OrderText))
-                Debug.Log("[Autopilot] commande : " + OrderText + " (A=" + orderRemaining[0] +
+                Debug.Log("[Autopilot] order: " + OrderText + " (A=" + orderRemaining[0] +
                           " B=" + orderRemaining[1] + " C=" + orderRemaining[2] + ")");
             if (!homeCaptured)
             {
@@ -483,7 +483,7 @@ namespace RoboFactory.Integration
                 {
                     if (homeCaptured && Vector3.Distance(transform.position, homePosition) > .35f)
                         yield return GoHome();
-                    Status = SortedCount + " colis triés - en attente d'ordres";
+                    Status = SortedCount + " boxes sorted - waiting for orders";
                     yield return new WaitForSeconds(2f);
                     RefreshZones();
                     continue;
@@ -491,7 +491,7 @@ namespace RoboFactory.Integration
 
                 lastSource = source;
                 CargoKind kind = KindOf(box);
-                Status = "prise " + KindName(kind);
+                Status = "picking " + KindName(kind);
                 yield return DriveToZone(source);
                 if (!legOk) { blocked.Add(box); yield return new WaitForSeconds(.2f); continue; }
                 yield return Interact(true, box);
@@ -508,16 +508,16 @@ namespace RoboFactory.Integration
                 {
                     // No room for this family: skip that box instead of fetching it forever.
                     blocked.Add(box);
-                    Status = "aucune place pour " + KindName(kind);
+                    Status = "no room for " + KindName(kind);
                     yield return new WaitForSeconds(.3f);
                     RefreshZones();
                     continue;
                 }
 
-                Status = "dépose " + KindName(kind) + " sur " + target.name;
+                Status = "dropping " + KindName(kind) + " on " + target.name;
                 if (LogActions)
-                    Debug.Log("[Autopilot] " + KindName(kind) + " -> " + target.name + " (colonne " +
-                              target.columnIndex + ", famille actuelle " + KindName(ZoneKind(target)) + ")");
+                    Debug.Log("[Autopilot] " + KindName(kind) + " -> " + target.name + " (column " +
+                              target.columnIndex + ", current family " + KindName(ZoneKind(target)) + ")");
                 yield return DriveToZone(target);
                 if (!legOk) { blockedZones.Add(target); yield return new WaitForSeconds(.2f); continue; }
                 yield return Interact(false, box);
@@ -525,8 +525,8 @@ namespace RoboFactory.Integration
                 {
                     CargoKind landed = ZoneKind(target);
                     if (landed != kind)
-                        Debug.LogError("[Autopilot] TRI INVALIDE : " + KindName(kind) + " posé dans une colonne " +
-                                       KindName(landed) + " (" + target.name + "). Colonne à vérifier.");
+                        Debug.LogError("[Autopilot] INVALID SORT: " + KindName(kind) + " placed in a column " +
+                                       KindName(landed) + " (" + target.name + "). Column needs checking.");
                     sorted.Add(box);
                     Delivered++;
                 }
@@ -534,20 +534,20 @@ namespace RoboFactory.Integration
                 {
                     int index = KindIndex(kind);
                     if (index >= 0 && orderRemaining[index] > 0) orderRemaining[index]--;
-                    Debug.Log("[Autopilot] commande : " + KindName(kind) + " livre, reste A=" + orderRemaining[0] +
+                    Debug.Log("[Autopilot] order: " + KindName(kind) + " delivered, remaining A=" + orderRemaining[0] +
                               " B=" + orderRemaining[1] + " C=" + orderRemaining[2]);
                     if (orderRemaining[0] + orderRemaining[1] + orderRemaining[2] == 0)
                     {
                         orderActive = false;
-                        Status = "commande terminee";
-                        Debug.Log("[Autopilot] commande terminee : retour au poste.");
+                        Status = "order complete";
+                        Debug.Log("[Autopilot] order complete: returning to base.");
                         yield return GoHome();
-                        Running = false;           // la mission s'arrete : plus de tri automatique
-                        Status = "en attente d'ordres";
+                        Running = false;           // the mission stops: no more automatic sorting
+                        Status = "waiting for orders";
                         yield break;
                     }
                 }
-                Status = KindName(kind) + " livre (" + SortedCount + ")";
+                Status = KindName(kind) + " delivered (" + SortedCount + ")";
                 yield return new WaitForSeconds(IdlePause);
             }
         }
@@ -564,36 +564,36 @@ namespace RoboFactory.Integration
             foreach (ShelfInteractionZone zone in orderedZones)
             {
                 if (blockedZones.Contains(zone)) continue;
-                // Sources = palettes uniquement : les bancs appartiennent au robot 2,
-                // et le robot 1 ne décharge jamais le camion.
+                // Sources = pallets only: benches belong to robot 2,
+                // and robot 1 never unloads the truck.
                 if (IsBench(zone) || IsTruck(zone)) continue;
                 CargoBox candidate = TopBox(zone);
                 if (candidate == null || sorted.Contains(candidate) || blocked.Contains(candidate)) continue;
                 if (orderActive)
                 {
                     int index = KindIndex(KindOf(candidate));
-                    if (index < 0 || orderRemaining[index] <= 0) continue; // pas dans la commande
+                    if (index < 0 || orderRemaining[index] <= 0) continue; // not in the order
                 }
                 box = candidate;
-                return zone; // ordre impose : on finit la palette en cours avant la suivante
+                return zone; // fixed order: finish the current pallet before the next one
             }
             if (!warnedNoSource)
             {
                 warnedNoSource = true;
                 ShelfInteractionZone first = orderedZones.Count > 0 ? orderedZones[0] : null;
-                Debug.LogWarning("[Autopilot] aucune source : zones=" + orderedZones.Count +
-                                 " premier=" + (first != null ? first.shelf.name + " col " + first.columnIndex : "-") +
-                                 " niveaux=" + (first != null && ColumnLevels(first) != null ? ColumnLevels(first).Length : -1) +
-                                 " carton=" + (first != null && TopBox(first) != null) +
-                                 " bloques=" + blocked.Count);
+                Debug.LogWarning("[Autopilot] no source: zones=" + orderedZones.Count +
+                                 " first=" + (first != null ? first.shelf.name + " col " + first.columnIndex : "-") +
+                                 " levels=" + (first != null && ColumnLevels(first) != null ? ColumnLevels(first).Length : -1) +
+                                 " box=" + (first != null && TopBox(first) != null) +
+                                 " blocked=" + blocked.Count);
             }
             return null;
         }
 
         /// <summary>
-        /// Choix deterministe : colonne deja reservee a la famille, sinon la colonne vide la PLUS
-        /// PROCHE du point de prise, sur un banc. Aucun melange possible, aucun choix au hasard.
-        /// Si ForcedBench est renseigne, seul ce rangement est utilise.
+        /// Deterministic choice: a column already reserved for the family, otherwise the CLOSEST
+        /// empty column to the pick point, on a bench. No mixing possible, no random choice.
+        /// If ForcedBench is set, only that storage is used.
         /// </summary>
         private ShelfInteractionZone FindTarget(ShelfInteractionZone source, CargoKind kind)
         {
@@ -613,24 +613,24 @@ namespace RoboFactory.Integration
                 if (drop != null) return drop;
             }
 
-            // 1) colonne deja reservee a cette famille, encore libre : la plus proche
+            // 1) column already reserved for this family, still free: the closest one
             ShelfInteractionZone best = Nearest(owned, from);
             if (best != null) return best;
 
-            // 2) nouvelle colonne totalement vide sur un banc, la plus proche
+            // 2) new, completely empty column on a bench: the closest one
             best = NearestEmpty(true, from, source);
             if (best != null) { owned.Add(best); return best; }
 
-            // 3) a defaut, n'importe quelle colonne vide
+            // 3) by default, any empty column
             best = NearestEmpty(false, from, source);
             if (best != null) { owned.Add(best); return best; }
 
-            return null; // plus de place pour cette famille : le colis est mis de cote
+            return null; // no room left for this family: the box is set aside
         }
 
         /// <summary>
-        /// Livraison dans la zone de dechargement, mais SANS jamais melanger : colonne deja dediee
-        /// a cette famille, sinon colonne vide. Une colonne melangee est exclue.
+        /// Delivery to the drop zone, but WITHOUT ever mixing: a column already dedicated
+        /// to this family, otherwise an empty column. A mixed column is excluded.
         /// </summary>
         private ShelfInteractionZone DeliveryColumn(Vector3 from, CargoKind kind)
         {
@@ -689,7 +689,7 @@ namespace RoboFactory.Integration
         private IEnumerator Interact(bool load, CargoBox box)
         {
             CurrentTarget = null;
-            Status = load ? "chargement" : "déchargement";
+            Status = load ? "loading" : "unloading";
 
             // First choice: the asset's own interaction (its carry anchor, its animations, its
             // placement code). The pilot only falls back if the asset refuses to react.
@@ -705,7 +705,7 @@ namespace RoboFactory.Integration
                     if (load) Picked++;
                     yield break;
                 }
-                Debug.LogWarning("[Autopilot] l'interaction Warcool n'a pas répondu, transfert manuel.");
+                Debug.LogWarning("[Autopilot] the cargo interactor did not respond, manual transfer.");
             }
 
             if (load)
@@ -781,7 +781,7 @@ namespace RoboFactory.Integration
         /// <summary>Returns to the post and waits there, ready for a new order.</summary>
         private IEnumerator GoHome()
         {
-            Status = "retour au poste";
+            Status = "returning to base";
             if (Plan(Snap(transform.position), Snap(homePosition)))
                 yield return FollowPath();
 
@@ -799,7 +799,7 @@ namespace RoboFactory.Integration
                 yield return null;
             }
             transform.rotation = homeRotation;
-            Status = "en attente d'ordres";
+            Status = "waiting for orders";
         }
 
         // ------------------------------------------------------------------ navigation
@@ -808,7 +808,7 @@ namespace RoboFactory.Integration
         {
             CurrentTarget = zone;
             legOk = false;
-            Status = "vers " + zone.name;
+            Status = "heading to " + zone.name;
             Vector3 dock = zone.dockPoint.position;
             Vector3 heading = zone.dockPoint.forward;
             heading.y = 0f;
@@ -819,8 +819,8 @@ namespace RoboFactory.Integration
             //    exactly on the dock point with the exact heading the zone expects.
             Vector3 startCell = Snap(transform.position);
             Vector3 goalCell = Snap(dock);
-            // Déjà sur la cellule du dock (ex. suspendu devant cette palette) : pas d'itinéraire
-            // grille. Sinon TryPlan visait une voisine souvent DANS le rack -> replan infini.
+            // Already on the dock cell (e.g. suspended in front of this pallet): no grid path.
+            // Otherwise TryPlan would target a neighbour, often INSIDE the rack -> endless replanning.
             if (ToCell(startCell) == ToCell(goalCell))
             {
                 path.Clear();
@@ -834,15 +834,15 @@ namespace RoboFactory.Integration
                 yield break;
             }
             bool planned = TryPlan(startCell, goalCell);
-            // Aucun itinéraire : idle sur place et nouvel essai périodique — l'obstacle est
-            // souvent temporaire (ouvrier, carton), le robot repart dès que le passage se libère.
+            // No path: idle in place and retry periodically. The obstacle is often temporary
+            // (worker, box); the robot leaves as soon as the way is clear.
             if (!planned || path.Count == 0)
             {
-                Debug.LogWarning("[Autopilot] aucun itinéraire vers " + goalCell.ToString("F2") +
-                                 " : attente sur place, nouvel essai toutes les " + ReplanInterval + " s.");
+                Debug.LogWarning("[Autopilot] no path to " + goalCell.ToString("F2") +
+                                 ": waiting in place, retrying every " + ReplanInterval + " s.");
                 while (Running)
                 {
-                    Status = "attente : trajet bloqué vers " + zone.name;
+                    Status = "waiting: path blocked to " + zone.name;
                     yield return new WaitForSeconds(ReplanInterval);
                     if (!Running) yield break;
                     planned = TryPlan(Snap(transform.position), goalCell);
@@ -864,14 +864,14 @@ namespace RoboFactory.Integration
                 Vector3 before = transform.position;
                 yield return FollowPath();
                 if (!replanRequested) break;
-                Status = "recalcul du trajet";
+                Status = "replanning path";
                 if ((transform.position - before).sqrMagnitude < 1e-4f)
-                    yield return new WaitForSeconds(ReplanInterval); // aucun progrès : attendre
+                    yield return new WaitForSeconds(ReplanInterval); // no progress: wait
                 planned = TryPlan(Snap(transform.position), goalCell);
-                // Plus de trajet non plus : attente sur place, pareil qu'au départ.
+                // No path either: wait in place, same as at the start.
                 while ((!planned || path.Count == 0) && Running)
                 {
-                    Status = "attente : trajet bloqué vers " + zone.name;
+                    Status = "waiting: path blocked to " + zone.name;
                     yield return new WaitForSeconds(ReplanInterval);
                     if (!Running) yield break;
                     planned = TryPlan(Snap(transform.position), goalCell);
@@ -884,9 +884,9 @@ namespace RoboFactory.Integration
             // Fine approach only from close range: it must never become a cross-map shortcut.
             if (Vector3.Distance(transform.position, dock) > 1.2f)
             {
-                Status = "arrêt hors portée de " + zone.name;
-                Debug.LogWarning("[Autopilot] arrivée à " + Vector3.Distance(transform.position, dock).ToString("F2") +
-                                 " m de " + zone.name + " : arrimage abandonné.");
+                Status = "stopped out of reach of " + zone.name;
+                Debug.LogWarning("[Autopilot] arrived " + Vector3.Distance(transform.position, dock).ToString("F2") +
+                                 " m from " + zone.name + ": docking aborted.");
                 blockedZones.Add(zone);
                 path.Clear();
                 pathCursor = 0;
@@ -894,14 +894,14 @@ namespace RoboFactory.Integration
                 yield break;
             }
 
-            replanRequested = false; // arrimage engagé : les demandes de replan ne concernent que le trajet grille
+            replanRequested = false; // docking started: replan requests only concern the grid path
             yield return TurnTo(heading);
             yield return FineApproach(dock, heading);
             yield return new WaitForSeconds(.1f);
             displayPath.Clear();
 
             if (!zone.IsRobotCorrectlyDocked(transform))
-                Debug.LogWarning("[Autopilot] arrimage approximatif à " + zone.name +
+                Debug.LogWarning("[Autopilot] approximate docking at " + zone.name +
                                  " (position " + Vector3.Distance(transform.position, dock).ToString("3") + " m)");
             legOk = true;
         }
@@ -936,17 +936,17 @@ namespace RoboFactory.Integration
 
                 for (int i = index; i <= end && Running; i++)
                 {
-                    // Re-check live avant chaque cellule : un collider apparu sur la route
-                    // déclenche un replan au lieu d'être traversé.
-                    // Dernière cellule = dock, acceptée par conception par le planificateur.
+                    // Live re-check before each cell: a collider appearing on the route
+                    // triggers a replan instead of being driven through.
+                    // Last cell = dock, accepted by design by the planner.
                     if (i < path.Count - 1 && !IsFree(path[i]))
                     {
                         RequestReplan();
                         yield break;
                     }
                     yield return MoveTo(path[i]);
-                    if (replanRequested) yield break; // cellule interrompue : pas consommée
-                    pathCursor = i + 1; // cellule consommée : elle disparaît du tracé
+                    if (replanRequested) yield break; // interrupted cell: not consumed
+                    pathCursor = i + 1; // consumed cell: removed from the drawn path
                     if (displayPath.Count > 0) displayPath.RemoveAt(0);
                     if (StepPause > 0f && i < end) yield return new WaitForSeconds(StepPause);
                 }
@@ -1001,7 +1001,7 @@ namespace RoboFactory.Integration
             transform.position = flatDock;
         }
 
-        // ------------------------------------------------------------------ grille + A*
+        // ------------------------------------------------------------------ grid + A*
 
         private Vector3 Snap(Vector3 world)
         {
@@ -1009,8 +1009,8 @@ namespace RoboFactory.Integration
         }
 
         /// <summary>
-        /// Route vers le but, ou vers une cellule voisine quand la cellule du dock est occupée
-        /// par le collider de l'étagère (l'approche fine couvre les derniers centimètres).
+        /// Route to the goal, or to a neighbouring cell when the dock cell is occupied
+        /// by the shelf collider (the fine approach covers the last centimeters).
         /// </summary>
         private bool TryPlan(Vector3 start, Vector3 goal)
         {
@@ -1023,7 +1023,7 @@ namespace RoboFactory.Integration
             foreach (Vector3 candidate in neighbours)
             {
                 Vector3 c = Snap(candidate);
-                if (!IsFree(c)) continue; // jamais une cellule dans le rack
+                if (!IsFree(c)) continue; // never a cell inside the rack
                 if (Plan(start, c) && path.Count > 0) return true;
             }
             return false;
@@ -1039,7 +1039,7 @@ namespace RoboFactory.Integration
                 if (PlanWith(start, goal, scale))
                 {
                     if (scale < 1f && LogActions)
-                        Debug.Log("[Autopilot] itinéraire trouvé avec une marge réduite (" + (scale * 100f).ToString("F0") + "%).");
+                        Debug.Log("[Autopilot] path found with a reduced clearance (" + (scale * 100f).ToString("F0") + "%).");
                     return true;
                 }
             }
@@ -1097,10 +1097,9 @@ namespace RoboFactory.Integration
             return new Vector3(cell.x * Cell, transform.position.y, cell.y * Cell);
         }
 
-        /// <summary>Test de franchissabilité d'une cellule avec les mêmes règles que
-        /// le planificateur (ObstacleMask + clearance) — utilisé par le capteur
-        /// "vision" pour ne jamais réclamer un itinéraire que le planificateur ne
-        /// peut pas produire.</summary>
+        /// <summary>Cell walkability test with the same rules as the planner
+        /// (ObstacleMask + clearance), used by the "vision" sensor so it never
+        /// asks for a path the planner cannot produce.</summary>
         public bool PathCellFree(Vector3 world) { return IsFree(world); }
 
         private bool IsFree(Vector3 world)
@@ -1111,8 +1110,8 @@ namespace RoboFactory.Integration
             foreach (Collider hit in hits)
             {
                 if (hit == null || hit.isTrigger) continue;
-                if (hit.bounds.max.y <= floorCut) continue; // sol / marquages au ras du plancher
-                // IsChildOf plutôt qu'une liste figée : couvre aussi ce qui s'attache plus tard (charge).
+                if (hit.bounds.max.y <= floorCut) continue; // floor / markings flush with the ground
+                // IsChildOf rather than a fixed list: also covers what gets attached later (load).
                 if (hit.transform.IsChildOf(transform)) continue;
                 return false;
             }
@@ -1135,17 +1134,17 @@ namespace RoboFactory.Integration
 
         private Vector3 lastPosition;
 
-        // ------------------------------------------------------------------ affichage runtime
-        // Les gizmos n'existent que dans l'éditeur : ce rendu reste visible dans un build.
+        // ------------------------------------------------------------------ runtime display
+        // Gizmos only exist in the editor: this rendering stays visible in a build.
 
         private Transform pathVizRoot;
         private LineRenderer pathLine;
         private Material pathMaterial;
         private int pathHash = -1;
 
-        // ------------------------------------------------------------------ debug grille
-        // Overlay au sol : vert = cellule franchissable pour le planificateur, rouge = bloquée.
-        // Positions en monde : l'objet n'est PAS parenté au robot (sinon il suivrait son déplacement).
+        // ------------------------------------------------------------------ grid debug
+        // Ground overlay: green = walkable cell for the planner, red = blocked.
+        // World positions: the object is NOT parented to the robot (otherwise it would follow it).
 
         private Transform gridRoot;
         private Mesh gridMesh;
@@ -1179,7 +1178,7 @@ namespace RoboFactory.Integration
         {
             if (gridRoot != null) return;
             var go = new GameObject("Autopilot Grid Debug");
-            gridRoot = go.transform; // racine de scène : le mesh stocke des positions monde
+            gridRoot = go.transform; // scene root: the mesh stores world positions
             gridMesh = new Mesh { name = "Autopilot grid", indexFormat = IndexFormat.UInt32 };
             go.AddComponent<MeshFilter>().sharedMesh = gridMesh;
             var renderer = go.AddComponent<MeshRenderer>();
@@ -1207,7 +1206,7 @@ namespace RoboFactory.Integration
             return mat;
         }
 
-        /// <summary>Même test que IsFree mais sans allocation, pour scanner toute la grille.</summary>
+        /// <summary>Same test as IsFree but allocation-free, to scan the whole grid.</summary>
         private bool CellFreeDebug(Vector3 world)
         {
             Vector3 center = new Vector3(world.x, transform.position.y, world.z) + CheckOffset;
@@ -1289,7 +1288,7 @@ namespace RoboFactory.Integration
                     pathHash = hash;
                     RebuildPathViz();
                 }
-                // Le premier point suit le robot en direct, même sans changement de trajet.
+                // The first point follows the robot live, even without a path change.
                 if (pathLine.positionCount > 0)
                     pathLine.SetPosition(0, transform.position + Vector3.up * .02f);
             }
@@ -1324,7 +1323,7 @@ namespace RoboFactory.Integration
             }
         }
 
-        /// <summary>Ligne au sol : position du robot puis cellules restantes du trajet.</summary>
+        /// <summary>Ground line: robot position, then the remaining cells of the path.</summary>
         private void RebuildPathViz()
         {
             int n = path.Count - pathCursor;
@@ -1341,16 +1340,15 @@ namespace RoboFactory.Integration
                 Gizmos.DrawLine(path[i - 1], path[i]);
         }
 
-        // ------------------------------------------------------------------ mission dirigée (Muse Wonder)
+        // ------------------------------------------------------------------ directed mission (Muse Wonder)
         //
-        // L'orchestrateur découpe le plan Muse en étapes : (palette, type, quantité).
-        // Le robot exécute les étapes dans l'ordre, ne prend que le carton réellement
-        // au-dessus d'une colonne, marque chaque carton avec l'orderId, puis le dépose
-        // sur le banc imposé. En cas de rupture sur une palette, il continue sur les
-        // palettes de secours déjà approuvées par Muse — sans attendre une nouvelle
-        // décision de l'API. Rapport détaillé en fin de mission.
+        // The orchestrator splits the Muse plan into legs: (pallet, type, quantity).
+        // The robot runs the legs in order, only takes the box actually on top of a
+        // column, tags each box with the orderId, then drops it on the assigned bench.
+        // If a pallet runs out, it continues on the fallback pallets already approved
+        // by Muse, without waiting for a new API decision. Detailed report at the end.
 
-        /// <summary>Une étape de prélèvement : palette + type + quantité.</summary>
+        /// <summary>One pick leg: pallet + type + quantity.</summary>
         public sealed class PickLeg
         {
             public ShelfStorage Pallet;
@@ -1360,7 +1358,7 @@ namespace RoboFactory.Integration
             public int Picked;
         }
 
-        /// <summary>Rapport de fin de mission dirigée.</summary>
+        /// <summary>End-of-mission report.</summary>
         public sealed class PickMissionReport
         {
             public int OrderId;
@@ -1369,54 +1367,54 @@ namespace RoboFactory.Integration
             public int TotalPicked;
             public bool Aborted;
             public string AbortReason;
-            /// <summary>Quantité non prélevée par type (A,B,C) — rupture totale.</summary>
+            /// <summary>Quantity not picked per type (A,B,C): complete stock-out.</summary>
             public readonly int[] Missing = new int[3];
         }
 
-        /// <summary>Mission dirigée en cours.</summary>
+        /// <summary>Directed mission in progress.</summary>
         public bool MissionActive { get; private set; }
-        /// <summary>Dernier rapport (null avant la première mission).</summary>
+        /// <summary>Last report (null before the first mission).</summary>
         public PickMissionReport LastReport { get; private set; }
-        /// <summary>Le robot vient de finir une étape (prévue ou écourtée).</summary>
+        /// <summary>The robot just finished a leg (planned or cut short).</summary>
         public event System.Action<PickLeg> LegFinished;
-        /// <summary>Changement d'itinéraire suite à une rupture ("P01 -> P02 (A)").</summary>
+        /// <summary>Route change after a stock-out ("P01 -> P02 (A)").</summary>
         public event System.Action<string> RouteChanged;
-        /// <summary>Chaque carton réellement prélevé (après marquage orderId).</summary>
+        /// <summary>Each box actually picked (after orderId tagging).</summary>
         public event System.Action<CargoBox, PickLeg> BoxPicked;
-        /// <summary>Chaque carton réellement posé sur le banc.</summary>
+        /// <summary>Each box actually placed on the bench.</summary>
         public event System.Action<CargoBox> BoxStaged;
 
         private bool missionAbort;
         private bool missionSuspend;
         private PickLeg activeLeg;
-        /// <summary>Étape en cours (pour le HUD : palette + reste).</summary>
+        /// <summary>Current leg (for the HUD: pallet + remaining).</summary>
         public PickLeg ActiveLeg => activeLeg;
-        [Tooltip("Après la mission dirigée, le robot rentre se garer à sa position initiale.")]
+        [Tooltip("After a directed mission, the robot parks back at its initial position.")]
         public bool ReturnHomeAfterMission = true;
-        /// <summary>Missions en file derrière la courante : >0 -> enchaîner sans retour base.</summary>
+        /// <summary>Missions queued behind the current one: >0 -> chain without returning to base.</summary>
         public int QueuedPicks;
-        /// <summary>L'orchestrateur peut demander à R1 de rester sur place après une
-        /// collecte (décision Muse en vol, commandes en pause à reprendre) : le
-        /// retour base est différé tant que cela renvoie true et qu'aucune collecte
-        /// n'est arrivée en file (même principe que TruckLoaderAgent.StayOut).</summary>
+        /// <summary>The orchestrator can ask R1 to stay in place after a pick
+        /// (Muse decision in flight, paused orders to resume): returning to base is
+        /// deferred while this returns true and no pick has been queued
+        /// (same principle as TruckLoaderAgent.StayOut).</summary>
         public System.Func<bool> StayOut;
-        [Tooltip("Attente max sur place (s) avant de rentrer quand aucune collecte n'arrive.")]
-        public float StayOutMaxWait = 100f;   // > 45 s Wonder + 45 s Spark : R1 ne rentre plus pendant un repli
+        [Tooltip("Max wait in place (s) before returning to base when no pick arrives.")]
+        public float StayOutMaxWait = 100f;   // > 45 s Wonder + 45 s Spark: R1 no longer returns to base during a fallback
 
-        /// <summary>Annule la mission dirigée en cours (le robot dépose ce qu'il porte).</summary>
+        /// <summary>Cancels the current directed mission (the robot drops what it carries).</summary>
         public void AbortMission() { missionAbort = true; }
 
         /// <summary>
-        /// Suspension sûre (commande urgente) : finit l'opération physique en cours —
-        /// un carton en main est TOUJOURS déposé sur le banc de la commande — puis
-        /// termine la mission sans démarrer de nouveau prélèvement.
+        /// Safe suspension (urgent order): finishes the physical operation in progress
+        /// (a box in hand is ALWAYS dropped on the order's bench), then ends the
+        /// mission without starting a new pick.
         /// </summary>
         public void SuspendMission() { missionSuspend = true; }
 
         /// <summary>
-        /// Exécute les étapes dans l'ordre puis dépose sur le banc imposé.
-        /// fallbacks : palettes de secours approuvées par Muse, dans l'ordre de préférence.
-        /// Le rapport final arrive dans done (toujours appelé, même en échec).
+        /// Runs the legs in order, then drops on the assigned bench.
+        /// fallbacks: backup pallets approved by Muse, in order of preference.
+        /// The final report arrives in done (always called, even on failure).
         /// </summary>
         public IEnumerator PickMission(List<PickLeg> legs, List<ShelfStorage> fallbacks,
                                        ShelfStorage bench, int orderId,
@@ -1440,15 +1438,15 @@ namespace RoboFactory.Integration
 
                 while (remaining > 0 && Running && !missionAbort)
                 {
-                    // Suspension : on ne commence un nouveau prélèvement que mains libres ;
-                    // un carton en main poursuit jusqu'au banc (jamais relâché au sol).
+                    // Suspension: a new pick only starts with empty hands;
+                    // a box in hand goes on to the bench (never released on the floor).
                     if (missionSuspend && carried == null) break;
-                    // Carton réellement accessible : le dessus d'une colonne du bon type,
-                    // non réservé, et appartenant au stock libre ou à cette commande.
+                    // Actually reachable box: top of a column of the right type,
+                    // not reserved, and belonging to free stock or to this order.
                     ShelfInteractionZone zone = TopZoneWithKind(leg.Pallet, leg.Kind, orderId);
                     if (zone == null)
                     {
-                        // Rupture sur cette palette : chaîne de secours approuvée par Muse.
+                        // Stock-out on this pallet: fallback chain approved by Muse.
                         ShelfStorage fallback = NextFallback(fallbacks, usedFallbacks, leg.Kind, orderId);
                         if (fallback != null)
                         {
@@ -1461,47 +1459,47 @@ namespace RoboFactory.Integration
                                 Picked = 0
                             };
                             report.Legs.Add(next);
-                            report.TotalPlanned += 0; // même quantité, source différente
+                            report.TotalPlanned += 0; // same quantity, different source
                             usedFallbacks.Add(fallback);
                             queue = Requeue(next, queue);
                             string msg = leg.PalletId + " -> " + next.PalletId + " (" + KindName(leg.Kind) +
-                                         ", reste " + remaining + ")";
-                            Debug.Log("[Autopilot] rupture : " + msg);
+                                         ", remaining " + remaining + ")";
+                            Debug.Log("[Autopilot] stock-out: " + msg);
                             RouteChanged?.Invoke(msg);
-                            leg.Planned = leg.Picked; // l'étape se termine à ce qui a été pris
+                            leg.Planned = leg.Picked; // the leg ends with what was picked
                             break;
                         }
                         int idx = KindIndex(leg.Kind);
                         if (idx >= 0) report.Missing[idx] += remaining;
-                        Debug.LogWarning("[Autopilot] " + leg.PalletId + " : plus de " + KindName(leg.Kind) +
-                                         " accessible, reste " + remaining + " non prélevé(s)");
+                        Debug.LogWarning("[Autopilot] " + leg.PalletId + ": no more " + KindName(leg.Kind) +
+                                         " reachable, " + remaining + " not picked");
                         break;
                     }
 
-                    // ---- aller chercher le carton
+                    // ---- go and fetch the box
                     lastSource = zone;
                     yield return DriveToZone(zone);
                     int attempts = 0;
                     while (!legOk && attempts++ < 3 && Running && !missionAbort)
                     {
-                        Status = "dock " + zone.name + " occupé : nouvel essai";
+                        Status = "dock " + zone.name + " busy: retrying";
                         yield return new WaitForSeconds(1f);
                         yield return DriveToZone(zone);
                     }
-                    if (!legOk) // dock inatteignable : la palette est de fait indisponible
+                    if (!legOk) // dock unreachable: the pallet is effectively unavailable
                     {
-                        Debug.LogWarning("[Autopilot] dock " + zone.name + " inatteignable : palette écartée");
+                        Debug.LogWarning("[Autopilot] dock " + zone.name + " unreachable: pallet skipped");
                         blockedZones.Add(zone);
-                        continue; // TopZoneWithKind trouvera une autre colonne, sinon rupture
+                        continue; // TopZoneWithKind will find another column, otherwise stock-out
                     }
-                    if (!Running || missionAbort || missionSuspend) break; // encore mains libres ici
+                    if (!Running || missionAbort || missionSuspend) break; // hands still free here
 
-                    // Relecture après trajet : le dessus a pu changer pendant le trajet.
+                    // Re-read after driving: the top may have changed meanwhile.
                     CargoBox box = TopBox(zone);
                     if (box == null || KindOf(box) != leg.Kind || !CanTakeForOrder(box, orderId))
-                        continue; // ce carton n'est plus là : on relit la scène au tour suivant
+                        continue; // this box is gone: re-read the scene on the next loop
 
-                    Status = "prise " + box.name + " (commande #" + orderId + ")";
+                    Status = "picking " + box.name + " (order #" + orderId + ")";
                     yield return Interact(true, box);
                     if (carried != box)
                     {
@@ -1509,26 +1507,26 @@ namespace RoboFactory.Integration
                         yield return new WaitForSeconds(.3f);
                         continue;
                     }
-                    box.orderId = orderId; // le carton appartient désormais à cette commande
+                    box.orderId = orderId; // the box now belongs to this order
                     BoxPicked?.Invoke(box, leg);
 
-                    // ---- dépôt sur le banc imposé (attente si plein : R2 peut le vider)
+                    // ---- drop on the assigned bench (wait if full: R2 can empty it)
                     ShelfInteractionZone target = null;
                     while (target == null && Running && !missionAbort)
                     {
                         target = BenchZoneWithRoom(bench, transform.position);
                         if (target == null)
                         {
-                            Status = "banc plein : attente d'un niveau libre";
+                            Status = "bench full: waiting for a free level";
                             yield return new WaitForSeconds(.8f);
                         }
                     }
                     if (!Running || missionAbort) break;
                     lastTarget = target;
                     yield return DriveToZone(target);
-                    while (!legOk && Running && !missionAbort) // le banc DOIT être atteint
+                    while (!legOk && Running && !missionAbort) // the bench MUST be reached
                     {
-                        Status = "dock banc bloqué : nouvel essai";
+                        Status = "bench dock blocked: retrying";
                         yield return new WaitForSeconds(1f);
                         yield return DriveToZone(target);
                     }
@@ -1541,14 +1539,14 @@ namespace RoboFactory.Integration
                         remaining--;
                         Delivered++;
                         BoxStaged?.Invoke(box);
-                        Status = leg.Kind + " posé (" + leg.Picked + "/" + leg.Planned + " sur " + leg.PalletId + ")";
+                        Status = leg.Kind + " placed (" + leg.Picked + "/" + leg.Planned + " from " + leg.PalletId + ")";
                     }
                     else
                     {
-                        // Le carton n'a pas pu être posé : jamais un robot figé avec sa charge.
-                        Debug.LogError("[Autopilot] dépose impossible de " + box.name + " : mission abandonnée");
+                        // The box could not be placed: never leave a robot frozen with its load.
+                        Debug.LogError("[Autopilot] cannot drop " + box.name + ": mission aborted");
                         report.Aborted = true;
-                        report.AbortReason = "dépose impossible sur " + bench.name;
+                        report.AbortReason = "cannot drop on " + bench.name;
                         DropCarried();
                         break;
                     }
@@ -1560,29 +1558,29 @@ namespace RoboFactory.Integration
             if (missionAbort || missionSuspend)
             {
                 report.Aborted = true;
-                report.AbortReason = missionSuspend ? "suspendue pour commande urgente"
-                                                    : "annulée par l'orchestrateur";
+                report.AbortReason = missionSuspend ? "suspended for an urgent order"
+                                                    : "cancelled by the orchestrator";
             }
             if (carried != null) DropCarried();
             report.TotalPicked = 0;
             foreach (PickLeg l in report.Legs) report.TotalPicked += l.Picked;
-            Status = report.Aborted ? (missionSuspend ? "mission suspendue" : "mission abandonnée")
-                     : report.TotalPicked >= report.TotalPlanned ? "collecte terminée"
-                     : "collecte incomplète (rupture)";
+            Status = report.Aborted ? (missionSuspend ? "mission suspended" : "mission aborted")
+                     : report.TotalPicked >= report.TotalPlanned ? "pick complete"
+                     : "pick incomplete (stock-out)";
             done?.Invoke(report);
-            // Rentrer au poste initial : le robot ne reste pas garé devant le banc.
-            // MissionActive reste vrai pendant le trajet : pas de nouvelle mission avant le parking.
-            // Sauf si une collecte est déjà en file : on enchaîne directement dessus.
-            // Mission SUSPENDUE : arrêt sûr sur place (mains libres) — l'urgente
-            // reprend R1 immédiatement, le retour base n'aurait fait que la retarder.
+            // Return to the initial post: the robot does not stay parked in front of the bench.
+            // MissionActive stays true while driving: no new mission before parking.
+            // Unless a pick is already queued: chain directly onto it.
+            // SUSPENDED mission: safe stop in place (empty hands); the urgent order
+            // takes R1 immediately, returning to base would only delay it.
             if (ReturnHomeAfterMission && Running && QueuedPicks <= 0 && !missionSuspend)
             {
-                // Travail imminent (décision Muse en vol, reprise après urgente) :
-                // attendre sur place plutôt que faire l'aller-retour à la base. La
-                // collecte suivante (QueuedPicks > 0) libère R1 immédiatement.
+                // Work imminent (Muse decision in flight, resume after an urgent order):
+                // wait in place instead of a round trip to base. The next pick
+                // (QueuedPicks > 0) releases R1 immediately.
                 if (StayOut != null && StayOut())
                 {
-                    Status = "attente sur place : décision Muse en cours";
+                    Status = "holding position: Muse decision pending";
                     float until = Time.time + StayOutMaxWait;
                     while (Running && QueuedPicks <= 0 && StayOut() && Time.time < until)
                         yield return null;
@@ -1601,8 +1599,8 @@ namespace RoboFactory.Integration
         }
 
         /// <summary>
-        /// Colonne de la palette dont le dessus porte le bon type : le seul carton
-        /// physiquement accessible. Stock libre (orderId -1) ou déjà à cette commande.
+        /// Pallet column whose top carries the right type: the only physically
+        /// reachable box. Free stock (orderId -1) or already owned by this order.
         /// </summary>
         private ShelfInteractionZone TopZoneWithKind(ShelfStorage pallet, CargoKind kind, int orderId)
         {
@@ -1618,18 +1616,18 @@ namespace RoboFactory.Integration
             return null;
         }
 
-        /// <summary>Carton prélevable pour cette commande : stock libre ou déjà réservé à elle.</summary>
+        /// <summary>Box pickable for this order: free stock or already reserved for it.</summary>
         private bool CanTakeForOrder(CargoBox box, int orderId)
         {
             if (box == null || box.isCarried) return false;
-            if (box.orderId >= 0 && box.orderId != orderId) return false; // autre commande
+            if (box.orderId >= 0 && box.orderId != orderId) return false; // another order
             var registry = CargoRegistry.Instance;
             if (registry != null && registry.IsReserved(box) &&
                 !ReferenceEquals(registry.ReservedBy(box), this)) return false;
             return true;
         }
 
-        /// <summary>Première palette de secours approuvée portant encore le bon type au sommet.</summary>
+        /// <summary>First approved fallback pallet still carrying the right type on top.</summary>
         private ShelfStorage NextFallback(List<ShelfStorage> fallbacks, HashSet<ShelfStorage> used,
                                           CargoKind kind, int orderId)
         {
@@ -1642,7 +1640,7 @@ namespace RoboFactory.Integration
             return null;
         }
 
-        /// <summary>Colonne du banc imposé avec un niveau libre (la plus proche).</summary>
+        /// <summary>Column of the assigned bench with a free level (the closest).</summary>
         private ShelfInteractionZone BenchZoneWithRoom(ShelfStorage bench, Vector3 from)
         {
             ShelfInteractionZone best = null;
@@ -1658,7 +1656,7 @@ namespace RoboFactory.Integration
             return best;
         }
 
-        /// <summary>Pose le carton porté au sol devant le robot (dernier recours).</summary>
+        /// <summary>Puts the carried box on the floor in front of the robot (last resort).</summary>
         private void DropCarried()
         {
             if (carried == null) return;

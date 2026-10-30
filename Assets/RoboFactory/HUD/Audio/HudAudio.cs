@@ -4,9 +4,9 @@ using UnityEngine;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Sons d'interface du HUD : une AudioSource 2D, clips synthétisés, volume par son,
-    /// anti-répétition, coupure globale mémorisée (touche N ou bouton SOUND).
-    /// Ne joue QUE sur des événements réels transmis par MuseHudRoot.
+    /// HUD interface sounds: one 2D AudioSource, synthesised clips, per-sound volume,
+    /// anti-repetition, remembered global mute (N key or SOUND button).
+    /// Plays ONLY on real events forwarded by MuseHudRoot.
     /// </summary>
     public sealed class HudAudio
     {

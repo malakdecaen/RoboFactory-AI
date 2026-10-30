@@ -5,9 +5,9 @@ using UnityEngine;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Polices du HUD. Bahnschrift (police DIN industrielle livrée avec Windows 10/11) est
-    /// chargée dynamiquement ; sinon Segoe UI ; sinon la police TMP par défaut du projet.
-    /// Aucun asset à importer : rien ne casse si la police système est absente.
+    /// HUD fonts. Bahnschrift (industrial DIN font shipped with Windows 10/11) is
+    /// loaded dynamically; otherwise Segoe UI; otherwise the project's default TMP font.
+    /// No asset to import: nothing breaks if the system font is missing.
     /// </summary>
     public static class HudFonts
     {
@@ -16,9 +16,9 @@ namespace RoboFactory.HUD
         private static TMP_FontAsset strong;
 
         public static TMP_FontAsset Regular { get { Load(); return regular; } }
-        /// <summary>Graisse forte (SemiBold si disponible, sinon Regular + style gras TMP).</summary>
+        /// <summary>Strong weight (SemiBold if available, otherwise Regular + TMP bold style).</summary>
         public static TMP_FontAsset Strong { get { Load(); return strong; } }
-        /// <summary>Vrai si Strong est une vraie graisse (pas besoin du gras synthétique).</summary>
+        /// <summary>True if Strong is a real weight (no need for synthetic bold).</summary>
         public static bool StrongIsNative { get; private set; }
 
         private static void Load()
@@ -27,7 +27,7 @@ namespace RoboFactory.HUD
             loaded = true;
             TMP_FontAsset fallback = TMP_Settings.defaultFontAsset;
 
-            // même famille pour les deux graisses (pas de mélange Bahnschrift / Segoe UI)
+            // same family for both weights (no mixing of Bahnschrift / Segoe UI)
             regular = TryCreate("Bahnschrift", "Regular");
             if (regular != null)
                 strong = TryCreate("Bahnschrift", "SemiBold") ?? TryCreate("Bahnschrift", "Bold");
@@ -56,7 +56,7 @@ namespace RoboFactory.HUD
             }
             catch (System.Exception e)
             {
-                Debug.Log("[HUD] police " + family + " " + style + " indisponible : " + e.Message);
+                Debug.Log("[HUD] font " + family + " " + style + " unavailable: " + e.Message);
             }
             return null;
         }

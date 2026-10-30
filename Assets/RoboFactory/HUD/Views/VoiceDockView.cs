@@ -7,8 +7,8 @@ using UnityEngine.UI;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Dock vocal compact : bouton micro, onde audio réelle, transcription progressive,
-    /// badge LIVE / MOCK / OFFLINE. Les actions appellent VoiceCommandController (Toggle / Cancel).
+    /// Compact voice dock: microphone button, real audio waveform, progressive transcription,
+    /// LIVE / MOCK / OFFLINE badge. The actions call VoiceCommandController (Toggle / Cancel).
     /// </summary>
     public sealed class VoiceDockView
     {
@@ -35,7 +35,7 @@ namespace RoboFactory.HUD
             Root = HudFactory.GlassPanel(parent, "Voice Dock", HudTheme.GlassStrong, null, 10);
             HudFactory.Place(Root, new Vector2(.5f, 0f), new Vector2(.5f, 0f), new Vector2(0f, HudTheme.BottomRowY), new Vector2(HudTheme.VoiceW, HudTheme.VoiceH));
 
-            // ---- bouton micro (60 px)
+            // ---- microphone button (60 px)
             RectTransform mic = HudFactory.Rect("Mic Button", Root);
             HudFactory.Place(mic, new Vector2(0f, .5f), new Vector2(.5f, .5f), new Vector2(46f, 0f), new Vector2(60f, 60f));
             micDisk = mic.gameObject.AddComponent<Image>();
@@ -60,7 +60,7 @@ namespace RoboFactory.HUD
             HudFactory.Place(foot.rectTransform, new Vector2(.5f, .5f), new Vector2(.5f, .5f), new Vector2(0f, -14f), new Vector2(11f, 2f));
             micIcon = new[] { capsule, stem, foot };
 
-            // ---- état
+            // ---- state
             TextMeshProUGUI label = HudFactory.Text(Root, "Label", "MUSE VOICE", 17f, HudTheme.TextHi, true, TextAlignmentOptions.Left, 2f);
             HudFactory.Place(label.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(88f, -9f), new Vector2(120f, 22f));
             modeChip = HudFactory.Chip(Root, "Mode", "LIVE", HudTheme.Green, 62f, 22f);
@@ -123,7 +123,7 @@ namespace RoboFactory.HUD
             HudFactory.Set(statusText, status);
             HudFactory.SetColor(statusText, !string.IsNullOrEmpty(v.Failure) ? HudTheme.Red : rec ? HudTheme.Cyan : HudTheme.TextMid);
 
-            // onde : enveloppe réelle du micro, sinon ligne plate
+            // waveform: real microphone envelope, otherwise a flat line
             top.Clear();
             bottom.Clear();
             int bins = MicLevelProbe.Bins;
@@ -141,7 +141,7 @@ namespace RoboFactory.HUD
             HudFactory.SetColor(waveTop, waveColor);
             HudFactory.SetColor(waveBottom, HudTheme.A(waveColor, waveColor.a * .6f));
 
-            // transcription progressive (machine à écrire sur le texte réel)
+            // progressive transcription (typewriter effect on the real text)
             string target = !string.IsNullOrEmpty(v.Live) && (rec || v.Finishing) ? v.Live
                           : !string.IsNullOrEmpty(v.Final) ? v.Final : v.Live;
             if (target != targetTranscript)
@@ -154,7 +154,7 @@ namespace RoboFactory.HUD
             string shown = targetTranscript.Substring(0, Mathf.FloorToInt(shownChars));
             if (string.IsNullOrEmpty(targetTranscript))
             {
-                HudFactory.Set(transcriptText, "<color=#" + HudTheme.Hex(HudTheme.TextLow) + "><i>“Urgent: two cartons A, one carton B”</i></color>");
+                HudFactory.Set(transcriptText, "<color=#" + HudTheme.Hex(HudTheme.TextLow) + "><i>“Urgent: two boxes A, one box B”</i></color>");
             }
             else
             {

@@ -4,9 +4,9 @@ using UnityEngine;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Installe le HUD Muse Wonder au lancement de toute scène contenant un MuseOrchestrator
-    /// (aucune modification de scène requise). Pour le désactiver : AutoInstall = false,
-    /// ou placer soi-même un MuseHudRoot dans la scène pour le configurer dans l'inspecteur.
+    /// Installs the Muse Wonder HUD when any scene containing a MuseOrchestrator starts
+    /// (no scene change required). To disable it: AutoInstall = false,
+    /// or place a MuseHudRoot in the scene yourself to configure it in the inspector.
     /// </summary>
     public static class MuseHudBootstrap
     {

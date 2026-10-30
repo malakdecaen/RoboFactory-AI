@@ -12,9 +12,9 @@ using Newtonsoft.Json.Linq;
 namespace RoboFactory.MetaServer
 {
     /// <summary>
-    /// Serveur Meta intégré au jeu : remplace Tools/MetaProxy/meta_proxy.py, mêmes routes et mêmes
-    /// réponses sur http://127.0.0.1:8765, donc aucun client Unity ne change. Aucune dépendance Unity :
-    /// démarré par MetaServerHost. La clé API ne sort jamais de ce processus.
+    /// Meta server built into the game: replaces Tools/MetaProxy/meta_proxy.py, same routes and same
+    /// answers on http://127.0.0.1:8765, so no Unity client changes. No Unity dependency:
+    /// started by MetaServerHost. The API key never leaves this process.
     /// Routes : GET /health ; POST /order /vision /sam /supervise /warehouse /urgent /capacity
     /// /asr/start /asr/audio /asr/finish /asr/cancel.
     /// </summary>
@@ -36,7 +36,7 @@ namespace RoboFactory.MetaServer
 
         public int AsrSessionCount { get { lock (sessionsLock) return sessions.Count; } }
 
-        // ------------------------------------------------------------------ cycle de vie
+        // ------------------------------------------------------------------ lifecycle
 
         public bool Start()
         {
@@ -57,7 +57,7 @@ namespace RoboFactory.MetaServer
             Running = true;
             acceptThread = new Thread(AcceptLoop) { IsBackground = true, Name = "MetaLocalServer" };
             acceptThread.Start();
-            Logger?.Invoke("serveur Meta intégré sur http://127.0.0.1:" + Port + "  key_present=" + (MetaApi.LoadKey() != null));
+            Logger?.Invoke("built-in Meta server on http://127.0.0.1:" + Port + "  key_present=" + (MetaApi.LoadKey() != null));
             return true;
         }
 
@@ -88,7 +88,7 @@ namespace RoboFactory.MetaServer
                     if (!Running) break;
                     continue;
                 }
-                // une requête = une tâche (équivalent ThreadingHTTPServer)
+                // one request = one task (equivalent of ThreadingHTTPServer)
                 Task.Run(() => Handle(ctx));
             }
         }
@@ -176,7 +176,7 @@ namespace RoboFactory.MetaServer
             }
             catch (Exception e)
             {
-                Logger?.Invoke("erreur interne : " + e.GetType().Name + " " + e.Message);
+                Logger?.Invoke("internal error: " + e.GetType().Name + " " + e.Message);
                 SendJson(ctx, 500, new JObject { ["ok"] = false, ["error"] = "internal error: " + e.Message });
             }
         }
@@ -622,7 +622,7 @@ namespace RoboFactory.MetaServer
             SendJson(ctx, 200, response);
         }
 
-        // ------------------------------------------------------------------ ASR temps réel
+        // ------------------------------------------------------------------ real-time ASR
 
         private AsrSession GetSession(string id)
         {
@@ -703,7 +703,7 @@ namespace RoboFactory.MetaServer
             if (pcmTok != null && pcmTok.Type == JTokenType.String && pcmTok.Value<string>().Length > 0)
             {
                 byte[] pcm;
-                // base64.b64decode (non strict) : caractères hors alphabet ignorés, comme en Python
+                // base64.b64decode (non-strict): characters outside the alphabet ignored, like in Python
                 var clean = new StringBuilder();
                 foreach (char ch in pcmTok.Value<string>())
                     if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '+' || ch == '/' || ch == '=')
@@ -717,14 +717,14 @@ namespace RoboFactory.MetaServer
                 queued = pcm.Length;
                 if (session.Mock)
                 {
-                    // Démo sans micro : le partiel révèle le texte progressivement.
+                    // Demo without a microphone: the partial reveals the text progressively.
                     if (session.MockText.Length > 0)
                     {
                         session.StatusReveal = Math.Min(session.MockText.Length, session.StatusReveal + 14);
                         session.Partial = session.MockText.Substring(0, session.StatusReveal);
                     }
                 }
-                else session.Enqueue(pcm); // session en fermeture : accepté mais ignoré, l'état le signale
+                else session.Enqueue(pcm); // session closing: accepted but ignored, the state reports it
             }
             int latency = Ms(started);
             JObject status = session.Status();
@@ -759,7 +759,7 @@ namespace RoboFactory.MetaServer
                 return;
             }
             session.Finish();
-            // Attendre la transcription finale : durée de l'audio en file + marge de vidage du modèle.
+            // Wait for the final transcription: duration of the queued audio + model flush margin.
             double waitS = Math.Min(45.0, session.QueuedMs / 1000.0 + 15.0);
             bool gotFinal = session.FinalEvent.Wait(TimeSpan.FromSeconds(waitS));
             string transcript = session.FinalText.Length > 0 ? session.FinalText : session.Error == null ? session.Partial : "";

@@ -1,18 +1,18 @@
 namespace RoboFactory.Logistics
 {
     /// <summary>
-    /// Étape logistique d'un carton. Le statut n'est PAS stocké sur le carton :
-    /// il est déduit de sa hiérarchie (sous une palette, un banc, un robot, le camion),
-    /// ce qui évite toute désynchronisation entre le monde visuel et la logique.
+    /// Logistics stage of a box. The status is NOT stored on the box:
+    /// it is deduced from its hierarchy (under a pallet, a bench, a robot, the truck),
+    /// which avoids any desync between the visual world and the logic.
     /// </summary>
     public enum CargoStatus
     {
         Unknown,
-        OnPallet,   // sous un point de niveau d'une palette
-        OnBench,    // sous un point de niveau d'un banc
-        Carried,    // sous un robot (peu importe lequel)
-        InTruck,    // sous un slot du TruckBay
-        Loose       // nulle part ailleurs (au sol, déplacé à la main...)
+        OnPallet,   // under a level point of a pallet
+        OnBench,    // under a level point of a bench
+        Carried,    // under a robot (whichever one)
+        InTruck,    // under a TruckBay slot
+        Loose       // nowhere else (on the floor, moved by hand...)
     }
 
     public static class CargoStatusNames
@@ -21,12 +21,12 @@ namespace RoboFactory.Logistics
         {
             switch (status)
             {
-                case CargoStatus.OnPallet: return "palette";
-                case CargoStatus.OnBench: return "banc";
-                case CargoStatus.Carried: return "transporté";
-                case CargoStatus.InTruck: return "camion";
-                case CargoStatus.Loose: return "au sol";
-                default: return "inconnu";
+                case CargoStatus.OnPallet: return "pallet";
+                case CargoStatus.OnBench: return "bench";
+                case CargoStatus.Carried: return "carried";
+                case CargoStatus.InTruck: return "truck";
+                case CargoStatus.Loose: return "on the floor";
+                default: return "unknown";
             }
         }
     }

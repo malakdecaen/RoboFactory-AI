@@ -7,18 +7,18 @@ using RoboFactory.Sim;
 namespace RoboFactory.Logistics
 {
     /// <summary>
-    /// Catalogue du monde : attribue des identifiants stables (P01, B01, T01, R1, R2)
-    /// aux ressources de la scène et construit l'instantané envoyé à Muse Wonder.
+    /// World catalogue: assigns stable identifiers (P01, B01, T01, R1, R2)
+    /// to the scene's resources and builds the snapshot sent to Muse Wonder.
     ///
-    /// Les ids sont triés par nom puis position : déterministes entre les balayages,
-    /// donc une décision Muse reste interprétée de la même façon toute la mission.
+    /// Ids are sorted by name then position: deterministic between scans,
+    /// so a Muse decision is interpreted the same way for the whole mission.
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class WarehouseWorld : MonoBehaviour
     {
         public static WarehouseWorld Instance { get; private set; }
 
-        [Tooltip("Vitesse de déplacement utilisée pour les ETA (m/s).")]
+        [Tooltip("Travel speed used for the ETAs (m/s).")]
         public float RobotSpeed = 1.8f;
 
         private readonly Dictionary<string, ShelfStorage> pallets = new Dictionary<string, ShelfStorage>();
@@ -28,7 +28,7 @@ namespace RoboFactory.Logistics
         private readonly Dictionary<ShelfStorage, string> benchIds = new Dictionary<ShelfStorage, string>();
         private readonly Dictionary<TruckBay, string> truckIds = new Dictionary<TruckBay, string>();
 
-        /// <summary>Réservations logiques des bancs/palettes : id ressource -> id commande.</summary>
+        /// <summary>Logical reservations of benches/pallets: resource id -> order id.</summary>
         private readonly Dictionary<string, int> benchReservations = new Dictionary<string, int>();
         private readonly Dictionary<string, int> palletReservations = new Dictionary<string, int>();
 
@@ -49,7 +49,7 @@ namespace RoboFactory.Logistics
             if (Instance == this) Instance = null;
         }
 
-        // ------------------------------------------------------------------ accès par id
+        // ------------------------------------------------------------------ access by id
 
         public ShelfStorage Pallet(string id) => pallets.TryGetValue(id ?? "", out ShelfStorage s) ? s : null;
         public ShelfStorage Bench(string id) => benches.TryGetValue(id ?? "", out ShelfStorage s) ? s : null;
@@ -62,7 +62,7 @@ namespace RoboFactory.Logistics
         public IEnumerable<string> BenchIds => benches.Keys;
         public IEnumerable<string> TruckIds => trucks.Keys;
 
-        /// <summary>Position du dock d'une ressource (ou son transform).</summary>
+        /// <summary>Dock position of a resource (or its transform).</summary>
         public bool TryPositionOf(string resourceId, out Vector3 position)
         {
             position = default;
@@ -86,7 +86,7 @@ namespace RoboFactory.Logistics
             return false;
         }
 
-        // ------------------------------------------------------------------ réservations logiques
+        // ------------------------------------------------------------------ logical reservations
 
         public bool ReserveBench(string benchId, int orderId)
         {
@@ -123,9 +123,9 @@ namespace RoboFactory.Logistics
             return null;
         }
 
-        // ------------------------------------------------------------------ balayage
+        // ------------------------------------------------------------------ scanning
 
-        /// <summary>Renumérote les ressources (ordre stable : nom, puis position).</summary>
+        /// <summary>Renumbers the resources (stable order: name, then position).</summary>
         public void Refresh()
         {
             pallets.Clear(); benches.Clear(); trucks.Clear();
@@ -201,9 +201,9 @@ namespace RoboFactory.Logistics
             return 0;
         }
 
-        // ------------------------------------------------------------------ instantané
+        // ------------------------------------------------------------------ snapshot
 
-        /// <summary>Construit l'état réel de l'entrepôt pour Muse Wonder.</summary>
+        /// <summary>Builds the real warehouse state for Muse Wonder.</summary>
         public WarehouseSnapshot BuildSnapshot(List<WhOrderState> orders, int stateVersion,
                                                string trigger, string mode, List<string> incidents,
                                                string lastRejection)
@@ -216,7 +216,7 @@ namespace RoboFactory.Logistics
                 orders = orders != null ? orders.ToArray() : new WhOrderState[0],
                 incidents = incidents != null ? incidents.ToArray() : new string[0],
                 last_rejection = lastRejection,
-                box_type_legend = "A=caisse bois (wooden_crate), B=gros carton (big_cardboard), C=carton moyen (medium_cardboard)"
+                box_type_legend = "A=wooden crate (wooden_crate), B=big cardboard box (big_cardboard), C=medium cardboard box (medium_cardboard)"
             };
 
             Vector3 r1Pos = R1 != null ? R1.transform.position : Vector3.zero;
@@ -230,7 +230,7 @@ namespace RoboFactory.Logistics
                 var top = new WhStock();
                 foreach (CargoBox box in s.GetComponentsInChildren<CargoBox>(true))
                 {
-                    if (box == null || box.isCarried || box.orderId >= 0) continue; // déjà affecté
+                    if (box == null || box.isCarried || box.orderId >= 0) continue; // already assigned
                     switch (box.TypeLetter)
                     {
                         case "A": stock.a++; break;
@@ -238,7 +238,7 @@ namespace RoboFactory.Logistics
                         case "C": stock.c++; break;
                     }
                 }
-                // Carton directement prenable par type : dessus de chaque colonne.
+                // Box directly takeable per type: top of each column.
                 foreach (ShelfStorage.StorageColumn column in s.columns ?? new ShelfStorage.StorageColumn[0])
                 {
                     if (column == null || column.levels == null) continue;
@@ -254,7 +254,7 @@ namespace RoboFactory.Logistics
                             case "B": top.b++; break;
                             case "C": top.c++; break;
                         }
-                        break; // seul le dessus compte
+                        break; // only the top counts
                     }
                 }
                 palletList.Add(new WhPallet
@@ -328,7 +328,7 @@ namespace RoboFactory.Logistics
                     carrying = R1.MissionActive,
                     available = R1.Running,
                     busy = R1.MissionActive,
-                    mission = R1.MissionActive ? "collecte dirigée" : null
+                    mission = R1.MissionActive ? "directed pick" : null
                 });
             if (R2 != null)
                 robotList.Add(new WhRobot
@@ -340,11 +340,11 @@ namespace RoboFactory.Logistics
                     carrying = R2.Carried != null,
                     available = R2.Running,
                     busy = R2.MissionActive,
-                    mission = R2.MissionActive ? "chargement dirigé" : null
+                    mission = R2.MissionActive ? "directed load" : null
                 });
             snap.robots = robotList.ToArray();
 
-            // ---- distances utiles : R1->palettes, palettes->bancs, bancs->camions
+            // ---- useful distances: R1->pallets, pallets->benches, benches->trucks
             var distances = new List<WhDistance>();
             foreach (KeyValuePair<string, ShelfStorage> kv in pallets)
             {
@@ -397,7 +397,7 @@ namespace RoboFactory.Logistics
             return best;
         }
 
-        /// <summary>Au moins un banc non réservé avec un niveau libre (except : banc exclu, ex. voie urgente).</summary>
+        /// <summary>At least one unreserved bench with a free level (except: excluded bench, e.g. urgent lane).</summary>
         public bool HasFreeBench(string except = null)
         {
             foreach (KeyValuePair<string, ShelfStorage> kv in benches)
@@ -408,7 +408,7 @@ namespace RoboFactory.Logistics
             return false;
         }
 
-        /// <summary>Au moins un camion non réservé avec un slot libre (except : camion exclu, ex. voie urgente).</summary>
+        /// <summary>At least one unreserved truck with a free slot (except: excluded truck, e.g. urgent lane).</summary>
         public bool HasFreeTruck(string except = null)
         {
             foreach (KeyValuePair<string, TruckBay> kv in trucks)
@@ -416,7 +416,7 @@ namespace RoboFactory.Logistics
             return false;
         }
 
-        /// <summary>Au moins un carton libre (non réservé, non affecté) sur une palette non réservée.</summary>
+        /// <summary>At least one free box (unreserved, unassigned) on an unreserved pallet.</summary>
         public bool HasAnyFreeStock()
         {
             foreach (KeyValuePair<string, ShelfStorage> kv in pallets)
@@ -428,20 +428,20 @@ namespace RoboFactory.Logistics
             return false;
         }
 
-        /// <summary>Niveaux libres d'un banc (0 si inconnu).</summary>
+        /// <summary>Free levels of a bench (0 if unknown).</summary>
         public int BenchFreeLevels(string benchId)
         {
             ShelfStorage s = Bench(benchId);
             return s != null ? FreeLevels(s) : 0;
         }
 
-        /// <summary>Banc réservé par une commande (-1 = libre).</summary>
+        /// <summary>Bench reserved by an order (-1 = free).</summary>
         public int BenchReservedBy(string benchId)
         {
             return benchId != null && benchReservations.TryGetValue(benchId, out int id) ? id : -1;
         }
 
-        /// <summary>Stock libre (cartons non affectés à une commande) d'un type, toutes palettes confondues.</summary>
+        /// <summary>Free stock (boxes not assigned to an order) of one type, across all pallets.</summary>
         public int FreeStock(string type)
         {
             int n = 0;
@@ -450,7 +450,7 @@ namespace RoboFactory.Logistics
             return n;
         }
 
-        /// <summary>Nombre de niveaux sans carton sur ce stockage.</summary>
+        /// <summary>Number of levels without a box on this storage.</summary>
         private static int FreeLevels(ShelfStorage s)
         {
             if (s == null || s.columns == null) return 0;
@@ -464,7 +464,7 @@ namespace RoboFactory.Logistics
             return free;
         }
 
-        /// <summary>Stock réel d'un type sur une palette (lecture scène directe).</summary>
+        /// <summary>Real stock of one type on a pallet (direct scene read).</summary>
         public int StockOnPallet(string palletId, string type)
         {
             ShelfStorage s = Pallet(palletId);

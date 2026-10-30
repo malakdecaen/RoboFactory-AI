@@ -4,24 +4,24 @@ using UnityEngine;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Sprites et textures procédurales (générés une fois, mis en cache) : panneaux de verre
-    /// à coins coupés, contours fins, halos, disques, lignes douces, anneaux de sélection.
-    /// Bords anti-aliasés par champ de distance : rendu net sans aucun asset importé.
+    /// Procedural sprites and textures (generated once, cached): glass panels
+    /// with cut corners, thin outlines, halos, discs, soft lines, selection rings.
+    /// Edges anti-aliased with a distance field: crisp rendering without any imported asset.
     /// </summary>
     public static class HudSprites
     {
         private static readonly Dictionary<string, Sprite> sprites = new Dictionary<string, Sprite>();
         private static readonly Dictionary<string, Texture2D> textures = new Dictionary<string, Texture2D>();
 
-        // ------------------------------------------------------------------ panneaux
+        // ------------------------------------------------------------------ panels
 
-        /// <summary>Remplissage de panneau à coins coupés (haut-gauche et bas-droite), 9-slice.</summary>
+        /// <summary>Panel fill with cut corners (top-left and bottom-right), 9-slice.</summary>
         public static Sprite ChamferFill(int cut = 12) { return Chamfer(cut, 0f); }
 
-        /// <summary>Contour fin du même panneau, 9-slice.</summary>
+        /// <summary>Thin outline of the same panel, 9-slice.</summary>
         public static Sprite ChamferStroke(int cut = 12, float stroke = 1.25f) { return Chamfer(cut, stroke); }
 
-        /// <summary>Rectangle arrondi (remplissage ou contour), 9-slice.</summary>
+        /// <summary>Rounded rectangle (fill or outline), 9-slice.</summary>
         public static Sprite Rounded(int radius = 6, float stroke = 0f)
         {
             string key = "round_" + radius + "_" + stroke;
@@ -64,7 +64,7 @@ namespace RoboFactory.HUD
             {
                 float fx = x + .5f - size * .5f, fy = y + .5f - size * .5f;
                 float dBox = Mathf.Max(Mathf.Abs(fx) - half, Mathf.Abs(fy) - half);
-                // coin haut-gauche (x<0, y>0) et coin bas-droite (x>0, y<0)
+                // top-left corner (x<0, y>0) and bottom-right corner (x>0, y<0)
                 float dTl = ((-fx + fy) - (2f * half - cut)) * inv;
                 float dBr = ((fx - fy) - (2f * half - cut)) * inv;
                 float d = Mathf.Max(dBox, Mathf.Max(dTl, dBr));
@@ -80,7 +80,7 @@ namespace RoboFactory.HUD
             return s;
         }
 
-        /// <summary>Ombre portée douce (9-slice) pour détacher les panneaux de la scène.</summary>
+        /// <summary>Soft drop shadow (9-slice) to lift the panels off the scene.</summary>
         public static Sprite SoftShadow()
         {
             const string key = "softshadow";
@@ -108,9 +108,9 @@ namespace RoboFactory.HUD
             return s;
         }
 
-        // ------------------------------------------------------------------ formes
+        // ------------------------------------------------------------------ shapes
 
-        /// <summary>Disque plein anti-aliasé.</summary>
+        /// <summary>Anti-aliased filled disc.</summary>
         public static Sprite Circle()
         {
             const string key = "circle";
@@ -132,7 +132,7 @@ namespace RoboFactory.HUD
             return s;
         }
 
-        /// <summary>Halo radial (gaussienne douce), pour les lueurs et pulsations.</summary>
+        /// <summary>Radial halo (soft gaussian), for glows and pulses.</summary>
         public static Sprite Glow()
         {
             const string key = "glow";
@@ -156,7 +156,7 @@ namespace RoboFactory.HUD
             return s;
         }
 
-        /// <summary>Ligne horizontale qui s'estompe aux deux extrémités.</summary>
+        /// <summary>Horizontal line that fades out at both ends.</summary>
         public static Sprite FadeLine()
         {
             const string key = "fadeline";
@@ -179,7 +179,7 @@ namespace RoboFactory.HUD
             return s;
         }
 
-        /// <summary>Dégradé vertical (opaque en bas → transparent en haut) pour les reflets.</summary>
+        /// <summary>Vertical gradient (opaque at the bottom → transparent at the top) for reflections.</summary>
         public static Sprite VerticalFade()
         {
             const string key = "vfade";
@@ -198,7 +198,7 @@ namespace RoboFactory.HUD
             return s;
         }
 
-        /// <summary>Hachures diagonales (bandeau d'urgence), répétables.</summary>
+        /// <summary>Diagonal hatching (urgent banner), tileable.</summary>
         public static Sprite Hazard()
         {
             const string key = "hazard";
@@ -222,9 +222,9 @@ namespace RoboFactory.HUD
             return s;
         }
 
-        // ------------------------------------------------------------------ textures monde
+        // ------------------------------------------------------------------ world textures
 
-        /// <summary>Anneau holographique de sélection au sol (tirets + halo), blanc à teinter.</summary>
+        /// <summary>Holographic selection ring on the floor (dashes + halo), white to be tinted.</summary>
         public static Texture2D SelectionRing()
         {
             const string key = "selring";
@@ -238,14 +238,14 @@ namespace RoboFactory.HUD
                 float fx = x + .5f - 128f, fy = y + .5f - 128f;
                 float r = Mathf.Sqrt(fx * fx + fy * fy);
                 float ang = Mathf.Atan2(fy, fx) * Mathf.Rad2Deg + 180f;
-                // anneau principal en tirets
+                // main dashed ring
                 float ring = Mathf.Clamp01(1f - Mathf.Abs(r - 118f) / 3.2f);
                 float dash = Mathf.Repeat(ang, 30f) < 21f ? 1f : 0f;
-                // anneau intérieur fin continu
+                // thin continuous inner ring
                 float inner = Mathf.Clamp01(1f - Mathf.Abs(r - 104f) / 1.4f) * .7f;
-                // graduations courtes vers l'intérieur
+                // short ticks pointing inwards
                 float tick = (Mathf.Repeat(ang, 10f) < 1.6f && r > 88f && r < 98f) ? .55f : 0f;
-                // halo diffus intérieur
+                // diffuse inner halo
                 float halo = r < 118f ? Mathf.Pow(r / 118f, 6f) * .22f : 0f;
                 float a = Mathf.Max(ring * dash, Mathf.Max(inner, Mathf.Max(tick, halo)));
                 px[y * size + x] = White(a);
@@ -257,7 +257,7 @@ namespace RoboFactory.HUD
             return t;
         }
 
-        /// <summary>Profil transversal doux pour les lignes de trajet (LineRenderer).</summary>
+        /// <summary>Soft cross-section profile for the path lines (LineRenderer).</summary>
         public static Texture2D BeamProfile()
         {
             const string key = "beam";
@@ -267,7 +267,7 @@ namespace RoboFactory.HUD
             var px = new Color32[w * h];
             for (int y = 0; y < h; y++)
             {
-                float v = Mathf.Abs((y + .5f) / h - .5f) * 2f;   // 0 au centre, 1 au bord
+                float v = Mathf.Abs((y + .5f) / h - .5f) * 2f;   // 0 at the center, 1 at the edge
                 float core = Mathf.Clamp01(1f - v / .28f);
                 float glow = Mathf.Pow(Mathf.Clamp01(1f - v), 2.2f) * .45f;
                 float a = Mathf.Max(core, glow);
@@ -280,7 +280,7 @@ namespace RoboFactory.HUD
             return t;
         }
 
-        // ------------------------------------------------------------------ utilitaires
+        // ------------------------------------------------------------------ utilities
 
         private static Texture2D NewTex(int w, int h)
         {
@@ -293,11 +293,11 @@ namespace RoboFactory.HUD
             return tex;
         }
 
-        /// <summary>Couverture anti-aliasée : remplissage (stroke = 0) ou contour intérieur.</summary>
+        /// <summary>Anti-aliased coverage: fill (stroke = 0) or inner outline.</summary>
         private static float Alpha(float d, float stroke)
         {
             if (stroke <= 0f) return Mathf.Clamp01(.5f - d);
-            float inner = d + stroke;   // distance au bord intérieur du trait
+            float inner = d + stroke;   // distance to the inner edge of the stroke
             return Mathf.Clamp01(.5f - d) * Mathf.Clamp01(.5f + inner);
         }
 

@@ -6,12 +6,12 @@ using UnityEngine;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Remplacement progressif de l'ancienne interface SANS modifier son code :
-    /// on ne touche qu'à des drapeaux d'affichage publics (et on les restaure en DEBUG).
-    ///  - MuseDebugHud (IMGUI) masqué au démarrage ; F1 le ré-affiche comme avant.
-    ///  - Fenêtre vision IMGUI de WarehouseRobotVisionHud masquée, sa caméra (doublon) coupée.
-    ///  - Grilles de debug et tracés de chemin d'origine masqués hors DEBUG (le HUD trace les siens).
-    ///  - Disques de sélection d'origine (ResourceHighlighter) masqués hors DEBUG.
+    /// Progressive replacement of the old interface WITHOUT modifying its code:
+    /// only public display flags are touched (and they are restored in DEBUG).
+    ///  - MuseDebugHud (IMGUI) hidden at start; F1 shows it again as before.
+    ///  - IMGUI vision window of WarehouseRobotVisionHud hidden, its (duplicate) camera turned off.
+    ///  - Original debug grids and path traces hidden outside DEBUG (the HUD draws its own).
+    ///  - Original selection discs (ResourceHighlighter) hidden outside DEBUG.
     /// </summary>
     public sealed class LegacyUiController
     {
@@ -38,7 +38,7 @@ namespace RoboFactory.HUD
         {
             bool debug = mode == HudMode.Debug;
 
-            // ancien panneau IMGUI : masqué une seule fois (F1 reste fonctionnel)
+            // old IMGUI panel: hidden only once (F1 still works)
             if (!debugHudHidden)
             {
                 MuseDebugHud hud = Object.FindFirstObjectByType<MuseDebugHud>();
@@ -48,7 +48,7 @@ namespace RoboFactory.HUD
             foreach (WarehouseRobotVisionHud v in Object.FindObjectsByType<WarehouseRobotVisionHud>(FindObjectsSortMode.None))
             {
                 v.ShowVision = false;
-                // caméra "Robot eye camera" de l'ancienne fenêtre : remplacée par le flux du HUD
+                // "Robot eye camera" of the old window: replaced by the HUD feed
                 foreach (Camera c in v.GetComponentsInChildren<Camera>(true))
                     if (c.name == "Robot eye camera" && c.enabled) c.enabled = false;
             }
@@ -71,8 +71,8 @@ namespace RoboFactory.HUD
                 g.ShowPath = debug && Original(g, "path");
             }
 
-            // volumes rouges translucides des zones interdites (NavBlocker) : purement visuels,
-            // la navigation lit le BoxCollider -> masqués hors DEBUG, comportement inchangé
+            // translucent red volumes of the no-go zones (NavBlocker): purely visual,
+            // navigation reads the BoxCollider -> hidden outside DEBUG, behaviour unchanged
             foreach (NavBlocker nb in NavBlocker.All)
             {
                 if (nb == null) continue;
@@ -98,7 +98,7 @@ namespace RoboFactory.HUD
             return keyed.TryGetValue(o.GetInstanceID() + key, out bool v) && v;
         }
 
-        /// <summary>Restaure tous les drapeaux d'origine (HUD désactivé / détruit).</summary>
+        /// <summary>Restores every original flag (HUD disabled / destroyed).</summary>
         public void RestoreAll()
         {
             mode = HudMode.Debug;

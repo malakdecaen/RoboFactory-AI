@@ -9,9 +9,9 @@ using RoboFactory.Sim;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Pont lecture-seule entre les systèmes existants (MuseOrchestrator, robots, camions,
-    /// voix) et le HUD. Ne prend AUCUNE décision logistique : il lit les états publics,
-    /// les traduit en ViewModels et signale les changements (nouvelle décision, étape urgente).
+    /// Read-only bridge between the existing systems (MuseOrchestrator, robots, trucks,
+    /// voice) and the HUD. Makes NO logistics decision: it reads the public states,
+    /// turns them into ViewModels and signals changes (new decision, urgent stage).
     /// </summary>
     public sealed class HudDataSource : IDisposable
     {
@@ -23,12 +23,12 @@ namespace RoboFactory.HUD
 
         public readonly HudModel Model = new HudModel();
 
-        /// <summary>Nouvelle décision enregistrée par l'orchestrateur (acceptée ou refusée).</summary>
+        /// <summary>New decision recorded by the orchestrator (accepted or refused).</summary>
         public event Action<DecisionVM> DecisionArrived;
-        /// <summary>Changement d'étape du pipeline urgent (ancienne, nouvelle).</summary>
+        /// <summary>Urgent pipeline stage change (old, new).</summary>
         public event Action<string, string> UrgentStageChanged;
 
-        // santé du proxy (GET /health, lecture seule)
+        // proxy health (GET /health, read-only)
         public bool? HealthOk;
         public string HealthModel = "";
 
@@ -42,7 +42,7 @@ namespace RoboFactory.HUD
         private WarehouseRobotAutopilot subscribedR1;
         private WarehouseRobotVisionHud r1Vision;
 
-        // ------------------------------------------------------------------ liaison
+        // ------------------------------------------------------------------ link
 
         public bool Bind()
         {
@@ -85,7 +85,7 @@ namespace RoboFactory.HUD
 
         public void Dispose() { Unsubscribe(); }
 
-        // ------------------------------------------------------------------ rafraîchissement
+        // ------------------------------------------------------------------ refresh
 
         public void Refresh()
         {
@@ -183,7 +183,7 @@ namespace RoboFactory.HUD
             return v;
         }
 
-        /// <summary>Lit le résumé produit par MuseOrchestrator.Describe : "#12 P02:Ax2 P05:Bx1 -> B03 -> T02".</summary>
+        /// <summary>Reads the summary produced by MuseOrchestrator.Describe: "#12 P02:Ax2 P05:Bx1 -> B03 -> T02".</summary>
         public static void ParsePlan(DecisionVM v)
         {
             v.Picks.Clear();
@@ -320,17 +320,17 @@ namespace RoboFactory.HUD
                 OrderVM order = m.FindOrder(b.OrderId);
                 switch (R2.State)
                 {
-                    case TruckLoaderAgent.R2State.VersBanc:
-                    case TruckLoaderAgent.R2State.Prise:
-                    case TruckLoaderAgent.R2State.AttenteColis:
+                    case TruckLoaderAgent.R2State.ToBench:
+                    case TruckLoaderAgent.R2State.Picking:
+                    case TruckLoaderAgent.R2State.WaitingForBoxes:
                         b.Destination = order != null && order.Bench != "" ? order.Bench : "BENCH";
                         break;
-                    case TruckLoaderAgent.R2State.VersCamion:
-                    case TruckLoaderAgent.R2State.Depose:
-                    case TruckLoaderAgent.R2State.AttenteCamion:
+                    case TruckLoaderAgent.R2State.ToTruck:
+                    case TruckLoaderAgent.R2State.Dropping:
+                    case TruckLoaderAgent.R2State.WaitingForTruck:
                         b.Destination = order != null && order.Truck != "" ? order.Truck : "TRUCK";
                         break;
-                    case TruckLoaderAgent.R2State.RetourBase:
+                    case TruckLoaderAgent.R2State.ReturningHome:
                         b.Destination = "HOME";
                         break;
                     default:
@@ -344,16 +344,16 @@ namespace RoboFactory.HUD
                 b.RouteBlocked = false;
                 b.LegInfo = "";
                 if (!b.Operational) { b.Activity = "OFFLINE"; b.ActivityTarget = ""; }
-                else if (R2.State == TruckLoaderAgent.R2State.RetourBase) { b.Activity = "RETURNING"; b.ActivityTarget = ""; }
+                else if (R2.State == TruckLoaderAgent.R2State.ReturningHome) { b.Activity = "RETURNING"; b.ActivityTarget = ""; }
                 else if (!b.MissionActive) { b.Activity = R2.QueuedLoads > 0 ? "QUEUED" : "STANDBY"; b.ActivityTarget = ""; }
                 else
                 {
                     switch (R2.State)
                     {
-                        case TruckLoaderAgent.R2State.AttenteColis: b.Activity = "WAITING"; break;
-                        case TruckLoaderAgent.R2State.AttenteCamion: b.Activity = "WAITING"; break;
-                        case TruckLoaderAgent.R2State.VersBanc:
-                        case TruckLoaderAgent.R2State.Prise: b.Activity = "TAKING BOX"; break;
+                        case TruckLoaderAgent.R2State.WaitingForBoxes: b.Activity = "WAITING"; break;
+                        case TruckLoaderAgent.R2State.WaitingForTruck: b.Activity = "WAITING"; break;
+                        case TruckLoaderAgent.R2State.ToBench:
+                        case TruckLoaderAgent.R2State.Picking: b.Activity = "TAKING BOX"; break;
                         default: b.Activity = "LOADING"; break;
                     }
                     b.ActivityTarget = b.Destination == "—" ? "" : b.Destination;
@@ -384,25 +384,25 @@ namespace RoboFactory.HUD
             return "1× " + box.TypeLetter;
         }
 
-        /// <summary>Traduction lisible des statuts texte (français) du pilote R1.</summary>
+        /// <summary>Readable translation of the R1 driver's text statuses.</summary>
         public static string MapStatus(string raw, bool operational)
         {
             if (!operational) return "OFFLINE";
             string s = (raw ?? "").ToLowerInvariant();
-            if (s.StartsWith("vers ")) return "MOVING";
-            if (s.Contains("recalcul")) return "REPLANNING";
-            if (s.Contains("bloqu")) return "PATH BLOCKED";
-            if (s.Contains("suspendue")) return "SUSPENDED";
-            if (s.Contains("abandonn")) return "ABORTED";
-            if (s.StartsWith("prise")) return "TAKING BOX";
-            if (s.StartsWith("dépose") || s.Contains("posé")) return "DROPPING";
-            if (s.Contains("banc plein")) return "BENCH FULL";
-            if (s.Contains("occupé")) return "DOCK BUSY";
-            if (s.Contains("sur place")) return "WAITING";
-            if (s.StartsWith("retour")) return "RETURNING";
-            if (s.Contains("chargement")) return "HANDLING";
-            if (s.Contains("attente")) return "IDLE";
-            if (s.Contains("arrêt")) return "STOPPED";
+            if (s.StartsWith("heading to ")) return "MOVING";
+            if (s.Contains("replanning")) return "REPLANNING";
+            if (s.Contains("blocked")) return "PATH BLOCKED";
+            if (s.Contains("suspended")) return "SUSPENDED";
+            if (s.Contains("aborted")) return "ABORTED";
+            if (s.StartsWith("picking")) return "TAKING BOX";
+            if (s.StartsWith("dropping") || s.Contains("placed")) return "DROPPING";
+            if (s.Contains("bench full")) return "BENCH FULL";
+            if (s.Contains("busy")) return "DOCK BUSY";
+            if (s.Contains("holding position")) return "WAITING";
+            if (s.StartsWith("returning")) return "RETURNING";
+            if (s.Contains("loading")) return "HANDLING";
+            if (s.Contains("waiting")) return "IDLE";
+            if (s.Contains("stopped")) return "STOPPED";
             return string.IsNullOrEmpty(raw) ? "—" : raw.ToUpperInvariant();
         }
 
@@ -411,19 +411,19 @@ namespace RoboFactory.HUD
             if (!operational) return "OFFLINE";
             switch (s)
             {
-                case TruckLoaderAgent.R2State.Arret: return "STOPPED";
-                case TruckLoaderAgent.R2State.AttenteColis: return "WAITING";
-                case TruckLoaderAgent.R2State.VersBanc: return "MOVING";
-                case TruckLoaderAgent.R2State.Prise: return "TAKING BOX";
-                case TruckLoaderAgent.R2State.VersCamion: return "MOVING";
-                case TruckLoaderAgent.R2State.Depose: return "LOADING";
-                case TruckLoaderAgent.R2State.AttenteCamion: return "WAITING";
-                case TruckLoaderAgent.R2State.RetourBase: return "RETURNING";
+                case TruckLoaderAgent.R2State.Stopped: return "STOPPED";
+                case TruckLoaderAgent.R2State.WaitingForBoxes: return "WAITING";
+                case TruckLoaderAgent.R2State.ToBench: return "MOVING";
+                case TruckLoaderAgent.R2State.Picking: return "TAKING BOX";
+                case TruckLoaderAgent.R2State.ToTruck: return "MOVING";
+                case TruckLoaderAgent.R2State.Dropping: return "LOADING";
+                case TruckLoaderAgent.R2State.WaitingForTruck: return "WAITING";
+                case TruckLoaderAgent.R2State.ReturningHome: return "RETURNING";
                 default: return s.ToString().ToUpperInvariant();
             }
         }
 
-        // ------------------------------------------------------------------ camions & réservations
+        // ------------------------------------------------------------------ trucks & reservations
 
         private void ReadTrucksAndMarks(HudModel m, MuseOrchestrator o)
         {
@@ -468,8 +468,8 @@ namespace RoboFactory.HUD
         private float nextResourceScan;
 
         /// <summary>
-        /// Toutes les palettes, bancs et camions avec un détail réel (stock libre par type,
-        /// cartons posés, porte et remplissage) — lu sur la scène 2 fois par seconde.
+        /// All pallets, benches and trucks with real detail (free stock per type,
+        /// boxes sitting there, door and fill level) — read from the scene twice per second.
         /// </summary>
         private void ReadResources(HudModel m)
         {
@@ -493,7 +493,7 @@ namespace RoboFactory.HUD
                 int boxes = s.GetComponentsInChildren<CargoBox>(true).Length;
                 int reserved = World.BenchReservedBy(id);
                 string detail = (reserved >= 0 ? "#" + reserved + "  ·  " : "") +
-                                (boxes > 0 ? boxes + " carton(s)" : reserved >= 0 ? "empty" : "free");
+                                (boxes > 0 ? boxes + " box(es)" : reserved >= 0 ? "empty" : "free");
                 m.Resources.Add(new ResourceVM { Id = id, Kind = MarkKind.Bench, Transform = s.transform,
                                                  OrderId = reserved, Detail = detail });
             }
@@ -514,7 +514,7 @@ namespace RoboFactory.HUD
             m.Debug.Reservations.Add(id + "›#" + orderId);
         }
 
-        // ------------------------------------------------------------------ barre d'état
+        // ------------------------------------------------------------------ status bar
 
         private void ReadStatus(HudModel m, MuseOrchestrator o)
         {
@@ -536,7 +536,7 @@ namespace RoboFactory.HUD
             if (Time.unscaledTime >= nextSafety)
             {
                 nextSafety = Time.unscaledTime + .5f;
-                // Même mesure que l'ancien HUD de debug (crée un incident si un employé est trop proche).
+                // Same measure as the old debug HUD (creates an incident if an employee is too close).
                 float d = Mathf.Min(o.MinRobotWorkerDistance("R1"), o.MinRobotWorkerDistance("R2"));
                 s.NearestWorker = d;
                 float alert = o.WorkerProximityAlert;
@@ -562,7 +562,7 @@ namespace RoboFactory.HUD
             s.Mode = o.Mode;
             s.HealthModel = HealthModel;
             MuseDecisionRecord last = o.LastDecision;
-            bool lastFailed = last != null && !last.Accepted && (last.RejectReason ?? "").StartsWith("appel Meta échoué");
+            bool lastFailed = last != null && !last.Accepted && (last.RejectReason ?? "").StartsWith("Meta call failed");
             if (o.Mode == "offline") { s.Link = "OFFLINE MODE"; s.LinkOk = false; }
             else if (o.Pending || o.UrgentPending) { s.Link = "CALLING"; s.LinkOk = true; }
             else if (lastFailed) { s.Link = "CALL FAILED"; s.LinkOk = false; }
@@ -582,12 +582,12 @@ namespace RoboFactory.HUD
             d.TraceFile = MuseTrace.FilePath;
             d.Incidents.Clear();
             string inc = o.IncidentsText;
-            if (!string.IsNullOrEmpty(inc) && inc != "aucun")
+            if (!string.IsNullOrEmpty(inc) && inc != "none")
                 d.Incidents.AddRange(inc.Split(new[] { " | " }, StringSplitOptions.RemoveEmptyEntries));
             m.LastIncident = d.Incidents.Count > 0 ? d.Incidents[d.Incidents.Count - 1] : "";
         }
 
-        // ------------------------------------------------------------------ état visuel Muse
+        // ------------------------------------------------------------------ Muse visual state
 
         private void ResolveVisual(HudModel m, MuseOrchestrator o)
         {

@@ -4,12 +4,12 @@ using System.Text;
 namespace RoboFactory.Hackathon.Orchestration
 {
     /// <summary>
-    /// Lecture d'une commande en texte libre : "A x3, B x2", "3A + 2B", "A:4", "a4 b2".
-    /// A = caisses bois, B = gros cartons, C = cartons moyens.
+    /// Reads a free-text order: "A x3, B x2", "3A + 2B", "A:4", "a4 b2".
+    /// A = wooden crates, B = big cardboard boxes, C = medium cardboard boxes.
     /// </summary>
     public static class OrderText
     {
-        /// <summary>Quantités [A,B,C] extraites du texte (0 = rien lu).</summary>
+        /// <summary>Quantities [A,B,C] extracted from the text (0 = nothing read).</summary>
         public static int[] Parse(string text)
         {
             var counts = new int[3];
@@ -22,7 +22,7 @@ namespace RoboFactory.Hackathon.Orchestration
                 {
                     int index = part.IndexOf(letter);
                     if (index < 0) continue;
-                    // chiffres après la lettre : "A x3", "A:3", "A3"
+                    // digits after the letter: "A x3", "A:3", "A3"
                     var digits = new StringBuilder();
                     for (int i = index + 1; i < part.Length; i++)
                     {
@@ -30,7 +30,7 @@ namespace RoboFactory.Hackathon.Orchestration
                         if (char.IsDigit(c)) digits.Append(c);
                         else if (digits.Length > 0) break;
                     }
-                    // chiffres avant la lettre : "3A"
+                    // digits before the letter: "3A"
                     if (digits.Length == 0)
                         for (int i = index - 1; i >= 0; i--)
                         {
@@ -54,7 +54,7 @@ namespace RoboFactory.Hackathon.Orchestration
             return total;
         }
 
-        /// <summary>"A x3, B x2" à partir des compteurs.</summary>
+        /// <summary>"A x3, B x2" from the counters.</summary>
         public static string Format(int[] counts)
         {
             var sb = new StringBuilder();
@@ -65,7 +65,7 @@ namespace RoboFactory.Hackathon.Orchestration
                     if (sb.Length > 0) sb.Append(", ");
                     sb.Append((char)('A' + i)).Append(" x").Append(counts[i]);
                 }
-            return sb.Length > 0 ? sb.ToString() : "(vide)";
+            return sb.Length > 0 ? sb.ToString() : "(empty)";
         }
     }
 }

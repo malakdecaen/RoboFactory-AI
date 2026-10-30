@@ -7,13 +7,13 @@ using UnityEngine;
 namespace RoboFactory.HUD.EditorTools
 {
     /// <summary>
-    /// Démonstration FINISH TO FREE (lancée À LA MAIN, en PlayMode) :
-    ///  1. 5 commandes normales « A x2, B x1 » (décisions Muse Live réelles) ;
-    ///  2. attente que les 3 camions soient réservés par des commandes qui ont DÉJÀ des cartons
-    ///     engagés (préparés ou chargés) et qu'aucune ne soit complète — plus aucun couple libérable ;
-    ///  3. commande urgente « A x2, B x1 » : l'orchestrateur passe en WAITING_FOR_CAPACITY et Muse
-    ///     choisit la commande à finir. Rien n'est simulé : c'est le vrai pipeline.
-    /// Menu : RoboFactory/Demo/…  (l'urgente peut aussi être dictée au micro au lieu du bouton).
+    /// FINISH TO FREE demonstration (launched BY HAND, in PlayMode):
+    ///  1. 5 normal orders « A x2, B x1 » (real Muse Live decisions);
+    ///  2. wait until the 3 trucks are reserved by orders that ALREADY have boxes
+    ///     committed (staged or loaded) and none is complete — no freeable pair left;
+    ///  3. urgent order « A x2, B x1 »: the orchestrator switches to WAITING_FOR_CAPACITY and Muse
+    ///     chooses the order to finish. Nothing is simulated: it is the real pipeline.
+    /// Menu: RoboFactory/Demo/…  (the urgent order can also be dictated to the microphone instead of the button).
     /// </summary>
     public static class FinishToFreeDemo
     {
@@ -21,26 +21,26 @@ namespace RoboFactory.HUD.EditorTools
         private static double armedAt;
         private const double MaxWaitSeconds = 420;
 
-        [MenuItem("RoboFactory/Demo/FINISH TO FREE : 5 normales puis urgente auto")]
+        [MenuItem("RoboFactory/Demo/FINISH TO FREE: 5 normal orders then automatic urgent")]
         private static void Run()
         {
-            if (!EditorApplication.isPlaying) { Debug.LogWarning("[Demo FTF] lancer le PlayMode d'abord."); return; }
+            if (!EditorApplication.isPlaying) { Debug.LogWarning("[Demo FTF] start PlayMode first."); return; }
             MuseOrchestrator o = Object.FindFirstObjectByType<MuseOrchestrator>();
-            if (o == null) { Debug.LogWarning("[Demo FTF] MuseOrchestrator introuvable."); return; }
+            if (o == null) { Debug.LogWarning("[Demo FTF] MuseOrchestrator not found."); return; }
             for (int i = 0; i < 5; i++) o.SubmitOrder("A x2, B x1");
-            Debug.Log("[Demo FTF] 5 commandes normales envoyées — urgente déclenchée dès que les 3 quais sont occupés " +
-                      "par des commandes ayant des cartons engagés.");
+            Debug.Log("[Demo FTF] 5 normal orders sent — urgent order triggered as soon as the 3 docks are busy " +
+                      "with orders that have committed boxes.");
             armed = true;
             armedAt = EditorApplication.timeSinceStartup;
             EditorApplication.update -= Watch;
             EditorApplication.update += Watch;
         }
 
-        [MenuItem("RoboFactory/Demo/FINISH TO FREE : urgente maintenant")]
+        [MenuItem("RoboFactory/Demo/FINISH TO FREE: urgent now")]
         private static void UrgentNow()
         {
             if (!EditorApplication.isPlaying) return;
-            Fire("déclenchement manuel");
+            Fire("manual trigger");
         }
 
         private static void Watch()
@@ -52,7 +52,7 @@ namespace RoboFactory.HUD.EditorTools
             if (o == null || w == null) return;
             if (EditorApplication.timeSinceStartup - armedAt > MaxWaitSeconds)
             {
-                Fire("délai d'attente dépassé — urgente envoyée dans l'état courant");
+                Fire("wait timeout exceeded — urgent order sent in the current state");
                 return;
             }
             int committed = 0, trucks = 0;
@@ -61,17 +61,17 @@ namespace RoboFactory.HUD.EditorTools
                 TruckBay bay = w.Truck(id);
                 if (bay == null) continue;
                 trucks++;
-                if (bay.ReservedOrderId < 0) return;                       // un camion libre : pas encore le cas étudié
+                if (bay.ReservedOrderId < 0) return;                       // a free truck: not the studied case yet
                 WhOrderState order = null;
                 foreach (WhOrderState s in o.OrdersSnapshot) if (s.id == bay.ReservedOrderId) order = s;
                 if (order == null) return;
                 int[] inTruck = bay.CountByTypeForOrder(order.id);
                 int loaded = inTruck[0] + inTruck[1] + inTruck[2];
                 int staged = order.staged_a + order.staged_b + order.staged_c;
-                if (loaded >= order.a + order.b + order.c) return;        // complète : elle part d'elle-même
+                if (loaded >= order.a + order.b + order.c) return;        // complete: it leaves by itself
                 if (loaded + staged > 0) committed++;
             }
-            if (trucks > 0 && committed == trucks) Fire("3 bancs / 3 quais occupés par des commandes engagées");
+            if (trucks > 0 && committed == trucks) Fire("3 benches / 3 docks busy with committed orders");
         }
 
         private static void Fire(string why)
@@ -81,7 +81,7 @@ namespace RoboFactory.HUD.EditorTools
             MuseOrchestrator o = Object.FindFirstObjectByType<MuseOrchestrator>();
             if (o == null) return;
             int id = o.SubmitUrgentCounts(2, 1, 0);
-            Debug.Log("[Demo FTF] urgente #" + id + " envoyée (" + why + ")");
+            Debug.Log("[Demo FTF] urgent #" + id + " sent (" + why + ")");
         }
     }
 }

@@ -6,27 +6,27 @@ using RoboFactory.Sim;
 namespace RoboFactory.Logistics
 {
     /// <summary>
-    /// Baie de chargement du camion.
+    /// Truck loading bay.
     ///
-    /// Deux modes :
-    ///   - Station existante : si la remorque contient déjà un ShelfStorage avec des
-    ///     ShelfInteractionZone (ex. un "pallet depot"), le composant l'utilise tel quel —
-    ///     comptage, validation et indicateurs se basent sur ses niveaux.
-    ///   - Auto : sinon il génère slots + ShelfStorage + zone de dock juste derrière la porte.
+    /// Two modes:
+    ///   - Existing station: if the trailer already contains a ShelfStorage with
+    ///     ShelfInteractionZones (e.g. a "pallet depot"), the component uses it as is —
+    ///     counting, validation and indicators rely on its levels.
+    ///   - Auto: otherwise it generates slots + ShelfStorage + a dock zone right behind the door.
     ///
-    /// Dans les deux cas il ajoute des colliders fins sur les parois (porte = extrémité
-    /// des bounds la plus proche de l'origine de la scène, elle reste ouverte), un feu de
-    /// signalisation et des marqueurs de slot (vert = occupé).
+    /// In both cases it adds thin colliders on the walls (door = the end of the
+    /// bounds closest to the scene origin, it stays open), a signal
+    /// light and slot markers (green = occupied).
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class TruckBay : MonoBehaviour
     {
-        [Header("Station existante (optionnel)")]
-        [Tooltip("Stockage déjà présent dans la remorque (ex. palette depot). " +
-                 "Vide = détection automatique des ShelfStorage enfants, sinon slots auto-générés.")]
+        [Header("Existing station (optional)")]
+        [Tooltip("Storage already present in the trailer (e.g. pallet depot). " +
+                 "Empty = automatic detection of child ShelfStorages, otherwise auto-generated slots.")]
         public ShelfStorage CustomStorage;
 
-        [Header("Disposition des slots (mode auto)")]
+        [Header("Slot layout (auto mode)")]
         public int SlotsDepth = 4;
         public int SlotsWide = 2;
         public int StackLevels = 1;
@@ -37,7 +37,7 @@ namespace RoboFactory.Logistics
         public float DockOffset = .8f;
         public Vector3 DockZoneSize = new Vector3(1.4f, 1.6f, 1.4f);
 
-        [Header("Colliders de paroi")]
+        [Header("Wall colliders")]
         public bool AutoWallColliders = true;
         public float WallThickness = .12f;
 
@@ -46,27 +46,27 @@ namespace RoboFactory.Logistics
         public Color SlotFreeColor = new Color(1f, .65f, .1f, .3f);
         public Color SlotUsedColor = new Color(.15f, 1f, .35f, .5f);
 
-        [Header("Porte (commande terminée)")]
-        [Tooltip("Transform de la porte. Vide = recherche automatique de 'gate_01_GRP' dans la remorque.")]
+        [Header("Door (order finished)")]
+        [Tooltip("Door transform. Empty = automatic search for 'gate_01_GRP' in the trailer.")]
         public Transform Gate;
         public string GateName = "gate_01_GRP";
-        [Tooltip("Y local de la porte une fois fermée.")]
+        [Tooltip("Local Y of the door once closed.")]
         public float GateClosedY = .08f;
-        [Tooltip("Vitesse de coulissement de la porte (m/s).")]
+        [Tooltip("Door sliding speed (m/s).")]
         public float GateSpeed = 1.5f;
-        [Tooltip("Au démarrage la porte descend en position fermée (obligatoire pour l'orchestration Muse).")]
+        [Tooltip("At start the door goes down to the closed position (required for Muse orchestration).")]
         public bool StartClosed = true;
-        [Tooltip("Sans orchestrateur dans la scène, les portes s'ouvrent seules au démarrage (comportement démo historique).")]
+        [Tooltip("Without an orchestrator in the scene, the doors open by themselves at start (historical demo behaviour).")]
         public bool AutoOpenIfUnmanaged = true;
-        [Tooltip("Une fois la porte refermée sur une commande chargée, les cartons sont détruits (expédition).")]
+        [Tooltip("Once the door is closed on a loaded order, the boxes are destroyed (shipping).")]
         public bool ClearAfterLoad = true;
-        [Tooltip("Quand la commande est complète : la porte ferme, les cartons déposés sont détruits, puis la porte rouvre.")]
+        [Tooltip("When the order is complete: the door closes, the dropped boxes are destroyed, then the door reopens.")]
         public bool CloseWhenComplete = true;
-        [Tooltip("Secondes sans travail en cours (bancs vides + robot sans carton) pour considérer la commande terminée.")]
+        [Tooltip("Seconds without work in progress (empty benches + robot without a box) to consider the order finished.")]
         public float IdleCloseDelay = 5f;
         public bool ReopenAfterClear = true;
 
-        /// <summary>Un carton vient d'être validé dans le camion.</summary>
+        /// <summary>A box has just been validated in the truck.</summary>
         public event System.Action<CargoBox> Stored;
 
         public ShelfStorage Storage { get; private set; }
@@ -76,7 +76,7 @@ namespace RoboFactory.Logistics
         public int LoadedCount { get; private set; }
         public int FreeSlots => Capacity - LoadedCount;
         public bool IsFull => Capacity > 0 && LoadedCount >= Capacity;
-        /// <summary>Vrai si la baie réutilise un stockage existant au lieu de ses slots générés.</summary>
+        /// <summary>True if the bay reuses an existing storage instead of its generated slots.</summary>
         public bool ExternalMode { get; private set; }
 
         private readonly List<Transform> slots = new List<Transform>();
@@ -93,20 +93,20 @@ namespace RoboFactory.Logistics
         private float nextLoaderFind;
         private float quietSince;
 
-        // ---- porte pilotée (orchestration Muse) ---------------------------------
-        /// <summary>FSM de la porte arrière. Closed au départ ; l'orchestrateur la pilote.</summary>
+        // ---- driven door (Muse orchestration) ---------------------------------
+        /// <summary>Rear door FSM. Closed at start; the orchestrator drives it.</summary>
         public enum TruckDoorState { Closed, Opening, Open, Ready, Loading, Closing, Loaded }
         public TruckDoorState Door { get; private set; } = TruckDoorState.Closed;
-        /// <summary>Commande propriétaire de la baie (-1 = aucune réservation).</summary>
+        /// <summary>Order owning the bay (-1 = no reservation).</summary>
         public int ReservedOrderId { get; private set; } = -1;
-        /// <summary>La porte est physiquement ouverte : un robot peut entrer.</summary>
+        /// <summary>The door is physically open: a robot can enter.</summary>
         public bool IsDoorOpen => Door == TruckDoorState.Open || Door == TruckDoorState.Ready ||
                                   Door == TruckDoorState.Loading;
-        /// <summary>Compte des cartons chargés par commande (survit à la destruction des objets).</summary>
+        /// <summary>Count of boxes loaded per order (survives the destruction of the objects).</summary>
         public int LastLoadedOrderId { get; private set; } = -1;
         public int LastLoadedCount { get; private set; }
         private NavBlocker doorBlocker;
-        private bool managed;         // un orchestrateur pilote cette baie
+        private bool managed;         // an orchestrator drives this bay
         private float unmanagedOpenAt;
 
         private void Awake()
@@ -135,8 +135,8 @@ namespace RoboFactory.Logistics
         }
 
         /// <summary>
-        /// Extrémité ouverte de la remorque : le bord des bounds le plus proche de l'origine
-        /// (l'entrepôt). Marche pour les remorques orientées +x ou -x.
+        /// Open end of the trailer: the edge of the bounds closest to the origin
+        /// (the warehouse). Works for trailers facing +x or -x.
         /// </summary>
         private float DoorX()
         {
@@ -144,7 +144,7 @@ namespace RoboFactory.Logistics
             return Mathf.Abs(b.min.x) <= Mathf.Abs(b.max.x) ? b.min.x : b.max.x;
         }
 
-        [ContextMenu("Reconstruire la baie")]
+        [ContextMenu("Rebuild the bay")]
         public void Rebuild()
         {
             built = false;
@@ -159,7 +159,7 @@ namespace RoboFactory.Logistics
             Bounds bounds = InteriorBounds();
             float doorX = Mathf.Abs(bounds.min.x) <= Mathf.Abs(bounds.max.x) ? bounds.min.x : bounds.max.x;
             float farX = Mathf.Approximately(doorX, bounds.min.x) ? bounds.max.x : bounds.min.x;
-            float dir = Mathf.Sign(farX - doorX); // sens de remplissage : porte -> fond
+            float dir = Mathf.Sign(farX - doorX); // fill direction: door -> back
             float centerZ = (bounds.min.z + bounds.max.z) * .5f;
             float floorY = Mathf.Max(0f, bounds.min.y);
             float depth = bounds.max.x - bounds.min.x;
@@ -174,8 +174,8 @@ namespace RoboFactory.Logistics
                 baseSurfaceY = PalletTopY();
                 CollectExternalSlots();
                 ChooseExternalDockZone(doorX);
-                Debug.Log("[Camion] station existante détectée : " + Storage.name +
-                          " (" + Capacity + " niveaux), dock " + (DockZone != null ? DockZone.name : "?"));
+                Debug.Log("[Truck] existing station detected: " + Storage.name +
+                          " (" + Capacity + " levels), dock " + (DockZone != null ? DockZone.name : "?"));
             }
             else
             {
@@ -189,7 +189,7 @@ namespace RoboFactory.Logistics
             RefreshIndicators(true);
         }
 
-        /// <summary>Porte de la remorque : réutilise Gate si assigné, sinon cherche gate_01_GRP.</summary>
+        /// <summary>Trailer door: reuses Gate if assigned, otherwise looks for gate_01_GRP.</summary>
         private void SetupGate()
         {
             if (Gate == null && !string.IsNullOrEmpty(GateName))
@@ -202,7 +202,7 @@ namespace RoboFactory.Logistics
                 {
                     Vector3 lp = Gate.localPosition;
                     lp.y = GateClosedY;
-                    Gate.localPosition = lp;   // porte physiquement fermée dès le départ
+                    Gate.localPosition = lp;   // door physically closed from the start
                     Door = TruckDoorState.Closed;
                 }
                 else
@@ -213,7 +213,7 @@ namespace RoboFactory.Logistics
             BuildDoorBlocker();
         }
 
-        /// <summary>Zone interdite devant le dock tant que la porte est fermée.</summary>
+        /// <summary>No-go zone in front of the dock while the door is closed.</summary>
         private void BuildDoorBlocker()
         {
             if (DockPoint == null) return;
@@ -227,28 +227,28 @@ namespace RoboFactory.Logistics
             col.size = DockZoneSize + new Vector3(.6f, 0f, .6f);
             var blocker = go.GetComponent<NavBlocker>();
             if (blocker == null) blocker = go.AddComponent<NavBlocker>();
-            blocker.ShowVolume = false;   // la porte elle-même montre l'obstacle
+            blocker.ShowVolume = false;   // the door itself shows the obstacle
             doorBlocker = blocker;
             blocker.enabled = !IsDoorOpen;
         }
 
-        // ------------------------------------------------------------------ API porte (orchestrateur)
+        // ------------------------------------------------------------------ door API (orchestrator)
 
-        /// <summary>L'orchestrateur s'annonce : la baie n'ouvre plus toute seule.</summary>
+        /// <summary>The orchestrator announces itself: the bay no longer opens by itself.</summary>
         public void SetManaged(bool value) { managed = value; }
 
-        /// <summary>Ouvre la porte pour une commande donnée (réservation incluse).</summary>
+        /// <summary>Opens the door for a given order (reservation included).</summary>
         public void OpenDoor(int orderId)
         {
             managed = true;
             ReservedOrderId = orderId;
             if (Door == TruckDoorState.Closed || Door == TruckDoorState.Loaded || Door == TruckDoorState.Closing)
                 Door = TruckDoorState.Opening;
-            Debug.Log("[Camion] " + name + " : ouverture porte pour commande #" + orderId);
+            Debug.Log("[Truck] " + name + ": opening door for order #" + orderId);
             ApplyDoorBlocker();
         }
 
-        /// <summary>R2 commence le chargement : Open/Ready -> Loading.</summary>
+        /// <summary>R2 starts loading: Open/Ready -> Loading.</summary>
         public void BeginLoading()
         {
             if (Door == TruckDoorState.Open || Door == TruckDoorState.Ready)
@@ -256,10 +256,10 @@ namespace RoboFactory.Logistics
         }
 
         /// <summary>
-        /// Ferme la porte. complete=true -> Loaded (commande livrée) ; false -> Closed
-        /// (annulation). L'animation attend que le robot soit sorti de la remorque.
-        /// keepReservation : la baie reste réservée à la commande (suspension sur
-        /// commande urgente — les cartons déjà chargés restent à elle).
+        /// Closes the door. complete=true -> Loaded (order delivered); false -> Closed
+        /// (cancellation). The animation waits for the robot to leave the trailer.
+        /// keepReservation: the bay stays reserved for the order (suspension for an
+        /// urgent order — the boxes already loaded stay its own).
         /// </summary>
         public void CloseDoor(bool orderComplete, bool keepReservation = false)
         {
@@ -271,10 +271,10 @@ namespace RoboFactory.Logistics
             pendingLoaded = orderComplete;
         }
 
-        /// <summary>Libère la réservation sans toucher la porte.</summary>
+        /// <summary>Releases the reservation without touching the door.</summary>
         public void ReleaseReservation() { ReservedOrderId = -1; }
 
-        /// <summary>Cartons de la commande actuellement posés dans ce camion.</summary>
+        /// <summary>Boxes of the order currently sitting in this truck.</summary>
         public int CountBoxesForOrder(int orderId)
         {
             int count = 0;
@@ -283,7 +283,7 @@ namespace RoboFactory.Logistics
             return count;
         }
 
-        /// <summary>Compteurs par type (A,B,C) des cartons de la commande dans le camion.</summary>
+        /// <summary>Per-type counters (A,B,C) of the order's boxes in the truck.</summary>
         public int[] CountByTypeForOrder(int orderId)
         {
             var counts = new int[3];
@@ -304,22 +304,22 @@ namespace RoboFactory.Logistics
         private bool keepReservationOnClose;
         private void ApplyDoorBlocker()
         {
-            // Le dock n'est franchissable que porte complètement ouverte.
+            // The dock can only be crossed when the door is fully open.
             if (doorBlocker != null) doorBlocker.enabled = !IsDoorOpen;
         }
 
-        // ------------------------------------------------------------------ porte de commande
+        // ------------------------------------------------------------------ order door
 
         /// <summary>
-        /// Porte pilotée par la FSM (orchestrateur) : Opening/Closing animent le transform.
-        /// Sans orchestrateur (managed=false), comportement historique : ouverture
-        /// automatique puis cycle fermeture/réouverture quand la commande est terminée.
+        /// Door driven by the FSM (orchestrator): Opening/Closing animate the transform.
+        /// Without an orchestrator (managed=false), historical behaviour: automatic
+        /// opening, then a close/reopen cycle when the order is finished.
         /// </summary>
         private void UpdateGate()
         {
             if (Gate == null) return;
 
-            // Repli démo : pas d'orchestrateur -> la porte s'ouvre toute seule au départ.
+            // Demo fallback: no orchestrator -> the door opens by itself at start.
             if (!managed && AutoOpenIfUnmanaged && Door == TruckDoorState.Closed)
             {
                 if (unmanagedOpenAt <= 0f) unmanagedOpenAt = Time.time + 1.5f;
@@ -327,7 +327,7 @@ namespace RoboFactory.Logistics
                 {
                     Door = TruckDoorState.Opening;
                     ApplyDoorBlocker();
-                    Debug.Log("[Camion] " + name + " : pas d'orchestrateur, porte ouverte (mode démo)");
+                    Debug.Log("[Truck] " + name + ": no orchestrator, door open (demo mode)");
                 }
             }
 
@@ -337,14 +337,14 @@ namespace RoboFactory.Logistics
                     if (MoveGateY(gateOpenY))
                     {
                         Door = ReservedOrderId >= 0 ? TruckDoorState.Ready : TruckDoorState.Open;
-                        Debug.Log("[Camion] " + name + " : porte ouverte" +
-                                  (ReservedOrderId >= 0 ? " (commande #" + ReservedOrderId + ")" : ""));
+                        Debug.Log("[Truck] " + name + ": door open" +
+                                  (ReservedOrderId >= 0 ? " (order #" + ReservedOrderId + ")" : ""));
                         ApplyDoorBlocker();
                     }
                     break;
 
                 case TruckDoorState.Closing:
-                    // Le robot chargeur doit être sorti avant que la porte descende.
+                    // The loader robot must be out before the door goes down.
                     if (!LoaderOutside()) break;
                     if (MoveGateY(GateClosedY))
                     {
@@ -352,8 +352,8 @@ namespace RoboFactory.Logistics
                         {
                             LastLoadedOrderId = ReservedOrderId;
                             LastLoadedCount = LoadedCount;
-                            Debug.Log("[Camion] " + name + " : commande #" + ReservedOrderId +
-                                      " expédiée (" + LoadedCount + " cartons), porte fermée");
+                            Debug.Log("[Truck] " + name + ": order #" + ReservedOrderId +
+                                      " shipped (" + LoadedCount + " boxes), door closed");
                             if (ClearAfterLoad) ClearStoredBoxes();
                             Door = TruckDoorState.Loaded;
                             ReservedOrderId = -1;
@@ -362,12 +362,12 @@ namespace RoboFactory.Logistics
                         {
                             Door = TruckDoorState.Closed;
                             if (keepReservationOnClose)
-                                Debug.Log("[Camion] " + name + " : porte fermée, baie conservée " +
-                                          "pour commande #" + ReservedOrderId);
+                                Debug.Log("[Truck] " + name + ": door closed, bay kept " +
+                                          "for order #" + ReservedOrderId);
                             else
                             {
                                 ReservedOrderId = -1;
-                                Debug.Log("[Camion] " + name + " : porte fermée");
+                                Debug.Log("[Truck] " + name + ": door closed");
                             }
                         }
                         pendingLoaded = false;
@@ -379,30 +379,30 @@ namespace RoboFactory.Logistics
                 case TruckDoorState.Open:
                 case TruckDoorState.Ready:
                 case TruckDoorState.Loading:
-                    // Comportement historique uniquement hors orchestration.
+                    // Historical behaviour only outside orchestration.
                     if (!managed && CloseWhenComplete && LoadedCount > 0 &&
                         (IsFull || OrderComplete()) && LoaderOutside())
                     {
                         pendingLoaded = true;
                         Door = TruckDoorState.Closing;
-                        Debug.Log("[Camion] commande terminée (" + LoadedCount + "/" + Capacity + ") : fermeture de la porte");
+                        Debug.Log("[Truck] order finished (" + LoadedCount + "/" + Capacity + "): closing the door");
                     }
                     break;
 
                 case TruckDoorState.Loaded:
-                    // Sans orchestrateur, rouvrir après expédition (cycle démo historique).
+                    // Without an orchestrator, reopen after shipping (historical demo cycle).
                     if (!managed && ReopenAfterClear)
                     {
                         Door = TruckDoorState.Opening;
-                        Debug.Log("[Camion] porte rouverte : prêt pour la prochaine commande");
+                        Debug.Log("[Truck] door reopened: ready for the next order");
                     }
                     break;
             }
         }
 
         /// <summary>
-        /// Plus rien à livrer : bancs vides, robot sans carton et pas en train de
-        /// charger — stable depuis IdleCloseDelay secondes.
+        /// Nothing left to deliver: benches empty, robot without a box and not
+        /// loading — stable for IdleCloseDelay seconds.
         /// </summary>
         private bool OrderComplete()
         {
@@ -418,19 +418,19 @@ namespace RoboFactory.Logistics
             {
                 if (loader.Carried != null) { quietSince = 0f; return false; }
                 TruckLoaderAgent.R2State s = loader.State;
-                if (s == TruckLoaderAgent.R2State.VersBanc || s == TruckLoaderAgent.R2State.Prise ||
-                    s == TruckLoaderAgent.R2State.VersCamion || s == TruckLoaderAgent.R2State.Depose ||
-                    s == TruckLoaderAgent.R2State.AttenteCamion) { quietSince = 0f; return false; }
+                if (s == TruckLoaderAgent.R2State.ToBench || s == TruckLoaderAgent.R2State.Picking ||
+                    s == TruckLoaderAgent.R2State.ToTruck || s == TruckLoaderAgent.R2State.Dropping ||
+                    s == TruckLoaderAgent.R2State.WaitingForTruck) { quietSince = 0f; return false; }
             }
             if (quietSince <= 0f) quietSince = Time.time;
             return Time.time - quietSince >= IdleCloseDelay;
         }
 
-        /// <summary>Le robot chargeur est sorti de la remorque (porte dégagée).</summary>
+        /// <summary>The loader robot has left the trailer (door clear).</summary>
         private bool LoaderOutside()
         {
-            // Le chargeur était résolu uniquement par la fermeture auto non orchestrée :
-            // en mode Muse il restait null et la porte se refermait sur R2.
+            // The loader was only resolved by the non-orchestrated auto close:
+            // in Muse mode it stayed null and the door closed on R2.
             if (loader == null && Time.time > nextLoaderFind)
             {
                 nextLoaderFind = Time.time + 1f;
@@ -440,16 +440,16 @@ namespace RoboFactory.Logistics
             return !IsInside(loader.transform.position);
         }
 
-        /// <summary>Le robot chargeur est-il dans la remorque ou l'embrasure (trace/diagnostic).</summary>
+        /// <summary>Is the loader robot in the trailer or the doorway (trace/diagnostics).</summary>
         public bool LoaderInside => !LoaderOutside();
 
-        /// <summary>Position dans la remorque ou dans l'embrasure de la porte.</summary>
+        /// <summary>Position in the trailer or in the doorway.</summary>
         public bool IsInside(Vector3 p)
         {
             Bounds b = InteriorBounds();
             float doorX = DoorX();
             bool doorIsMin = Mathf.Abs(b.min.x) <= Mathf.Abs(b.max.x);
-            const float clearance = .8f; // marge pour dégager complètement l'embrasure
+            const float clearance = .8f; // margin to fully clear the doorway
             if (doorIsMin && p.x < doorX - clearance) return false;
             if (!doorIsMin && p.x > doorX + clearance) return false;
             return !(p.x < b.min.x - .15f || p.x > b.max.x + .15f ||
@@ -464,7 +464,7 @@ namespace RoboFactory.Logistics
             return Mathf.Abs(lp.y - targetY) < .001f;
         }
 
-        /// <summary>Détruit tous les cartons stockés sur la palette (commande expédiée).</summary>
+        /// <summary>Destroys all the boxes stored on the pallet (order shipped).</summary>
         private void ClearStoredBoxes()
         {
             if (Storage == null || Storage.columns == null) return;
@@ -477,17 +477,17 @@ namespace RoboFactory.Logistics
                     CargoBox box = levels[l] != null ? levels[l].GetComponentInChildren<CargoBox>(true) : null;
                     if (box == null || box.isCarried) continue;
                     Storage.RemoveBox(c, l);
-                    Debug.Log("[Camion] carton expédié : " + box.name);
+                    Debug.Log("[Truck] box dispatched: " + box.name);
                     if (Application.isPlaying) Destroy(box.gameObject);
                     else DestroyImmediate(box.gameObject);
                 }
             }
             Recount();
             RefreshIndicators(true);
-            Debug.Log("[Camion] " + name + " : palette vidée, commande expédiée");
+            Debug.Log("[Truck] " + name + ": pallet emptied, order shipped");
         }
 
-        /// <summary>Premier ShelfStorage enfant qui n'est pas le stockage auto-généré.</summary>
+        /// <summary>First child ShelfStorage that is not the auto-generated storage.</summary>
         private ShelfStorage DetectExternalStorage()
         {
             foreach (ShelfStorage shelf in GetComponentsInChildren<ShelfStorage>(true))
@@ -495,9 +495,9 @@ namespace RoboFactory.Logistics
             return null;
         }
 
-        /// <summary>Tous les points de niveau du stockage existant deviennent des "slots".
-        /// Si le stockage n'a pas de colonnes remplies, elles sont générées : une colonne
-        /// par zone (columnIndex), niveaux empilés au-dessus de la surface de la palette.</summary>
+        /// <summary>Every level point of the existing storage becomes a "slot".
+        /// If the storage has no filled columns, they are generated: one column
+        /// per zone (columnIndex), levels stacked above the pallet surface.</summary>
         private void CollectExternalSlots()
         {
             slots.Clear();
@@ -521,22 +521,22 @@ namespace RoboFactory.Logistics
             Capacity = slots.Count;
         }
 
-        /// <summary>Hauteur de la surface de dépose : dessus du renderer "pallet" du stockage.</summary>
+        /// <summary>Height of the drop surface: top of the storage's "pallet" renderer.</summary>
         private float PalletTopY()
         {
             Renderer best = PalletRenderer();
             return Mathf.Max(0f, best != null ? best.bounds.max.y : InteriorBounds().min.y + .15f);
         }
 
-        /// <summary>Bounds du renderer "pallet" du stockage (le support physique des cartons).</summary>
+        /// <summary>Bounds of the storage's "pallet" renderer (the physical support of the boxes).</summary>
         private Bounds PalletBounds()
         {
             Renderer best = PalletRenderer();
-            // Pas de renderer "pallet" : repli sur l'intérieur de la remorque.
+            // No "pallet" renderer: fall back to the inside of the trailer.
             return best != null ? best.bounds : InteriorBounds();
         }
 
-        /// <summary>Le renderer le plus haut portant "pallet" dans son nom.</summary>
+        /// <summary>The highest renderer with "pallet" in its name.</summary>
         private Renderer PalletRenderer()
         {
             Renderer best = null;
@@ -548,7 +548,7 @@ namespace RoboFactory.Logistics
             return best;
         }
 
-        /// <summary>Regarde si au moins un vrai point de niveau est assigné.</summary>
+        /// <summary>Checks whether at least one real level point is assigned.</summary>
         private static bool HasAnyLevel(ShelfStorage storage)
         {
             if (storage.columns == null) return false;
@@ -561,11 +561,11 @@ namespace RoboFactory.Logistics
             return false;
         }
 
-        /// <summary>Remplit les références de niveaux manquantes du stockage existant :
-        /// conserve le nombre de colonnes/niveaux défini, place chaque point sous sa zone.</summary>
+        /// <summary>Fills in the missing level references of the existing storage:
+        /// keeps the defined number of columns/levels, places each point under its zone.</summary>
         private void EnsureExternalColumns()
         {
-            if (HasAnyLevel(Storage)) return; // déjà câblé par l'utilisateur — ne rien toucher
+            if (HasAnyLevel(Storage)) return; // already wired by the user — touch nothing
 
             ShelfInteractionZone[] zones = Storage.GetComponentsInChildren<ShelfInteractionZone>(true);
             int columnCount = Storage.columns != null ? Mathf.Max(1, Storage.columns.Length) : 1;
@@ -573,12 +573,12 @@ namespace RoboFactory.Logistics
                 if (zone != null) columnCount = Mathf.Max(columnCount, zone.columnIndex + 1);
 
             Transform root = ChildOf(Storage.transform, "truck_levels");
-            for (int i = root.childCount - 1; i >= 0; i--) // purge des niveaux générés précédemment
+            for (int i = root.childCount - 1; i >= 0; i--) // purge levels generated previously
                 SafeDestroy(root.GetChild(i).gameObject);
             float topY = PalletTopY();
 
-            // Ancres de dépose : les pads "marker" placés par l'utilisateur sur la palette
-            // (positions voulues). Fallback : quadrants 25 %/75 % des bounds de la palette.
+            // Drop anchors: the "marker" pads placed by the user on the pallet
+            // (intended positions). Fallback: 25 %/75 % quadrants of the pallet bounds.
             var markers = new List<Vector3>();
             foreach (Renderer r in Storage.GetComponentsInChildren<Renderer>(true))
                 if (r != null && r.name.StartsWith("marker", System.StringComparison.OrdinalIgnoreCase))
@@ -598,9 +598,9 @@ namespace RoboFactory.Logistics
                 if (Storage.columns != null && c < Storage.columns.Length &&
                     Storage.columns[c] != null && Storage.columns[c].levels != null &&
                     Storage.columns[c].levels.Length > 0)
-                    levelCount = Storage.columns[c].levels.Length; // conserve le shape utilisateur
+                    levelCount = Storage.columns[c].levels.Length; // keeps the user's shape
 
-                // Le dock de la zone (sinon la zone elle-même) indique le côté de la colonne.
+                // The zone's dock (otherwise the zone itself) tells the side of the column.
                 Vector3 side = Storage.transform.position;
                 foreach (ShelfInteractionZone zone in zones)
                     if (zone != null && zone.columnIndex == c)
@@ -609,7 +609,7 @@ namespace RoboFactory.Logistics
                         break;
                     }
                 Vector3 anchor = new Vector3(side.x < cx ? xLo : xHi, topY, side.z < cz ? zLo : zHi);
-                // Un pad marker existe de ce côté : c'est la position de dépose voulue.
+                // A marker pad exists on this side: it is the intended drop position.
                 float bestDist = float.PositiveInfinity;
                 foreach (Vector3 marker in markers)
                 {
@@ -623,7 +623,7 @@ namespace RoboFactory.Logistics
                 {
                     var level = new GameObject("level_" + c + "_" + l).transform;
                     level.SetParent(root, false);
-                    // Estimation initiale — UpdateLevelHeights recale ensuite sur la pile réelle.
+                    // Initial estimate — UpdateLevelHeights then aligns it with the real stack.
                     level.position = new Vector3(anchor.x, topY + .02f + l * .55f, anchor.z);
                     levels[l] = level;
                 }
@@ -631,7 +631,7 @@ namespace RoboFactory.Logistics
             }
             Storage.columns = newColumns;
             ReinitStorage();
-            Debug.Log("[Camion] niveaux générés sur " + Storage.name + " : " + columnCount + " colonnes");
+            Debug.Log("[Truck] levels generated on " + Storage.name + ": " + columnCount + " columns");
         }
 
         private static Transform ChildOf(Transform parent, string childName)
@@ -645,7 +645,7 @@ namespace RoboFactory.Logistics
             return t;
         }
 
-        /// <summary>Rejoue l'initialisation interne du ShelfStorage (table boxes + scan).</summary>
+        /// <summary>Replays the ShelfStorage's internal initialization (boxes table + scan).</summary>
         private void ReinitStorage()
         {
             if (Storage == null) return;
@@ -661,7 +661,7 @@ namespace RoboFactory.Logistics
             else Object.DestroyImmediate(obj);
         }
 
-        /// <summary>Zone de la station dont le dock est le plus proche de la porte.</summary>
+        /// <summary>Station zone whose dock is closest to the door.</summary>
         private void ChooseExternalDockZone(float doorX)
         {
             DockZone = null;
@@ -676,9 +676,9 @@ namespace RoboFactory.Logistics
         }
 
         /// <summary>
-        /// Zone de dock à utiliser pour la prochaine dépose : la colonne la moins remplie
-        /// (les cartons se répartissent sur la palette au lieu de s'entasser au même coin).
-        /// À égalité, le dock le plus proche de la position donnée.
+        /// Dock zone to use for the next drop: the least filled column
+        /// (the boxes spread over the pallet instead of piling up in the same corner).
+        /// On a tie, the dock closest to the given position.
         /// </summary>
         public ShelfInteractionZone ChooseDockForLoad(Vector3 from)
         {
@@ -698,7 +698,7 @@ namespace RoboFactory.Logistics
                     if (level.GetComponentInChildren<CargoBox>(true) != null) fill++;
                     else free++;
                 }
-                if (free <= 0) continue; // colonne pleine
+                if (free <= 0) continue; // column full
                 float d = Vector3.Distance(from, zone.dockPoint.position);
                 if (fill < bestFill || (fill == bestFill && d < bestDist))
                 {
@@ -728,7 +728,7 @@ namespace RoboFactory.Logistics
             float h = b.max.y - Mathf.Max(0f, b.min.y);
             float midY = Mathf.Max(0f, b.min.y) + h * .5f;
             float side = Mathf.Sign(farX - doorX);
-            // Parois latérales (z) + paroi du fond (x). La porte reste ouverte.
+            // Side walls (z) + back wall (x). The door stays open.
             Wall(walls, "wall_z_min", new Vector3((b.min.x + b.max.x) * .5f, midY, b.min.z - WallThickness * .5f),
                  new Vector3(depth + WallThickness * 2f, h, WallThickness));
             Wall(walls, "wall_z_max", new Vector3((b.min.x + b.max.x) * .5f, midY, b.max.z + WallThickness * .5f),
@@ -762,7 +762,7 @@ namespace RoboFactory.Logistics
             float usable = Mathf.Max(.3f, width - margin * 2f);
             float zStart = centerZ - usable * .5f;
             float zStep = SlotsWide > 1 ? usable / (SlotsWide - 1) : 0f;
-            float xStart = doorX + dir * .7f; // premier slot juste derrière la porte
+            float xStart = doorX + dir * .7f; // first slot right behind the door
 
             for (int d = 0; d < SlotsDepth; d++)
             {
@@ -808,8 +808,8 @@ namespace RoboFactory.Logistics
             var column = new ShelfStorage.StorageColumn { levels = slots.ToArray() };
             Storage.columns = new[] { column };
 
-            // ShelfStorage remplit sa table interne dans Awake — qui a déjà tourné (ou jamais,
-            // si l'objet était inactif). On la reconstruit comme le fait l'autopilot.
+            // ShelfStorage fills its internal table in Awake — which has already run (or never,
+            // if the object was inactive). We rebuild it the way the autopilot does.
             ReinitStorage();
         }
 
@@ -817,7 +817,7 @@ namespace RoboFactory.Logistics
         {
             Transform zoneT = Child("truck_dock_zone");
             zoneT.position = new Vector3(doorX - dir * DockOffset, floorY, centerZ);
-            zoneT.rotation = Quaternion.LookRotation(Vector3.right * dir, Vector3.up); // face au camion
+            zoneT.rotation = Quaternion.LookRotation(Vector3.right * dir, Vector3.up); // facing the truck
 
             BoxCollider trigger = zoneT.GetComponent<BoxCollider>();
             if (trigger == null) trigger = zoneT.gameObject.AddComponent<BoxCollider>();
@@ -865,7 +865,7 @@ namespace RoboFactory.Logistics
             beacon.type = LightType.Point;
             beacon.range = 4f;
             beacon.intensity = 2f;
-            ApplyBeaconColor(new Color(1f, .65f, .1f)); // orange = prêt
+            ApplyBeaconColor(new Color(1f, .65f, .1f)); // orange = ready
         }
 
         private void ApplyBeaconColor(Color color)
@@ -886,9 +886,9 @@ namespace RoboFactory.Logistics
             ApplyBeaconColor(IsFull ? Color.red : new Color(1f, .65f, .1f));
         }
 
-        // ------------------------------------------------------------------ état
+        // ------------------------------------------------------------------ state
 
-        /// <summary>Carton posé sur la station (enfant du stockage ou d'un slot).</summary>
+        /// <summary>Box sitting on the station (child of the storage or of a slot).</summary>
         public bool OwnsBox(CargoBox box)
         {
             if (box == null) return false;
@@ -896,7 +896,7 @@ namespace RoboFactory.Logistics
             return slotsRoot != null && box.transform.IsChildOf(slotsRoot);
         }
 
-        /// <summary>Premier slot/niveau libre, colonne la moins remplie d'abord (répartition).</summary>
+        /// <summary>First free slot/level, least filled column first (spreading).</summary>
         public Transform NextFreeSlot()
         {
             if (!ExternalMode || Storage == null || Storage.columns == null)
@@ -924,15 +924,15 @@ namespace RoboFactory.Logistics
         }
 
         /// <summary>
-        /// Validation logique d'une livraison : le carton doit finir sous la station.
-        /// Renvoie vrai + met à jour compteurs/indicateurs, faux sinon (avec warning).
+        /// Logical validation of a delivery: the box must end up under the station.
+        /// Returns true + updates counters/indicators, false otherwise (with a warning).
         /// </summary>
         public bool ValidateStored(CargoBox box)
         {
             if (box == null) return false;
             if (!OwnsBox(box))
             {
-                Debug.LogWarning("[Camion] " + box.name + " annoncé livré mais n'est pas sous la station.");
+                Debug.LogWarning("[Truck] " + box.name + " reported delivered but is not under the station.");
                 return false;
             }
             ClampInsidePallet(box);
@@ -941,8 +941,8 @@ namespace RoboFactory.Logistics
         }
 
         /// <summary>
-        /// Replace le carton pour que toute sa empreinte reste sur la palette :
-        /// les pads peuvent être proches du bord, un gros carton ne doit pas dépasser.
+        /// Repositions the box so that its whole footprint stays on the pallet:
+        /// the pads can be close to the edge, a big box must not stick out.
         /// </summary>
         public void ClampInsidePallet(CargoBox box)
         {
@@ -958,19 +958,19 @@ namespace RoboFactory.Logistics
             if (delta.sqrMagnitude > 1e-6f) box.transform.position += delta;
         }
 
-        /// <summary>Comptage + indicateurs + événement, idempotent.</summary>
+        /// <summary>Counting + indicators + event, idempotent.</summary>
         public void NotifyStored(CargoBox box)
         {
             Recount();
             beaconGreen = true;
             beaconUntil = Time.time + 1.2f;
-            Debug.Log("[Camion] livraison validée : " + box.name + " (" + LoadedCount + "/" + Capacity + ")" +
-                      (IsFull ? " — CAMION PLEIN" : ""));
+            Debug.Log("[Truck] delivery validated: " + box.name + " (" + LoadedCount + "/" + Capacity + ")" +
+                      (IsFull ? " — TRUCK FULL" : ""));
             Stored?.Invoke(box);
             RefreshIndicators(true);
         }
 
-        /// <summary>Dépose manuelle (fallback quand l'interaction Warcool ne répond pas).</summary>
+        /// <summary>Manual drop (fallback when the Warcool interaction does not answer).</summary>
         public bool PlaceBox(CargoBox box)
         {
             Transform slot = NextFreeSlot();
@@ -983,7 +983,7 @@ namespace RoboFactory.Logistics
             ClampInsidePallet(box);
             if (Storage != null)
             {
-                // Garde la table interne du ShelfStorage cohérente avec la scène.
+                // Keeps the ShelfStorage's internal table consistent with the scene.
                 for (int c = 0; c < Storage.columns.Length; c++)
                 {
                     Transform[] levels = Storage.columns[c] != null ? Storage.columns[c].levels : null;
@@ -998,9 +998,9 @@ namespace RoboFactory.Logistics
         }
 
         /// <summary>
-        /// Chaque niveau vide se cale sur le dessus réel de la pile en dessous
-        /// (mesuré via les bounds des renderers) : l'empilement reste ajusté
-        /// quelle que soit la hauteur des cartons.
+        /// Each empty level aligns with the real top of the stack below
+        /// (measured through the renderers' bounds): the stacking stays tight
+        /// whatever the height of the boxes.
         /// </summary>
         private void UpdateLevelHeights()
         {
@@ -1009,7 +1009,7 @@ namespace RoboFactory.Logistics
             foreach (ShelfStorage.StorageColumn column in Storage.columns)
             {
                 if (column == null || column.levels == null) continue;
-                // Un niveau = la surface d'appui (dessus palette, puis dessus du carton dessous).
+                // A level = the support surface (top of the pallet, then top of the box below).
                 float surface = baseSurfaceY + gap;
                 foreach (Transform level in column.levels)
                 {
@@ -1019,8 +1019,8 @@ namespace RoboFactory.Logistics
 
                     CargoBox box = level.GetComponentInChildren<CargoBox>(true);
                     if (box == null || box.isCarried) continue;
-                    // Le pivot des cartons est au centre : on cale le BAS réel du carton
-                    // (bounds renderer) sur la surface, centré sur le point du niveau.
+                    // The pivot of the boxes is at the center: we align the REAL BOTTOM of the box
+                    // (renderer bounds) with the surface, centered on the level point.
                     if (TryBoxBounds(box, out Bounds b))
                     {
                         Vector3 delta = new Vector3(level.position.x - b.center.x, surface - b.min.y, level.position.z - b.center.z);

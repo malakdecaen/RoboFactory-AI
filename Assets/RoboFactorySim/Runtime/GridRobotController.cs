@@ -3,28 +3,28 @@ using UnityEngine;
 namespace RoboFactory.Sim
 {
     /// <summary>
-    /// Base mobile sur grille de la version publique. Les déplacements sont pilotés par les scripts
-    /// RoboFactory (GridMover / autopilot) : ce composant porte la description de la grille, recale le
-    /// robot au démarrage et fait tourner ses roues d'après le mouvement réel.
+    /// Grid mobile base of the public version. Movements are driven by the
+    /// RoboFactory scripts (GridMover / autopilot): this component carries the grid description, snaps the
+    /// robot at start and turns its wheels according to the real movement.
     /// </summary>
     [DisallowMultipleComponent]
     public class GridRobotController : MonoBehaviour
     {
-        [Header("Grille")]
+        [Header("Grid")]
         public float cellSize = .5f;
         public int gridCellsX = 30;
         public int gridCellsZ = 30;
-        [Tooltip("Pas de recalage de la position au démarrage (m).")]
+        [Tooltip("Position snapping step at start (m).")]
         public float snapStep = .25f;
-        [Tooltip("Pas de recalage de l'orientation au démarrage (degrés).")]
+        [Tooltip("Orientation snapping step at start (degrees).")]
         public float snapAngle = 45f;
 
-        [Header("Chenilles / roues")]
-        [Tooltip("Entraxe gauche / droite (m).")]
+        [Header("Tracks / wheels")]
+        [Tooltip("Left / right wheel spacing (m).")]
         public float trackWidth = .45f;
         public DualProceduralTracksFromWheels tracks;
 
-        [Tooltip("Vrai quand un script pilote le robot (toujours le cas dans la démo).")]
+        [Tooltip("True when a script drives the robot (always the case in the demo).")]
         public bool controlsLocked = true;
 
         private Vector3 lastPosition;

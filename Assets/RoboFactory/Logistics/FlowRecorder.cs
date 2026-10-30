@@ -10,19 +10,19 @@ using RoboFactory.Sim;
 namespace RoboFactory.Logistics
 {
     /// <summary>
-    /// Journal de FLUX (lecture seule) : raconte chaque action et chaque décision dans l'ordre —
-    /// commandes, décisions Muse (déclencheur, latence, plan, raison, refus), robots (qui fait
-    /// quoi, pour quelle commande, combien de temps), portes, cartons, urgences, voix — puis
-    /// écrit un BILAN : durée de chaque phase par commande, emploi du temps des robots, appels
-    /// Muse, et liste des étapes qui ne servent à rien (allers-retours base, attentes, appels
-    /// sans effet, portes ouvertes à vide…). Fichier : &lt;projet&gt;/logs/flow_*.log.
-    /// Ne modifie rien dans la simulation.
+    /// FLOW journal (read-only): tells every action and every decision in order —
+    /// orders, Muse decisions (trigger, latency, plan, reason, refusal), robots (who does
+    /// what, for which order, for how long), doors, boxes, urgent orders, voice — then
+    /// writes a SUMMARY: duration of each phase per order, robot timetables, Muse
+    /// calls, and the list of useless steps (round trips to base, waits, calls
+    /// without effect, doors opened for nothing…). File: &lt;project&gt;/logs/flow_*.log.
+    /// Changes nothing in the simulation.
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class FlowRecorder : MonoBehaviour
     {
         public float Interval = .1f;
-        [Tooltip("Bilan écrit automatiquement quand plus rien ne tourne depuis ce délai (s).")]
+        [Tooltip("Summary written automatically when nothing has been running for this delay (s).")]
         public float IdleSummaryDelay = 5f;
 
         private StreamWriter writer;
@@ -32,7 +32,7 @@ namespace RoboFactory.Logistics
         private float next;
         private float lastLineT = -1f;
 
-        // ---------------------------------------------------------------- suivi par acteur
+        // ---------------------------------------------------------------- per-actor tracking
         private sealed class Segment
         {
             public string Actor, Label, Category;
@@ -91,7 +91,7 @@ namespace RoboFactory.Logistics
         private bool summaryWrittenForIdle;
         private bool anyOrderSeen;
 
-        // ---------------------------------------------------------------- installation
+        // ---------------------------------------------------------------- setup
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void AutoInstall()
@@ -115,9 +115,9 @@ namespace RoboFactory.Logistics
         {
             orch = FindFirstObjectByType<MuseOrchestrator>();
             Open();
-            Line("SESSION", "début — mode " + (orch != null ? orch.Mode : "?") +
-                            (orch != null && orch.ReserveUrgentLane ? "  ·  voie urgente fixe " + orch.UrgentBenchId + "/" + orch.UrgentTruckId : "") +
-                            "  ·  journal d'état brut : " + Path.GetFileName(MuseTrace.FilePath));
+            Line("SESSION", "start — mode " + (orch != null ? orch.Mode : "?") +
+                            (orch != null && orch.ReserveUrgentLane ? "  ·  fixed urgent lane " + orch.UrgentBenchId + "/" + orch.UrgentTruckId : "") +
+                            "  ·  raw state log: " + Path.GetFileName(MuseTrace.FilePath));
         }
 
         private void Open()
@@ -128,17 +128,17 @@ namespace RoboFactory.Logistics
                 Directory.CreateDirectory(dir);
                 FilePath = Path.Combine(dir, "flow_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
                 writer = new StreamWriter(FilePath, false, new UTF8Encoding(false)) { AutoFlush = true };
-                writer.WriteLine("# RoboFactory — journal de flux " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") +
-                                 "  scène=" + UnityEngine.SceneManagement.SceneManager.GetActiveScene().name);
-                writer.WriteLine("# colonnes : heure réelle | temps de jeu | écart depuis la ligne précédente | acteur | action");
-                writer.WriteLine("# acteurs : ORDRE, MUSE, R1, R2, PORTE, CARTON, URGENCE, VOIX, INCIDENT ; un BILAN suit chaque fin d'activité");
+                writer.WriteLine("# RoboFactory — flow journal " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") +
+                                 "  scene=" + UnityEngine.SceneManagement.SceneManager.GetActiveScene().name);
+                writer.WriteLine("# columns: real time | game time | gap since the previous line | actor | action");
+                writer.WriteLine("# actors: ORDER, MUSE, R1, R2, DOOR, BOX, URGENT, VOICE, INCIDENT; a SUMMARY follows each end of activity");
                 writer.WriteLine();
-                Debug.Log("[FlowRecorder] journal de flux : " + FilePath);
+                Debug.Log("[FlowRecorder] flow journal: " + FilePath);
             }
             catch (Exception e)
             {
                 writer = null;
-                Debug.LogWarning("[FlowRecorder] journal non ouvert : " + e.Message);
+                Debug.LogWarning("[FlowRecorder] journal not opened: " + e.Message);
             }
         }
 
@@ -156,47 +156,47 @@ namespace RoboFactory.Logistics
             catch (Exception) { }
         }
 
-        // ---------------------------------------------------------------- messages Unity
+        // ---------------------------------------------------------------- Unity messages
 
         private void OnUnityLog(string message, string stack, LogType type)
         {
             if (string.IsNullOrEmpty(message) || message.StartsWith("[FlowRecorder]") || message.StartsWith("[MuseTrace]")) return;
             if (type == LogType.Exception || type == LogType.Error)
             {
-                Line("ERREUR", message.Split('\n')[0]);
+                Line("ERROR", message.Split('\n')[0]);
                 return;
             }
-            if (message.StartsWith("[Muse] incident : "))
+            if (message.StartsWith("[Muse] incident: "))
             {
-                string text = message.Substring("[Muse] incident : ".Length);
+                string text = message.Substring("[Muse] incident: ".Length);
                 incidentsCount++;
                 incidentLines.Add(text);
-                if (text.StartsWith("itinéraire modifié")) routeChanges++;
-                if (text.Contains(" en pause : ")) suspensions++;
+                if (text.StartsWith("route changed")) routeChanges++;
+                if (text.Contains(" paused: ")) suspensions++;
                 Line("INCIDENT", text);
             }
-            else if (message.StartsWith("[Logistique] "))
+            else if (message.StartsWith("[Logistics] "))
             {
-                // "wooden_box_point : palette -> transporté"
+                // "wooden_box_point: pallet -> carried"
                 cartonMoves++;
-                string body = message.Substring("[Logistique] ".Length);
-                int colon = body.IndexOf(" : ", StringComparison.Ordinal);
+                string body = message.Substring("[Logistics] ".Length);
+                int colon = body.IndexOf(": ", StringComparison.Ordinal);
                 string name = colon > 0 ? body.Substring(0, colon) : body;
-                string move = colon > 0 ? body.Substring(colon + 3) : "";
+                string move = colon > 0 ? body.Substring(colon + 2) : "";
                 string kind = name.Contains("wooden") ? "A" : name.Contains("big") ? "B" : "C";
-                move = move.Replace("palette -> transporté", "pris sur une palette")
-                           .Replace("transporté -> banc", "posé sur un banc")
-                           .Replace("banc -> transporté", "pris sur un banc")
-                           .Replace("transporté -> camion", "posé dans un camion");
-                Line("CARTON", "carton " + kind + " " + move);
+                move = move.Replace("pallet -> carried", "taken from a pallet")
+                           .Replace("carried -> bench", "placed on a bench")
+                           .Replace("bench -> carried", "taken from a bench")
+                           .Replace("carried -> truck", "placed in a truck");
+                Line("BOX", "box " + kind + " " + move);
             }
-            else if (message.StartsWith("[Camion] ") && (message.Contains("expédiée") || message.Contains("livraison validée")))
-                Line("CAMION", message.Substring("[Camion] ".Length));
-            else if (message.StartsWith("[Muse] décision normale différée"))
+            else if (message.StartsWith("[Truck] ") && (message.Contains("shipped") || message.Contains("delivery validated")))
+                Line("TRUCK", message.Substring("[Truck] ".Length));
+            else if (message.StartsWith("[Muse] normal decision deferred"))
                 Line("MUSE", message.Substring("[Muse] ".Length));
         }
 
-        // ---------------------------------------------------------------- échantillonnage
+        // ---------------------------------------------------------------- sampling
 
         private void Update()
         {
@@ -224,12 +224,12 @@ namespace RoboFactory.Logistics
             lastStage = stage;
             if (prev == "") return;
             string detail = stage == "WaitingForCapacity"
-                ? " — " + (orch.FinishingOrderId >= 0 ? "Muse fait finir #" + orch.FinishingOrderId + " (" + orch.FreeingBenchId + "/" + orch.FreeingTruckId + ")" : orch.CapacityReason)
-                : stage == "UrgentActive" ? " — urgente #" + orch.UrgentOrderId + " en exécution"
-                : stage == "Resuming" ? " — reprise de " + orch.ResumedCount + " commande(s)"
-                : stage == "Suspending" ? " — mise en pause sûre des commandes normales"
+                ? " — " + (orch.FinishingOrderId >= 0 ? "Muse has #" + orch.FinishingOrderId + " finished (" + orch.FreeingBenchId + "/" + orch.FreeingTruckId + ")" : orch.CapacityReason)
+                : stage == "UrgentActive" ? " — urgent #" + orch.UrgentOrderId + " executing"
+                : stage == "Resuming" ? " — resuming " + orch.ResumedCount + " order(s)"
+                : stage == "Suspending" ? " — safely pausing the normal orders"
                 : "";
-            Line("URGENCE", prev + " → " + stage + detail);
+            Line("URGENT", prev + " → " + stage + detail);
         }
 
         private void TrackDecisions()
@@ -243,7 +243,7 @@ namespace RoboFactory.Logistics
                 string bare = action.StartsWith("urgent:") ? action.Substring(7) : action;
                 string applied = r.AppliedResult ?? "";
                 bool executes = r.Accepted && bare != "wait" && bare != "no_plan" && bare != "" &&
-                                !applied.StartsWith("attente") && !applied.Contains("capacité libérée");
+                                !applied.StartsWith("waiting") && !applied.Contains("capacity freed");
                 var call = new MuseCall
                 {
                     Id = r.RequestId, Trigger = r.Trigger, Action = action, OrderId = r.OrderId,
@@ -253,7 +253,7 @@ namespace RoboFactory.Logistics
                 string what = !string.IsNullOrEmpty(r.PlanSummary) ? r.PlanSummary
                             : !string.IsNullOrEmpty(r.AppliedResult) ? r.AppliedResult
                             : action;
-                string verdict = r.Accepted ? (executes ? "ACCEPTÉ" : "SANS EFFET (" + action + ")") : "REFUSÉ : " + r.RejectReason;
+                string verdict = r.Accepted ? (executes ? "ACCEPTED" : "NO EFFECT (" + action + ")") : "REFUSED: " + r.RejectReason;
                 call.Result = verdict;
                 Line("MUSE", (r.RequestId ?? "?") + " [" + r.Trigger + "] " + (string.IsNullOrEmpty(r.Model) ? "" : r.Model + " ") +
                              (r.LatencyMs > 0 ? (r.LatencyMs / 1000f).ToString("F1") + " s  " : "") + "→ " + what + "  —  " + verdict +
@@ -270,14 +270,14 @@ namespace RoboFactory.Logistics
         {
             switch (status)
             {
-                case "pending": return "attente décision Muse";
-                case "queued": return "attente robots";
-                case "picking": return "préparation (R1)";
-                case "loading": return "chargement (R2)";
-                case "suspending": return "mise en pause";
-                case "paused": return "en pause (urgente)";
-                case "waiting": return "attente (rupture/incomplet)";
-                case "loaded": return "livrée";
+                case "pending": return "waiting for Muse decision";
+                case "queued": return "waiting for robots";
+                case "picking": return "picking (R1)";
+                case "loading": return "loading (R2)";
+                case "suspending": return "pausing";
+                case "paused": return "paused (urgent)";
+                case "waiting": return "waiting (stock-out/incomplete)";
+                case "loaded": return "delivered";
                 default: return status;
             }
         }
@@ -295,7 +295,7 @@ namespace RoboFactory.Logistics
                         Composition = (o.a > 0 ? "A×" + o.a + " " : "") + (o.b > 0 ? "B×" + o.b + " " : "") + (o.c > 0 ? "C×" + o.c : "")
                     };
                     orderTracks[o.id] = t;
-                    Line("ORDRE", "#" + o.id + (o.urgent ? " URGENTE" : "") + " créée : " + t.Composition.Trim() + "  →  " + Phase(o.status));
+                    Line("ORDER", "#" + o.id + (o.urgent ? " URGENT" : "") + " created: " + t.Composition.Trim() + "  →  " + Phase(o.status));
                     continue;
                 }
                 if (o.bench_id != null && o.bench_id != t.Bench && o.bench_id != "") t.Bench = o.bench_id;
@@ -307,27 +307,27 @@ namespace RoboFactory.Logistics
                 string extra = o.status == "queued" || o.status == "picking"
                     ? "  (" + (string.IsNullOrEmpty(o.bench_id) ? "-" : o.bench_id) + " / " + (string.IsNullOrEmpty(o.truck_id) ? "-" : o.truck_id) + ")"
                     : o.status == "paused"
-                        ? "  (préparé " + (o.staged_a + o.staged_b + o.staged_c) + ", chargé " + (o.loaded_a + o.loaded_b + o.loaded_c) + ")"
+                        ? "  (staged " + (o.staged_a + o.staged_b + o.staged_c) + ", loaded " + (o.loaded_a + o.loaded_b + o.loaded_c) + ")"
                         : "";
                 bool finishing = o.id == orch.FinishingOrderId;
-                Line("ORDRE", "#" + o.id + (o.urgent ? " URGENTE" : "") + (finishing ? " [FINISHING_FOR_URGENT]" : "") + " : " +
+                Line("ORDER", "#" + o.id + (o.urgent ? " URGENT" : "") + (finishing ? " [FINISHING_FOR_URGENT]" : "") + ": " +
                               prevPhase + " (" + spent.ToString("F1") + " s) → " + Phase(o.status) + extra);
                 if (o.status == "queued") t.QueuedAt = Time.time;
                 if (o.status == "picking" && t.QueuedAt >= 0f)
                     foreach (OrderTrack other in orderTracks.Values)
                         if (other != t && other.Status == "queued" && other.QueuedAt >= 0f && other.QueuedAt < t.QueuedAt && !t.Urgent)
                         {
-                            string v = "R1 prend #" + t.Id + " avant #" + other.Id + " (décidée " +
-                                       (t.QueuedAt - other.QueuedAt).ToString("F0") + " s plus tôt) — ordre de la file R1 non respecté";
-                            fifoViolations.Add("t=" + Time.time.ToString("F0") + " s : " + v);
-                            Line("ORDRE", "⚠ " + v);
+                            string v = "R1 takes #" + t.Id + " before #" + other.Id + " (decided " +
+                                       (t.QueuedAt - other.QueuedAt).ToString("F0") + " s earlier) — R1 queue order not respected";
+                            fifoViolations.Add("t=" + Time.time.ToString("F0") + " s: " + v);
+                            Line("ORDER", "⚠ " + v);
                         }
                 t.Status = o.status;
                 t.StatusSince = Time.time;
                 if (o.status == "loaded" && t.Delivered < 0f)
                 {
                     t.Delivered = Time.time;
-                    Line("ORDRE", "#" + o.id + " LIVRÉE en " + (t.Delivered - t.Created).ToString("F1") + " s  —  " + PhaseBreakdown(t));
+                    Line("ORDER", "#" + o.id + " DELIVERED in " + (t.Delivered - t.Created).ToString("F1") + " s  —  " + PhaseBreakdown(t));
                 }
             }
         }
@@ -336,18 +336,18 @@ namespace RoboFactory.Logistics
         {
             var parts = new List<string>();
             foreach (KeyValuePair<string, float> kv in t.PhaseTime)
-                if (kv.Key != "livrée" && kv.Value >= .5f) parts.Add(kv.Key + " " + kv.Value.ToString("F0") + " s");
+                if (kv.Key != "delivered" && kv.Value >= .5f) parts.Add(kv.Key + " " + kv.Value.ToString("F0") + " s");
             return string.Join(" · ", parts);
         }
 
-        // ---- robots : un état lisible + sa catégorie (pour le bilan)
+        // ---- robots: a readable state + its category (for the summary)
 
         private string r1LastTarget = "?";
         private bool r1LastPallet, r1LastBench;
         private readonly Dictionary<string, Vector3> lastPos = new Dictionary<string, Vector3>();
         private readonly Dictionary<string, float> stillFor = new Dictionary<string, float>();
 
-        /// <summary>Temps (s) depuis lequel le robot ne bouge plus.</summary>
+        /// <summary>Time (s) since the robot stopped moving.</summary>
         private float Still(string id, Transform t)
         {
             Vector3 p = t.position;
@@ -381,49 +381,49 @@ namespace RoboFactory.Logistics
         private void DescribeR1(WarehouseRobotAutopilot r1, WarehouseWorld world, out string label, out string cat)
         {
             string s = (r1.Status ?? "").ToLowerInvariant();
-            // pendant la prise / dépose la cible est effacée par le robot : on garde la dernière connue
+            // during the pick / drop the robot clears its target: keep the last known one
             string target = ResolveZone(r1.CurrentTarget, world, out bool isPallet, out bool isBench);
             if (target == "?") { target = r1LastTarget; isPallet = r1LastPallet; isBench = r1LastBench; }
             else { r1LastTarget = target; r1LastPallet = isPallet; r1LastBench = isBench; }
             bool still = Still("R1", r1.transform) >= 1f;
-            if (s.Contains("sur place")) { label = "attente sur place (décision Muse)"; cat = "attente décision"; return; }
-            if (s.StartsWith("retour") && !still) { label = "retour au poste"; cat = "retour base"; return; }
-            if (!r1.MissionActive || s.StartsWith("retour")) { label = "inactif (au poste)"; cat = "inactif"; return; }
-            if (s.Contains("suspendue")) { label = "mission suspendue (urgente)"; cat = "suspendu"; return; }
-            if (s.Contains("banc plein")) { label = "attente : banc plein"; cat = "attente banc"; return; }
-            if (s.Contains("occupé") || s.Contains("bloqu") || s.StartsWith("recalcul")) { label = "attente : " + r1.Status; cat = "attente trajet"; return; }
-            if (s.Contains(" posé (")) { label = "carton posé sur " + target + " (" + (r1.ActiveLeg != null ? r1.ActiveLeg.Picked + "/" + r1.ActiveLeg.Planned + " depuis " + r1.ActiveLeg.PalletId : "") + ")"; cat = "manutention"; return; }
-            if (s.StartsWith("vers ")) { label = "trajet → " + target; cat = isPallet ? "trajet vers palette" : isBench ? "trajet vers banc" : "trajet"; return; }
-            if (s.Contains("déchargement")) { label = "dépose carton sur " + target; cat = "manutention"; return; }
-            if (s.Contains("chargement") || s.StartsWith("prise")) { label = "prise carton sur " + target; cat = "manutention"; return; }
+            if (s.Contains("holding position")) { label = "holding position (Muse decision)"; cat = "waiting decision"; return; }
+            if (s.StartsWith("returning") && !still) { label = "returning to station"; cat = "return to base"; return; }
+            if (!r1.MissionActive || s.StartsWith("returning")) { label = "idle (at station)"; cat = "idle"; return; }
+            if (s.Contains("suspended")) { label = "mission suspended (urgent)"; cat = "suspended"; return; }
+            if (s.Contains("bench full")) { label = "waiting: bench full"; cat = "waiting bench"; return; }
+            if (s.Contains("busy") || s.Contains("blocked") || s.StartsWith("replanning")) { label = "waiting: " + r1.Status; cat = "waiting path"; return; }
+            if (s.Contains(" placed (")) { label = "box placed on " + target + " (" + (r1.ActiveLeg != null ? r1.ActiveLeg.Picked + "/" + r1.ActiveLeg.Planned + " from " + r1.ActiveLeg.PalletId : "") + ")"; cat = "handling"; return; }
+            if (s.StartsWith("heading to ")) { label = "travel → " + target; cat = isPallet ? "travel to pallet" : isBench ? "travel to bench" : "travel"; return; }
+            if (s.Contains("unloading")) { label = "dropping box on " + target; cat = "handling"; return; }
+            if (s.Contains("loading") || s.StartsWith("picking")) { label = "taking box from " + target; cat = "handling"; return; }
             label = r1.Status;
-            cat = "autre";
+            cat = "other";
         }
 
         private void DescribeR2(TruckLoaderAgent r2, out string label, out string cat)
         {
             OrderTrack t = orderTracks.TryGetValue(r2.DirectedOrderId, out OrderTrack ot) ? ot : null;
-            string bench = t != null && t.Bench != "" ? t.Bench : "banc";
-            string truck = t != null && t.Truck != "" ? t.Truck : "camion";
+            string bench = t != null && t.Bench != "" ? t.Bench : "bench";
+            string truck = t != null && t.Truck != "" ? t.Truck : "truck";
             string s = (r2.Status ?? "").ToLowerInvariant();
             bool still = Still("R2", r2.transform) >= 1f;
-            if (r2.State == TruckLoaderAgent.R2State.RetourBase && still) { label = "inactif"; cat = "inactif"; return; }
-            if (!r2.MissionActive && r2.State != TruckLoaderAgent.R2State.RetourBase) { label = "inactif"; cat = "inactif"; return; }
+            if (r2.State == TruckLoaderAgent.R2State.ReturningHome && still) { label = "idle"; cat = "idle"; return; }
+            if (!r2.MissionActive && r2.State != TruckLoaderAgent.R2State.ReturningHome) { label = "idle"; cat = "idle"; return; }
             switch (r2.State)
             {
-                case TruckLoaderAgent.R2State.AttenteColis: label = "attente cartons sur " + bench; cat = "attente cartons"; return;
-                case TruckLoaderAgent.R2State.AttenteCamion:
-                    label = s.Contains("plein") ? "attente : camion plein" : "attente porte " + truck; cat = "attente porte"; return;
-                case TruckLoaderAgent.R2State.VersBanc:
-                    if (s.StartsWith("suspension")) { label = "remise du carton sur " + bench + " (suspension)"; cat = "suspendu"; return; }
-                    label = "trajet → " + bench; cat = "trajet vers banc"; return;
-                case TruckLoaderAgent.R2State.Prise: label = "prise carton sur " + bench; cat = "manutention"; return;
-                case TruckLoaderAgent.R2State.VersCamion:
-                    if (s.StartsWith("sortie")) { label = "sortie de la remorque " + truck; cat = "sortie remorque"; return; }
-                    label = "trajet → " + truck + (r2.Carried != null ? " (carton en main)" : ""); cat = "trajet vers camion"; return;
-                case TruckLoaderAgent.R2State.Depose: label = "dépose carton dans " + truck; cat = "manutention"; return;
-                case TruckLoaderAgent.R2State.RetourBase: label = "retour base"; cat = "retour base"; return;
-                default: label = r2.Status; cat = "autre"; return;
+                case TruckLoaderAgent.R2State.WaitingForBoxes: label = "waiting for boxes on " + bench; cat = "waiting boxes"; return;
+                case TruckLoaderAgent.R2State.WaitingForTruck:
+                    label = s.Contains("full") ? "waiting: truck full" : "waiting for door " + truck; cat = "waiting door"; return;
+                case TruckLoaderAgent.R2State.ToBench:
+                    if (s.StartsWith("suspension")) { label = "putting the box back on " + bench + " (suspension)"; cat = "suspended"; return; }
+                    label = "travel → " + bench; cat = "travel to bench"; return;
+                case TruckLoaderAgent.R2State.Picking: label = "taking box from " + bench; cat = "handling"; return;
+                case TruckLoaderAgent.R2State.ToTruck:
+                    if (s.StartsWith("leaving")) { label = "leaving trailer " + truck; cat = "leaving trailer"; return; }
+                    label = "travel → " + truck + (r2.Carried != null ? " (box in hand)" : ""); cat = "travel to truck"; return;
+                case TruckLoaderAgent.R2State.Dropping: label = "dropping box in " + truck; cat = "handling"; return;
+                case TruckLoaderAgent.R2State.ReturningHome: label = "return to base"; cat = "return to base"; return;
+                default: label = r2.Status; cat = "other"; return;
             }
         }
 
@@ -449,7 +449,7 @@ namespace RoboFactory.Logistics
             if (a.Label == label && a.OrderId == orderId) return;
             float spent = Time.time - a.Since;
             segments.Add(new Segment { Actor = id, Label = a.Label, Category = a.Category, OrderId = a.OrderId, Start = a.Since, End = Time.time });
-            Line(id, label + (orderId >= 0 ? "  [#" + orderId + "]" : "") + "      (fin : " + a.Label + " — " + spent.ToString("F1") + " s)");
+            Line(id, label + (orderId >= 0 ? "  [#" + orderId + "]" : "") + "      (end: " + a.Label + " — " + spent.ToString("F1") + " s)");
             a.Label = label;
             a.Category = category;
             a.OrderId = orderId;
@@ -471,7 +471,7 @@ namespace RoboFactory.Logistics
                 if (doorState.TryGetValue(id, out string prev) && prev == d) continue;
                 doorState[id] = d;
                 if (prev == null) continue;
-                Line("PORTE", id + " " + prev + " → " + d + (bay.ReservedOrderId >= 0 ? "  [#" + bay.ReservedOrderId + "]" : "") +
+                Line("DOOR", id + " " + prev + " → " + d + (bay.ReservedOrderId >= 0 ? "  [#" + bay.ReservedOrderId + "]" : "") +
                               "  (" + bay.LoadedCount + "/" + bay.Capacity + ")");
             }
         }
@@ -482,24 +482,24 @@ namespace RoboFactory.Logistics
             string st = voice.State.ToString();
             if (st != lastVoiceState)
             {
-                if (lastVoiceState != "") Line("VOIX", lastVoiceState + " → " + st + (st == "Recording" ? " (micro ouvert)" : ""));
+                if (lastVoiceState != "") Line("VOICE", lastVoiceState + " → " + st + (st == "Recording" ? " (mic open)" : ""));
                 lastVoiceState = st;
             }
             if (voice.FinalTranscript != lastFinal)
             {
                 lastFinal = voice.FinalTranscript;
                 if (lastFinal.Length > 0)
-                    Line("VOIX", "transcription finale « " + lastFinal + " »  (ASR " + voice.LastAsrLatencyMs + " ms, " +
-                                 voice.LastCaptureSeconds.ToString("F1") + " s, crête " + (voice.LastCapturePeak > 0f ? (20f * Mathf.Log10(voice.LastCapturePeak)).ToString("F0") : "-inf") + " dBFS)");
+                    Line("VOICE", "final transcription « " + lastFinal + " »  (ASR " + voice.LastAsrLatencyMs + " ms, " +
+                                 voice.LastCaptureSeconds.ToString("F1") + " s, peak " + (voice.LastCapturePeak > 0f ? (20f * Mathf.Log10(voice.LastCapturePeak)).ToString("F0") : "-inf") + " dBFS)");
             }
             if (voice.LastFailure != lastFailure)
             {
                 lastFailure = voice.LastFailure;
-                if (lastFailure.Length > 0) Line("VOIX", "échec : " + lastFailure);
+                if (lastFailure.Length > 0) Line("VOICE", "failure: " + lastFailure);
             }
         }
 
-        // ---------------------------------------------------------------- bilan
+        // ---------------------------------------------------------------- summary
 
         private void TrackIdle()
         {
@@ -511,7 +511,7 @@ namespace RoboFactory.Logistics
             if (Time.time - idleSince >= IdleSummaryDelay)
             {
                 summaryWrittenForIdle = true;
-                WriteSummary("toutes les commandes sont livrées");
+                WriteSummary("all orders delivered");
             }
         }
 
@@ -522,7 +522,7 @@ namespace RoboFactory.Logistics
             if (finished || writer == null) return;
             finished = true;
             CloseOpenSegments();
-            WriteSummary("fin de session");
+            WriteSummary("end of session");
             try { writer.Dispose(); } catch (Exception) { }
             writer = null;
         }
@@ -542,21 +542,21 @@ namespace RoboFactory.Logistics
                 all.Add(new Segment { Actor = kv.Key, Label = kv.Value.Label, Category = kv.Value.Category, OrderId = kv.Value.OrderId, Start = kv.Value.Since, End = Time.time });
             var sb = new StringBuilder();
             sb.AppendLine();
-            sb.AppendLine("================================ BILAN (" + why + ", t=" + Time.time.ToString("F0") + " s) ================================");
+            sb.AppendLine("================================ SUMMARY (" + why + ", t=" + Time.time.ToString("F0") + " s) ================================");
 
-            // ---- commandes
-            sb.AppendLine("COMMANDES — durée totale et temps passé dans chaque phase");
+            // ---- orders
+            sb.AppendLine("ORDERS — total duration and time spent in each phase");
             foreach (OrderTrack t in orderTracks.Values)
             {
                 var pt = new Dictionary<string, float>(t.PhaseTime);
                 if (t.Delivered < 0f) pt[Phase(t.Status)] = (pt.TryGetValue(Phase(t.Status), out float acc) ? acc : 0f) + (Time.time - t.StatusSince);
                 string phases = "";
                 foreach (KeyValuePair<string, float> kv in pt)
-                    if (kv.Key != "livrée" && kv.Value >= .5f) phases += kv.Key + " " + kv.Value.ToString("F0") + " s · ";
+                    if (kv.Key != "delivered" && kv.Value >= .5f) phases += kv.Key + " " + kv.Value.ToString("F0") + " s · ";
                 sb.AppendLine("  #" + t.Id + (t.Urgent ? " URG" : "    ") + "  " + t.Composition.PadRight(10) + "  " +
-                              (t.Delivered >= 0f ? "livrée en " + (t.Delivered - t.Created).ToString("F0") + " s" : "NON livrée (" + Phase(t.Status) + ")").PadRight(26) +
+                              (t.Delivered >= 0f ? "delivered in " + (t.Delivered - t.Created).ToString("F0") + " s" : "NOT delivered (" + Phase(t.Status) + ")").PadRight(26) +
                               phases.TrimEnd(' ', '·') +
-                              (t.Decisions > 0 ? "   [Muse : " + t.Decisions + " décision(s), " + t.DecisionLatency.ToString("F0") + " s d'attente]" : ""));
+                              (t.Decisions > 0 ? "   [Muse: " + t.Decisions + " decision(s), " + t.DecisionLatency.ToString("F0") + " s of waiting]" : ""));
             }
 
             // ---- robots
@@ -576,8 +576,8 @@ namespace RoboFactory.Logistics
                 cats.Sort((a, b) => b.Value.CompareTo(a.Value));
                 float work = 0f;
                 foreach (KeyValuePair<string, float> kv in cats)
-                    if (kv.Key.StartsWith("trajet") || kv.Key == "manutention") work += kv.Value;
-                sb.AppendLine(robot + " — emploi du temps (" + total.ToString("F0") + " s, travail utile " + (100f * work / total).ToString("F0") + " %)");
+                    if (kv.Key.StartsWith("travel") || kv.Key == "handling") work += kv.Value;
+                sb.AppendLine(robot + " — timetable (" + total.ToString("F0") + " s, useful work " + (100f * work / total).ToString("F0") + " %)");
                 foreach (KeyValuePair<string, float> kv in cats)
                     sb.AppendLine("  " + kv.Key.PadRight(26) + kv.Value.ToString("F0").PadLeft(5) + " s   " + (100f * kv.Value / total).ToString("F0").PadLeft(3) + " %");
             }
@@ -596,55 +596,55 @@ namespace RoboFactory.Logistics
             }
             var trig = new List<string>();
             foreach (KeyValuePair<string, int> kv in byTrigger) trig.Add(kv.Key + "×" + kv.Value);
-            sb.AppendLine("MUSE — " + museCalls.Count + " appel(s) : " + useful + " utile(s), " + noEffect + " sans effet (wait/no_plan…), " +
-                          rejected + " refusé(s)/échoué(s) ; attente cumulée " + latency.ToString("F0") + " s  [" + string.Join(", ", trig) + "]");
+            sb.AppendLine("MUSE — " + museCalls.Count + " call(s): " + useful + " useful, " + noEffect + " without effect (wait/no_plan…), " +
+                          rejected + " refused/failed; total wait " + latency.ToString("F0") + " s  [" + string.Join(", ", trig) + "]");
 
-            // ---- portes
+            // ---- doors
             foreach (KeyValuePair<string, float> kv in doorOpenTotal)
             {
                 float loadingT = doorLoadingTotal.TryGetValue(kv.Key, out float l) ? l : 0f;
-                sb.AppendLine("PORTE " + kv.Key + " — ouverte " + kv.Value.ToString("F0") + " s dont chargement actif " + loadingT.ToString("F0") + " s");
+                sb.AppendLine("DOOR " + kv.Key + " — open " + kv.Value.ToString("F0") + " s including active loading " + loadingT.ToString("F0") + " s");
             }
-            sb.AppendLine("DIVERS — mouvements de cartons " + cartonMoves + ", changements d'itinéraire (rupture) " + routeChanges +
-                          ", mises en pause " + suspensions + ", incidents " + incidentsCount);
+            sb.AppendLine("MISC — box moves " + cartonMoves + ", route changes (stock-out) " + routeChanges +
+                          ", pauses " + suspensions + ", incidents " + incidentsCount);
 
-            // ---- étapes inutiles
-            sb.AppendLine("ÉTAPES QUI NE SERVENT À RIEN / À SURVEILLER");
+            // ---- useless steps
+            sb.AppendLine("STEPS THAT ARE USELESS / TO WATCH");
             int found = 0;
             foreach (string robot in new[] { "R1", "R2" })
             {
                 for (int i = 0; i < all.Count; i++)
                 {
                     Segment s = all[i];
-                    if (s.Actor != robot || s.Category != "retour base") continue;
-                    // retour base suivi d'une nouvelle mission peu après -> aller-retour inutile
+                    if (s.Actor != robot || s.Category != "return to base") continue;
+                    // return to base followed by a new mission shortly after -> useless round trip
                     float idleAfter = 0f;
                     Segment nextWork = null;
                     for (int j = i + 1; j < all.Count; j++)
                     {
                         if (all[j].Actor != robot) continue;
-                        if (all[j].Category == "inactif") { idleAfter += all[j].Duration; continue; }
-                        if (all[j].Category == "retour base") break; // même trajet, découpé
+                        if (all[j].Category == "idle") { idleAfter += all[j].Duration; continue; }
+                        if (all[j].Category == "return to base") break; // same trip, split
                         nextWork = all[j];
                         break;
                     }
                     if (nextWork != null && idleAfter < 25f)
                     {
                         found++;
-                        sb.AppendLine("  • " + robot + " t=" + s.Start.ToString("F0") + " s : retour base " + s.Duration.ToString("F0") +
-                                      " s puis nouvelle mission " + idleAfter.ToString("F0") + " s après — aller-retour inutile (~" +
-                                      (2f * s.Duration + idleAfter).ToString("F0") + " s perdues)");
+                        sb.AppendLine("  • " + robot + " t=" + s.Start.ToString("F0") + " s: return to base " + s.Duration.ToString("F0") +
+                                      " s then new mission " + idleAfter.ToString("F0") + " s later — useless round trip (~" +
+                                      (2f * s.Duration + idleAfter).ToString("F0") + " s lost)");
                     }
                 }
             }
             foreach (Segment s in all)
             {
                 if (s.Duration < 20f) continue;
-                if (s.Category == "attente cartons" || s.Category == "attente porte" || s.Category == "attente décision" ||
-                    s.Category == "attente banc" || s.Category == "attente trajet")
+                if (s.Category == "waiting boxes" || s.Category == "waiting door" || s.Category == "waiting decision" ||
+                    s.Category == "waiting bench" || s.Category == "waiting path")
                 {
                     found++;
-                    sb.AppendLine("  • " + s.Actor + " t=" + s.Start.ToString("F0") + " s : " + s.Label + " pendant " + s.Duration.ToString("F0") + " s" +
+                    sb.AppendLine("  • " + s.Actor + " t=" + s.Start.ToString("F0") + " s: " + s.Label + " for " + s.Duration.ToString("F0") + " s" +
                                   (s.OrderId >= 0 ? " (#" + s.OrderId + ")" : ""));
                 }
             }
@@ -652,8 +652,8 @@ namespace RoboFactory.Logistics
             {
                 float loadingT = doorLoadingTotal.TryGetValue(kv.Key, out float l) ? l : 0f;
                 if (kv.Value - loadingT > 60f)
-                    sb.AppendLine("  (info) porte " + kv.Key + " ouverte " + (kv.Value - loadingT).ToString("F0") +
-                                  " s sans chargement — ouverte dès la décision, ne retarde aucun robot");
+                    sb.AppendLine("  (info) door " + kv.Key + " open " + (kv.Value - loadingT).ToString("F0") +
+                                  " s without loading — opened at decision time, delays no robot");
             }
             foreach (string v in fifoViolations)
             {
@@ -664,23 +664,23 @@ namespace RoboFactory.Logistics
                 if (!c.Useful)
                 {
                     found++;
-                    sb.AppendLine("  • appel Muse " + c.Id + " [" + c.Trigger + "] sans effet : " + c.Result);
+                    sb.AppendLine("  • Muse call " + c.Id + " [" + c.Trigger + "] without effect: " + c.Result);
                 }
             foreach (OrderTrack t in orderTracks.Values)
             {
-                float wait = t.PhaseTime.TryGetValue("attente décision Muse", out float w) ? w : 0f;
+                float wait = t.PhaseTime.TryGetValue("waiting for Muse decision", out float w) ? w : 0f;
                 if (wait > 60f)
                 {
                     found++;
-                    sb.AppendLine("  • #" + t.Id + " a attendu " + wait.ToString("F0") + " s une décision (ressources occupées ou latence Muse)");
+                    sb.AppendLine("  • #" + t.Id + " waited " + wait.ToString("F0") + " s for a decision (resources busy or Muse latency)");
                 }
             }
             if (routeChanges > 0)
             {
                 found++;
-                sb.AppendLine("  • " + routeChanges + " changement(s) d'itinéraire : une palette prévue n'avait plus le carton accessible (rupture sur le dessus)");
+                sb.AppendLine("  • " + routeChanges + " route change(s): a planned pallet no longer had the box reachable (stock-out on top)");
             }
-            if (found == 0) sb.AppendLine("  aucune détectée");
+            if (found == 0) sb.AppendLine("  none detected");
             sb.AppendLine("=====================================================================================================");
             try { writer.Write(sb.ToString()); } catch (Exception) { }
         }

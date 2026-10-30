@@ -4,50 +4,50 @@ using System.Collections.Generic;
 namespace RoboFactory.Hackathon.Orchestration
 {
     /// <summary>
-    /// Validateur local des plans Muse Wonder — logique pure, testable en EditMode.
-    /// Un plan refusé renvoie la liste des motifs ; le plan accepté est ensuite
-    /// exécuté par l'orchestrateur qui réserve les ressources.
+    /// Local validator of Muse Wonder plans — pure logic, testable in EditMode.
+    /// A refused plan returns the list of reasons; the accepted plan is then
+    /// executed by the orchestrator, which reserves the resources.
     /// </summary>
     public static class PlanValidator
     {
         public static readonly string[] KnownActions = { "execute_order", "wait", "defer_order", "no_plan" };
 
-        /// <summary>Premier motif de rejet, ou null si le plan est exécutable.</summary>
+        /// <summary>First rejection reason, or null if the plan is executable.</summary>
         public static string FirstError(MusePlan plan, WarehouseSnapshot snap)
         {
             List<string> errors = Validate(plan, snap);
             return errors.Count > 0 ? errors[0] : null;
         }
 
-        /// <summary>Tous les motifs de rejet (liste vide = plan valide).</summary>
+        /// <summary>All rejection reasons (empty list = valid plan).</summary>
         public static List<string> Validate(MusePlan plan, WarehouseSnapshot snap)
         {
             var errors = new List<string>();
-            if (plan == null) { errors.Add("plan vide"); return errors; }
-            if (snap == null) { errors.Add("état d'entrepôt vide"); return errors; }
+            if (plan == null) { errors.Add("empty plan"); return errors; }
+            if (snap == null) { errors.Add("empty warehouse state"); return errors; }
 
             string action = (plan.action ?? "").Trim().ToLowerInvariant();
             if (Array.IndexOf(KnownActions, action) < 0)
-                errors.Add("action inconnue: " + plan.action);
+                errors.Add("unknown action: " + plan.action);
 
             if (action == "defer_order")
             {
                 if (FindOrder(snap, plan.order_id) == null)
-                    errors.Add("defer_order sur commande inexistante: " + plan.order_id);
+                    errors.Add("defer_order on unknown order: " + plan.order_id);
                 return errors;
             }
-            if (action != "execute_order") return errors; // wait / no_plan : rien à valider
+            if (action != "execute_order") return errors; // wait / no_plan: nothing to validate
 
-            // ---- commande
+            // ---- order
             WhOrderState order = FindOrder(snap, plan.order_id);
             if (order == null)
             {
-                errors.Add("commande inexistante: " + plan.order_id);
+                errors.Add("unknown order: " + plan.order_id);
                 return errors;
             }
             if (order.status != "pending" && order.status != "waiting" && order.status != "planned")
             {
-                errors.Add("commande #" + plan.order_id + " non planifiable (statut " + order.status + ")");
+                errors.Add("order #" + plan.order_id + " not plannable (status " + order.status + ")");
                 return errors;
             }
             int needA = Remaining(order, "A"), needB = Remaining(order, "B"), needC = Remaining(order, "C");
@@ -55,27 +55,27 @@ namespace RoboFactory.Hackathon.Orchestration
             int staged = order.staged_a + order.staged_b + order.staged_c;
             if (needed <= 0 && staged <= 0)
             {
-                errors.Add("commande #" + plan.order_id + " déjà complète");
+                errors.Add("order #" + plan.order_id + " already complete");
                 return errors;
             }
 
-            // Une commande déjà préparée garde ses affectations : déplacer son stock
-            // vers un autre banc ou ses cartons chargés vers un autre camion est interdit.
+            // An order already staged keeps its assignments: moving its stock
+            // to another bench or its loaded boxes to another truck is forbidden.
             if (!string.IsNullOrEmpty(order.bench_id) && plan.bench_id != order.bench_id)
-                errors.Add("commande #" + plan.order_id + " déjà affectée au banc " + order.bench_id);
+                errors.Add("order #" + plan.order_id + " already assigned to bench " + order.bench_id);
             if (!string.IsNullOrEmpty(order.truck_id) &&
                 order.loaded_a + order.loaded_b + order.loaded_c > 0 &&
                 plan.truck_id != order.truck_id)
-                errors.Add("commande #" + plan.order_id + " déjà partiellement chargée dans " + order.truck_id);
+                errors.Add("order #" + plan.order_id + " already partially loaded in " + order.truck_id);
 
-            // ---- prélèvements
-            // Plan "chargement seul" : tout est déjà préparé sur le banc (reprise
-            // après suspension) — aucune étape de collecte n'est alors exigée.
+            // ---- picks
+            // "Load only" plan: everything is already staged on the bench (resume
+            // after suspension) — no pick step is required then.
             if (plan.picks == null || plan.picks.Length == 0)
             {
                 if (needed > 0 || staged <= 0)
                 {
-                    errors.Add("execute_order sans aucun prélèvement");
+                    errors.Add("execute_order without any pick");
                     return errors;
                 }
             }
@@ -85,44 +85,44 @@ namespace RoboFactory.Hackathon.Orchestration
                 var seenLegs = new HashSet<string>();
                 foreach (MusePlanPick leg in plan.picks)
                 {
-                    if (leg == null) { errors.Add("étape de prélèvement nulle"); continue; }
+                    if (leg == null) { errors.Add("null pick step"); continue; }
                     string palletId = leg.pallet_id ?? "";
                     string type = (leg.type ?? "").ToUpperInvariant();
                     WhPallet pallet = FindPallet(snap, palletId);
                     if (pallet == null)
                     {
-                        errors.Add("palette inexistante: " + palletId);
+                        errors.Add("unknown pallet: " + palletId);
                         continue;
                     }
                     if (pallet.reserved_by != null && pallet.reserved_by != "" &&
                         pallet.reserved_by != plan.order_id.ToString())
-                        errors.Add("palette " + palletId + " déjà réservée par " + pallet.reserved_by);
+                        errors.Add("pallet " + palletId + " already reserved by " + pallet.reserved_by);
                     if (type != "A" && type != "B" && type != "C")
                     {
-                        errors.Add("type de carton invalide sur " + palletId + ": " + leg.type);
+                        errors.Add("invalid box type on " + palletId + ": " + leg.type);
                         continue;
                     }
                     if (leg.count <= 0)
                     {
-                        errors.Add("quantité <= 0 sur " + palletId);
+                        errors.Add("quantity <= 0 on " + palletId);
                         continue;
                     }
                     int stock = pallet.stock != null ? pallet.stock.Of(type) : 0;
                     if (stock < leg.count)
-                        errors.Add("palette " + palletId + " : stock " + type + " insuffisant (" + stock + " < " + leg.count + ")");
+                        errors.Add("pallet " + palletId + ": insufficient " + type + " stock (" + stock + " < " + leg.count + ")");
                     string legKey = palletId + "|" + type;
                     if (!seenLegs.Add(legKey))
-                        errors.Add("même source réservée deux fois: " + legKey);
+                        errors.Add("same source reserved twice: " + legKey);
                     if (type == "A") sumA += leg.count;
                     else if (type == "B") sumB += leg.count;
                     else sumC += leg.count;
                 }
-                if (sumA != needA) errors.Add("couverture A invalide: prévu " + sumA + " pour un besoin de " + needA);
-                if (sumB != needB) errors.Add("couverture B invalide: prévu " + sumB + " pour un besoin de " + needB);
-                if (sumC != needC) errors.Add("couverture C invalide: prévu " + sumC + " pour un besoin de " + needC);
+                if (sumA != needA) errors.Add("invalid coverage A: planned " + sumA + " for a need of " + needA);
+                if (sumB != needB) errors.Add("invalid coverage B: planned " + sumB + " for a need of " + needB);
+                if (sumC != needC) errors.Add("invalid coverage C: planned " + sumC + " for a need of " + needC);
             }
 
-            // ---- palettes de secours
+            // ---- fallback pallets
             if (plan.fallback_pallets != null)
             {
                 var declared = new HashSet<string>();
@@ -134,64 +134,64 @@ namespace RoboFactory.Hackathon.Orchestration
                 {
                     if (string.IsNullOrEmpty(fb)) continue;
                     if (FindPallet(snap, fb) == null)
-                        errors.Add("palette de secours inexistante: " + fb);
+                        errors.Add("unknown fallback pallet: " + fb);
                     else
                     {
                         WhPallet p = FindPallet(snap, fb);
                         if (p.reserved_by != null && p.reserved_by != "" && p.reserved_by != plan.order_id.ToString())
-                            errors.Add("palette de secours " + fb + " réservée par " + p.reserved_by);
+                            errors.Add("fallback pallet " + fb + " reserved by " + p.reserved_by);
                     }
                     if (declared.Contains(fb))
-                        errors.Add("palette de secours " + fb + " déjà dans les prélèvements");
+                        errors.Add("fallback pallet " + fb + " already in the picks");
                     if (!seenFb.Add(fb))
-                        errors.Add("palette de secours dupliquée: " + fb);
+                        errors.Add("duplicated fallback pallet: " + fb);
                 }
             }
 
-            // ---- banc
+            // ---- bench
             WhBench bench = FindBench(snap, plan.bench_id);
             if (bench == null)
             {
-                errors.Add("banc inexistant: " + plan.bench_id);
+                errors.Add("unknown bench: " + plan.bench_id);
             }
             else
             {
                 if (bench.reserved_by != null && bench.reserved_by != "" &&
                     bench.reserved_by != plan.order_id.ToString())
-                    errors.Add("banc " + plan.bench_id + " réservé par la commande " + bench.reserved_by);
+                    errors.Add("bench " + plan.bench_id + " reserved by order " + bench.reserved_by);
                 if (bench.free_levels < 1)
-                    errors.Add("banc " + plan.bench_id + " indisponible (aucun niveau libre)");
+                    errors.Add("bench " + plan.bench_id + " unavailable (no free level)");
             }
 
-            // ---- camion
+            // ---- truck
             WhTruck truck = FindTruck(snap, plan.truck_id);
             if (truck == null)
             {
-                errors.Add("camion inexistant: " + plan.truck_id);
+                errors.Add("unknown truck: " + plan.truck_id);
             }
             else
             {
                 if (truck.reserved_by != null && truck.reserved_by != "" &&
                     truck.reserved_by != plan.order_id.ToString())
-                    errors.Add("camion " + plan.truck_id + " réservé par la commande " + truck.reserved_by);
-                // Les cartons préparés doivent AUSSI monter dans le camion : la
-                // capacité vérifiée couvre ce qu'il reste à prélever + le banc.
+                    errors.Add("truck " + plan.truck_id + " reserved by order " + truck.reserved_by);
+                // The staged boxes must ALSO go into the truck: the
+                // checked capacity covers what is left to pick + the bench.
                 int truckNeed = needed + staged;
                 if (truck.free < truckNeed)
-                    errors.Add("camion " + plan.truck_id + " : capacité insuffisante (" + truck.free + " < " + truckNeed + ")");
+                    errors.Add("truck " + plan.truck_id + ": insufficient capacity (" + truck.free + " < " + truckNeed + ")");
             }
 
             // ---- robots
             if (FindRobot(snap, plan.robot_pick) == null)
-                errors.Add("robot de collecte inexistant: " + plan.robot_pick);
+                errors.Add("unknown pick robot: " + plan.robot_pick);
             else if (!FindRobot(snap, plan.robot_pick).available)
-                errors.Add("robot " + plan.robot_pick + " indisponible");
+                errors.Add("robot " + plan.robot_pick + " unavailable");
             if (FindRobot(snap, plan.robot_load) == null)
-                errors.Add("robot de chargement inexistant: " + plan.robot_load);
+                errors.Add("unknown load robot: " + plan.robot_load);
             else if (!FindRobot(snap, plan.robot_load).available)
-                errors.Add("robot " + plan.robot_load + " indisponible");
+                errors.Add("robot " + plan.robot_load + " unavailable");
             if (!string.IsNullOrEmpty(plan.robot_pick) && plan.robot_pick == plan.robot_load)
-                errors.Add("même robot affecté aux deux missions");
+                errors.Add("same robot assigned to both missions");
 
             return errors;
         }

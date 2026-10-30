@@ -6,8 +6,8 @@ using UnityEngine.UI;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Indicateurs compacts des camions : état réel de la porte (TruckBay.Door), remplissage,
-    /// commande réservée. Le camion sélectionné par Muse s'illumine.
+    /// Compact truck indicators: real door state (TruckBay.Door), fill level,
+    /// reserved order. The truck selected by Muse lights up.
     /// </summary>
     public sealed class TruckStripView
     {

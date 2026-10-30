@@ -8811,12 +8811,12 @@
       "colliders": []
     },
     {
-      "path": "NavBlocker_BancsNord",
+      "path": "NavBlocker_BenchesNorth",
       "type": "RoboFactory.Logistics.NavBlocker",
       "enabled": true,
       "pose": {
-        "path": "NavBlocker_BancsNord",
-        "name": "NavBlocker_BancsNord",
+        "path": "NavBlocker_BenchesNorth",
+        "name": "NavBlocker_BenchesNorth",
         "pos": [
           0.0,
           0.7,

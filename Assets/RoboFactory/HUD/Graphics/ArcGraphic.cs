@@ -4,9 +4,9 @@ using UnityEngine.UI;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Arc / anneau vectoriel anti-aliasé (franges de transparence) pour le cercle Muse,
-    /// les jauges et le bouton micro. 0° = midi, sens horaire. Les rotations animées se font
-    /// par le RectTransform (pas de reconstruction du maillage).
+    /// Anti-aliased vector arc / ring (transparency fringes) for the Muse circle,
+    /// the gauges and the microphone button. 0° = noon, clockwise. Animated rotations are done
+    /// through the RectTransform (no mesh rebuild).
     /// </summary>
     [RequireComponent(typeof(CanvasRenderer))]
     public sealed class ArcGraphic : MaskableGraphic
@@ -15,11 +15,11 @@ namespace RoboFactory.HUD
         public float Thickness = 2f;
         public float StartDeg;
         public float SweepDeg = 360f;
-        [Tooltip("Nombre de segments (tirets) répartis sur l'arc.")]
+        [Tooltip("Number of segments (dashes) spread over the arc.")]
         public int Dashes = 1;
         [Range(0.02f, 1f)] public float DashFill = 1f;
         public float Feather = 1f;
-        [Tooltip("Dégradé d'opacité du début (0) vers la fin (1) de chaque segment : effet comète.")]
+        [Tooltip("Opacity gradient from the start (0) to the end (1) of each segment: comet effect.")]
         public bool TailFade;
         public int Resolution = 160;
 

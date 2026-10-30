@@ -6,28 +6,28 @@ using UnityEngine.UI;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Étiquettes holographiques (V2) ancrées aux VRAIS Transform : robots (activité réelle,
-    /// cible, charge, état), ressources sélectionnées (orange) et camions. Projetées en écran
-    /// chaque frame : texte net, taille constante. Les cartouches des robots restent dans la
-    /// zone libre entre les panneaux (SafeArea) ; seul le trait de rappel rejoint le robot.
+    /// Holographic labels (V2) anchored to the REAL Transforms: robots (real activity,
+    /// target, load, state), selected resources (orange) and trucks. Projected to the screen
+    /// every frame: crisp text, constant size. The robot label cards stay in the
+    /// free area between the panels (SafeArea); only the leader line reaches the robot.
     /// </summary>
     public sealed class WorldTagsView
     {
         public RectTransform Root { get; private set; }
         public bool ShowRobots = true;
         public bool ShowResources = true;
-        /// <summary>Zone libre (repère local de Root) où les cartouches robots peuvent se placer.</summary>
+        /// <summary>Free area (Root's local space) where the robot label cards can be placed.</summary>
         public Rect SafeArea;
-        /// <summary>Zone du cercle Muse (repère local de Root) que les cartouches doivent éviter.</summary>
+        /// <summary>Area of the Muse circle (Root's local space) that the label cards must avoid.</summary>
         public Rect AvoidArea;
 
         private RobotTag r1Tag, r2Tag;
 
-        // ---- survol souris : les bulles n'apparaissent que sur l'objet survolé (DEBUG : toutes)
-        /// <summary>Position souris dans le repère des étiquettes (valide si MouseOk).</summary>
+        // ---- mouse hover: bubbles only appear on the hovered object (DEBUG: all of them)
+        /// <summary>Mouse position in the labels' space (valid if MouseOk).</summary>
         public Vector2 Mouse;
         public bool MouseOk;
-        /// <summary>Mode DEBUG : bulles robots + ressources réservées toujours visibles (ancien comportement).</summary>
+        /// <summary>DEBUG mode: robot bubbles + reserved resources always visible (old behaviour).</summary>
         public bool ShowAll;
         private const float HoverLinger = .35f;
         private readonly Dictionary<Transform, Renderer[]> renderers = new Dictionary<Transform, Renderer[]>();
@@ -147,7 +147,7 @@ namespace RoboFactory.HUD
                 HudFactory.SetColor(s.Leader, HudTheme.A(HudTheme.Orange, .7f * s.Alpha));
                 if (s.Alpha <= 0f) stale.Add(kv.Key);
             }
-            // les cartouches robots restent au premier plan ; une étiquette de ressource cachée dessous s'efface
+            // the robot label cards stay in the foreground; a resource label hidden under them fades out
             r1Tag.Box.SetAsLastSibling();
             r2Tag.Box.SetAsLastSibling();
             var tagA = new Rect(r1Tag.BoxPos, new Vector2(TagW, TagH));
@@ -204,20 +204,20 @@ namespace RoboFactory.HUD
             Color c = o != null && o.Urgent ? HudTheme.Orange : HudTheme.Cyan;
             Vector2 anchor = t.Smoothed;
 
-            // cartouche au-dessus du robot, décalé vers l'extérieur, puis contraint à la zone libre
+            // label card above the robot, shifted outwards, then constrained to the free area
             Vector2 desired = anchor + new Vector2(side < 0f ? -TagW - 30f : 30f, 46f);
             if (SafeArea.width > TagW && SafeArea.height > TagH)
             {
                 desired.x = Mathf.Clamp(desired.x, SafeArea.xMin, SafeArea.xMax - TagW);
                 desired.y = Mathf.Clamp(desired.y, SafeArea.yMin, SafeArea.yMax - TagH);
             }
-            // jamais sur le cercle Muse : on glisse le cartouche sur le côté le plus proche
+            // never on the Muse circle: the label card slides to the closest side
             if (AvoidArea.width > 0f && new Rect(desired, new Vector2(TagW, TagH)).Overlaps(AvoidArea))
             {
                 bool left = desired.x + TagW * .5f < AvoidArea.center.x;
                 desired.x = left ? AvoidArea.xMin - TagW - 10f : AvoidArea.xMax + 10f;
             }
-            // pas de chevauchement entre les deux cartouches : on décale verticalement le second
+            // no overlap between the two label cards: the second one is shifted vertically
             if (other != null && other.Group.alpha > .05f)
             {
                 var me = new Rect(desired, new Vector2(TagW, TagH));
@@ -252,8 +252,8 @@ namespace RoboFactory.HUD
         }
 
         /// <summary>
-        /// La souris est-elle sur l'objet ? Test sur le rectangle écran de ses volumes de rendu
-        /// réels (élargi de 10 px), avec un court maintien pour éviter le clignotement.
+        /// Is the mouse over the object? Test on the screen rectangle of its real render
+        /// volumes (widened by 10 px), with a short hold to avoid flickering.
         /// </summary>
         private bool Hovered(string key, Transform target, Camera cam)
         {
@@ -272,7 +272,7 @@ namespace RoboFactory.HUD
         private bool ScreenRect(Transform t, Camera cam, out Rect rect)
         {
             rect = default;
-            // cache rafraîchi : des cartons quittent une palette (pris par R1) ou arrivent sur un banc
+            // cache refreshed: boxes leave a pallet (taken by R1) or arrive on a bench
             if (!renderers.TryGetValue(t, out Renderer[] list) || list == null ||
                 !renderersAt.TryGetValue(t, out float at) || time - at > 1.5f)
             {

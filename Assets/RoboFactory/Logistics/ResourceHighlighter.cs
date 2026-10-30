@@ -5,8 +5,8 @@ using UnityEngine;
 namespace RoboFactory.Logistics
 {
     /// <summary>
-    /// Marqueurs de sélection Muse : un disque lumineux pulsant au sol sous chaque
-    /// ressource choisie (palettes = cyan, banc = jaune, camion = vert).
+    /// Muse selection markers: a pulsing glowing disc on the floor under each
+    /// chosen resource (pallets = cyan, bench = yellow, truck = green).
     /// </summary>
     public static class ResourceHighlighter
     {
@@ -33,7 +33,7 @@ namespace RoboFactory.Logistics
         private static readonly List<GameObject> marks = new List<GameObject>();
         private static Transform root;
 
-        /// <summary>Palettes en cyan, banc en jaune, camion en vert.</summary>
+        /// <summary>Pallets in cyan, bench in yellow, truck in green.</summary>
         public static void Show(Component host, MusePlan plan)
         {
             Clear();

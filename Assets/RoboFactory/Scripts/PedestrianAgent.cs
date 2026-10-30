@@ -114,15 +114,15 @@ namespace RoboFactory.Hackathon
         }
     }
 
-    /// <summary>Un groupe d'employés suivis par la sécurité (ex. EmployeeCrew).</summary>
+    /// <summary>A group of employees tracked by safety (e.g. EmployeeCrew).</summary>
     public interface IPedestrianSource
     {
         IReadOnlyList<PedestrianAgent> Agents { get; }
     }
 
     /// <summary>
-    /// Registre des groupes d'employés actifs : l'orchestrateur mesure la distance robot / employé
-    /// sans dépendre d'une scène particulière.
+    /// Registry of the active employee groups: the orchestrator measures the robot / employee distance
+    /// without depending on a particular scene.
     /// </summary>
     public static class PedestrianSources
     {

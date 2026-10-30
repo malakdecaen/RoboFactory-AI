@@ -3,18 +3,18 @@ using UnityEngine;
 namespace RoboFactory.Sim
 {
     /// <summary>
-    /// Carton de la version publique (remplace le carton de l'asset Warehouse Robot Controller).
-    /// Type logistique : A = caisse bois, B = gros carton, C = carton moyen.
+    /// Box of the public version (replaces the box of the Warehouse Robot Controller asset).
+    /// Logistics type: A = wooden crate, B = big cardboard box, C = medium cardboard box.
     /// </summary>
     [DisallowMultipleComponent]
     public class CargoBox : MonoBehaviour
     {
         [HideInInspector] public bool isCarried;
 
-        [Tooltip("Commande propriétaire. -1 = stock libre.")]
+        [Tooltip("Owning order. -1 = free stock.")]
         public int orderId = -1;
 
-        [Tooltip("Type forcé (A, B ou C). Vide = déduit du nom de l'objet.")]
+        [Tooltip("Forced type (A, B or C). Empty = deduced from the object's name.")]
         public string boxType = "";
 
         public string TypeLetter

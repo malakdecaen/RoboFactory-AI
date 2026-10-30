@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace RoboFactory.Sim
 {
-    /// <summary>Caméra fixe de la version publique (la vue orbite du HUD prend le relais à la demande).</summary>
+    /// <summary>Fixed camera of the public version (the HUD's orbit view takes over on demand).</summary>
     public class WarehouseCameraController : MonoBehaviour
     {
         public Camera targetCamera;

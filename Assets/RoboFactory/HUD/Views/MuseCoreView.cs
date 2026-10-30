@@ -5,10 +5,10 @@ using UnityEngine.UI;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Cercle signature MUSE WONDER (V2) : cadre gradué, arcs lumineux rotatifs, anneau segmenté,
-    /// comète de balayage, noyau neuronal animé, nom lisible, pastille d'état sous le cercle,
-    /// onde de choc orange à l'entrée en urgence et retour progressif au bleu.
-    /// Purement visuel : l'état arrive résolu dans HudModel.Visual (vrais états du système).
+    /// MUSE WONDER signature circle (V2): graduated frame, rotating glowing arcs, segmented ring,
+    /// sweeping comet, animated neural core, readable name, status pill under the circle,
+    /// orange shock wave when entering urgent mode and gradual return to blue.
+    /// Purely visual: the state arrives resolved in HudModel.Visual (real system states).
     /// </summary>
     public sealed class MuseCoreView
     {
@@ -81,7 +81,7 @@ namespace RoboFactory.HUD
             wonderText = HudFactory.Text(Root, "Wonder", "WONDER", 16f, HudTheme.Cyan, true, TextAlignmentOptions.Center, 9f);
             HudFactory.Place(wonderText.rectTransform, new Vector2(.5f, .5f), new Vector2(.5f, .5f), new Vector2(4f, -36f), new Vector2(140f, 20f));
 
-            // pastille d'état
+            // status pill
             RectTransform pill = HudFactory.Rect("State Pill", Root);
             HudFactory.Place(pill, new Vector2(.5f, .5f), new Vector2(.5f, .5f), new Vector2(0f, -R - 34f), new Vector2(236f, 38f));
             Image pillShadow = HudFactory.Image(pill, "Shadow", HudSprites.SoftShadow(), HudTheme.Shadow);
@@ -137,11 +137,11 @@ namespace RoboFactory.HUD
             if (s != lastState)
             {
                 bool wasUrgent = lastState == MuseVisualState.Urgent || lastState == MuseVisualState.Suspending;
-                if (urgentish && !wasUrgent) shockT = 0f;   // onde de choc orange à l'entrée en urgence
+                if (urgentish && !wasUrgent) shockT = 0f;   // orange shock wave when entering urgent mode
                 lastState = s;
             }
 
-            // passage à l'orange rapide, retour au bleu progressif (RESUMING)
+            // fast switch to orange, gradual return to blue (RESUMING)
             float rate = urgentish ? 7f : s == MuseVisualState.Resuming ? 1f : 4f;
             color = Color.Lerp(color, target, 1f - Mathf.Exp(-rate * dt));
             speed = Mathf.Lerp(speed, targetSpeed, 1f - Mathf.Exp(-3f * dt));
@@ -189,7 +189,7 @@ namespace RoboFactory.HUD
             progress.SetSweep(Mathf.Lerp(progress.SweepDeg, prog * 360f, 1f - Mathf.Exp(-4f * dt)));
             HudFactory.SetColor(progress, HudTheme.A(HudTheme.Amber, 1f));
 
-            // impulsions régulières (au rythme de la voix en LISTENING)
+            // regular pulses (at the rhythm of the voice in LISTENING)
             pulseTimer += dt;
             bool fire = s == MuseVisualState.Listening ? level > .12f && pulseTimer > .3f : pulseTimer > pulseEvery;
             if (fire) { pulseTimer = 0f; pulseT = 0f; }
@@ -204,7 +204,7 @@ namespace RoboFactory.HUD
             }
             else HudFactory.SetColor(pulse, Color.clear);
 
-            // onde de choc d'urgence : trois anneaux orange épais qui s'étendent
+            // urgent shock wave: three thick orange rings expanding
             shockT += dt;
             for (int i = 0; i < shock.Length; i++)
             {
@@ -217,7 +217,7 @@ namespace RoboFactory.HUD
                 HudFactory.SetColor(shock[i], HudTheme.A(HudTheme.Orange, (1f - t) * .85f));
             }
 
-            // pastille d'état
+            // status pill
             HudFactory.Set(stateText, label);
             HudFactory.SetColor(pillFill, Color.Lerp(HudTheme.GlassStrong, HudTheme.A(color, .9f), .22f));
             HudFactory.SetColor(pillStroke, HudTheme.A(color, .85f + .15f * breath));
@@ -234,7 +234,7 @@ namespace RoboFactory.HUD
             g.rectTransform.localRotation *= Quaternion.Euler(0f, 0f, degPerSec * dt);
         }
 
-        // ------------------------------------------------------------------ décision autour du cercle
+        // ------------------------------------------------------------------ decision around the circle
 
         private void BuildPopups()
         {
@@ -261,7 +261,7 @@ namespace RoboFactory.HUD
             }
         }
 
-        /// <summary>Affiche la décision autour du cercle puis l'envoie vers le panneau AI DECISIONS.</summary>
+        /// <summary>Shows the decision around the circle then sends it to the AI DECISIONS panel.</summary>
         public void ShowDecision(DecisionVM d, Vector2 targetInRoot)
         {
             if (d == null) return;
