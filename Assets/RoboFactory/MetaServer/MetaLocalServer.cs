@@ -97,6 +97,7 @@ namespace RoboFactory.MetaServer
 
         private static void SendJson(HttpListenerContext ctx, int status, JObject payload)
         {
+            try { RecordedDemoRuntime.CaptureResponse(ctx, status, payload); } catch (Exception) { }
             try
             {
                 byte[] body = Encoding.UTF8.GetBytes(Py.Compact(payload));
@@ -140,8 +141,8 @@ namespace RoboFactory.MetaServer
                     SendJson(ctx, 200, new JObject
                     {
                         ["ok"] = true,
-                        ["key_present"] = k != null,
-                        ["mode"] = k != null ? "live" : "no-key",
+                        ["key_present"] = k != null || RecordedDemoRuntime.Replaying,
+                        ["mode"] = RecordedDemoRuntime.Replaying ? "recorded" : k != null ? "live" : "no-key",
                         ["base_url"] = MetaApi.BaseUrl,
                         ["vision_model"] = MetaApi.VisionModel,
                         ["sam_model"] = MetaApi.SamModel,
@@ -149,6 +150,8 @@ namespace RoboFactory.MetaServer
                         ["orchestrator_fallback"] = MetaApi.OrchestratorFallback,
                         ["voice_model"] = MetaApi.VoiceModel,
                         ["asr_sessions"] = AsrSessionCount,
+                        ["run_mode"] = RecordedDemoRuntime.KindName,
+                        ["replay_left"] = RecordedDemoRuntime.ReplayRemaining,
                         ["server"] = "unity"
                     });
                     return;
@@ -158,8 +161,17 @@ namespace RoboFactory.MetaServer
                 if (body == null) { SendJson(ctx, 400, new JObject { ["ok"] = false, ["error"] = "invalid json body" }); return; }
                 string key = MetaApi.LoadKey();
                 var started = Stopwatch.StartNew();
+                if (RecordedDemoRuntime.Replaying)
+                {
+                    // RECORDED DEMO: the real Meta answers recorded earlier are served back; no network, no key.
+                    if (RecordedDemoRuntime.IsDecisionRoute(route)) { ReplayDecision(ctx, route, body, started); return; }
+                    Fail(ctx, 503, route, started, "RECORDED DEMO: this Meta feature is not available offline (choose LIVE AI)");
+                    return;
+                }
+                if (RecordedDemoRuntime.IsDecisionRoute(route)) RecordedDemoRuntime.CaptureRequest(ctx, route, body);
                 switch (route)
                 {
+                    case "/verify": HandleVerify(ctx, key, started); break;
                     case "/order": HandleOrder(ctx, body, key, started); break;
                     case "/vision": HandleVision(ctx, body, key, started); break;
                     case "/sam": HandleSam(ctx, body, key, started); break;
@@ -182,6 +194,55 @@ namespace RoboFactory.MetaServer
         }
 
         private static int Ms(Stopwatch sw) => (int)sw.Elapsed.TotalMilliseconds;
+
+        // ------------------------------------------------------------------ recorded demo / key check
+
+        /// <summary>Serves a recorded Meta answer after its recorded latency (never faster than the real call was).</summary>
+        private void ReplayDecision(HttpListenerContext ctx, string route, JObject body, Stopwatch started)
+        {
+            if (!RecordedDemoRuntime.TryReplay(route, body, out JObject response, out int delayMs, out string error))
+            {
+                Fail(ctx, 409, route, started, error);
+                return;
+            }
+            int wait = delayMs - Ms(started);
+            if (wait > 0) Thread.Sleep(wait);
+            MetaApi.Log(new JObject
+            {
+                ["endpoint"] = route, ["ok"] = true, ["status"] = 200, ["mode"] = "recorded",
+                ["latency_ms"] = delayMs, ["request_id"] = Py.StrOr(Py.Get(body, "request_id"))
+            });
+            SendJson(ctx, 200, response);
+        }
+
+        /// <summary>
+        /// POST /verify: checks the API key with REAL requests, one per orchestration model
+        /// (Muse Wonder, then the Spark fallback). The key and its value are never logged or returned.
+        /// </summary>
+        private void HandleVerify(HttpListenerContext ctx, string key, Stopwatch started)
+        {
+            if (key == null) { Fail(ctx, 503, "/verify", started, "no API key"); return; }
+            var results = new JArray();
+            bool anyOk = false, rejected = false;
+            string[] models = MetaApi.OrchestratorModel == MetaApi.OrchestratorFallback
+                ? new[] { MetaApi.OrchestratorModel }
+                : new[] { MetaApi.OrchestratorModel, MetaApi.OrchestratorFallback };
+            foreach (string model in models)
+            {
+                var sw = Stopwatch.StartNew();
+                JObject payload = MetaApi.UserMessage(model, MetaApi.Text("Reply with the single word: ok"));
+                MetaApi.Result r = MetaApi.CallWithRetry(MetaApi.BaseUrl + "/responses", payload, key, 30, attempts: 1);
+                bool ok = r.Status == 200;
+                if (ok) anyOk = true;
+                if (r.Status == 401 || r.Status == 403) rejected = true;
+                string why = ok ? "" : r.Status == 401 || r.Status == 403 ? "key refused (status " + r.Status + ")"
+                                     : r.Status == 404 ? "model not available for this key"
+                                     : r.Status == 0 ? "no answer (network?)" : "status " + r.Status;
+                results.Add(new JObject { ["model"] = model, ["ok"] = ok, ["status"] = r.Status, ["latency_ms"] = Ms(sw), ["error"] = why });
+            }
+            MetaApi.Log(new JObject { ["endpoint"] = "/verify", ["ok"] = anyOk, ["status"] = anyOk ? 200 : 401, ["latency_ms"] = Ms(started) });
+            SendJson(ctx, 200, new JObject { ["ok"] = anyOk, ["key_refused"] = rejected, ["models"] = results, ["latency_ms"] = Ms(started) });
+        }
 
         private void Fail(HttpListenerContext ctx, int status, string route, Stopwatch started, string message, JObject extra = null)
         {

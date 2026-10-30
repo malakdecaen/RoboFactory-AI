@@ -20,10 +20,28 @@ This version replaces the commercial store assets with cubes and cylinders: **th
 1. Unity **6000.3.10f1** (URP).
 2. Open the repository folder as a Unity project.
 3. Open `Assets/RoboFactorySim/Scenes/warehouse_simplified.unity` (or rebuild it with **RoboFactory → Public → Build simplified scene**).
-4. Meta API key: environment variable `MODEL_API_KEY`, or the file `%USERPROFILE%\.meta\model_api_key`.
-5. Press Play. Create orders from the HUD; use the microphone for urgent orders.
+4. Press Play: the start screen asks for a mode (see below).
 
 Windows build: **RoboFactory → Build → Build Windows** (output in `Builds/`).
+
+## Two ways to run: RECORDED DEMO and LIVE AI
+
+At launch a start screen offers two modes; the HUD always shows which one is running.
+
+| | RECORDED DEMO (default) | LIVE AI |
+|---|---|---|
+| API key / Internet | none | your own Meta Model API key |
+| Muse decisions | real Meta answers recorded earlier, replayed unchanged (model, plan, reason and latency as recorded) | real calls to Muse Wonder (Spark fallback) |
+| Robots, boxes, doors, trucks | really simulated in Unity, every plan is still validated against the live state | same |
+| Voice | disabled | microphone for urgent orders, free typed orders |
+
+**RECORDED DEMO** has three scenarios: *Normal orders*, *Urgent interruption* (the urgent order suspends the running orders, then they resume) and *Full saturation* (5 orders fill the 3 benches and 3 trucks, then 1 urgent order frees a bay). The scene is reloaded before each scenario, and a cargo audit at the end checks that no box was lost or duplicated.
+
+**LIVE AI** asks for your key, checks it with real requests to Muse Wonder and Muse Spark, and keeps it **in memory only** (never written to a file, a log or a recording). Without typing it you can also use the `MODEL_API_KEY` environment variable or the file `%USERPROFILE%\.meta\model_api_key`.
+
+### Recording the demos yourself
+
+Recordings are only made from real Meta answers: in LIVE AI choose *Record a scenario*, let it run to the end, then use **RoboFactory → Recorded Demo → Promote captured recordings** in the editor. The files go to `Assets/StreamingAssets/RecordedDemos/<scenario>.json` (`normal`, `urgent`, `saturation`) and ship with the build. A scenario without a recording shows *NOT RECORDED YET* in RECORDED DEMO. Press **F5** during a run to return to the start screen.
 
 ## Full version (Release build)
 
@@ -41,6 +59,7 @@ The GitHub Release contains the Windows build with the original art. To rebuild 
 | `Assets/RoboFactory/Integration` | R1 autopilot (pallet → bench picking) |
 | `Assets/RoboFactory/MetaServer` | In-game Meta gateway (Wonder / Spark / Voice / SAM 3.1 / vision), same local HTTP API as the original proxy |
 | `Assets/RoboFactory/HUD` | Real-time interface built in code |
+| `Assets/RoboFactory/Launcher` | Start screen (RECORDED DEMO / LIVE AI), scenario player, cargo audit, recording promotion menu |
 | `Assets/RoboFactory/Scripts` | Orchestration contracts (plan validation, resume after an urgent order), Meta client |
 | `Assets/RoboFactorySim` | Public version: replacement components for the store assets + the simplified scene builder |
 

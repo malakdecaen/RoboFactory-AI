@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace RoboFactory.HUD
 {
-    public enum HudIcon { Box, Bench, Truck, Robot, Order, Shield, Signal, Check, Camera, Spark, Clock, Speaker, SpeakerOff }
+    public enum HudIcon { Box, Bench, Truck, Robot, Order, Shield, Signal, Check, Camera, Spark, Clock, Speaker, SpeakerOff, Play, Bolt, Key, Brain }
 
     /// <summary>
     /// Consistent vector pictograms (4 px stroke on a 64 grid, anti-aliased with a distance
@@ -119,6 +119,27 @@ namespace RoboFactory.HUD
                         Poly(p, new[] { new Vector2(8, 24), new Vector2(18, 24), new Vector2(32, 12), new Vector2(32, 52), new Vector2(18, 40), new Vector2(8, 40) }),
                         Seg(p, new Vector2(42, 24), new Vector2(56, 40)),
                         Seg(p, new Vector2(42, 40), new Vector2(56, 24)));
+                case HudIcon.Play:
+                    return p => Min(
+                        Ring(p, new Vector2(32, 32), 24f),
+                        Poly(p, new[] { new Vector2(26, 21), new Vector2(26, 43), new Vector2(45, 32) }));
+                case HudIcon.Bolt:
+                    return p => Poly(p, new[] { new Vector2(36, 58), new Vector2(15, 33), new Vector2(29, 33), new Vector2(26, 6), new Vector2(49, 34), new Vector2(35, 34) });
+                case HudIcon.Key:
+                    return p => Min(
+                        Ring(p, new Vector2(19, 32), 11f),
+                        Seg(p, new Vector2(30, 32), new Vector2(57, 32)),
+                        Seg(p, new Vector2(46, 32), new Vector2(46, 23)),
+                        Seg(p, new Vector2(55, 32), new Vector2(55, 23)));
+                case HudIcon.Brain:
+                    return p => Min(
+                        Arc(p, new Vector2(32, 32), 22f, -170f, -10f),
+                        Arc(p, new Vector2(32, 32), 22f, 10f, 170f),
+                        Seg(p, new Vector2(32, 10), new Vector2(32, 54)),
+                        Seg(p, new Vector2(32, 24), new Vector2(18, 24)), Disc(p, new Vector2(17, 24), 3f),
+                        Seg(p, new Vector2(32, 40), new Vector2(46, 40)), Disc(p, new Vector2(47, 40), 3f),
+                        Seg(p, new Vector2(32, 32), new Vector2(20, 40)), Disc(p, new Vector2(19, 41), 3f),
+                        Seg(p, new Vector2(32, 18), new Vector2(44, 24)), Disc(p, new Vector2(45, 25), 3f));
                 case HudIcon.Clock:
                     return p => Min(Ring(p, new Vector2(32, 32), 22f), Seg(p, new Vector2(32, 32), new Vector2(32, 46)), Seg(p, new Vector2(32, 32), new Vector2(42, 26)));
                 default:

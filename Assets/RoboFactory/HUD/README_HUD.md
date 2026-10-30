@@ -17,6 +17,7 @@ To disable it: `MuseHudBootstrap.AutoInstall = false` or delete the `HUD` folder
 | M | microphone (same button as the voice dock) |
 | N | mute / unmute the sounds (remembered), also through the speaker icon |
 | F1 | old IMGUI debug panel (unchanged, hidden at start) |
+| F5 | back to the start screen (RECORDED DEMO / LIVE AI), scene reloaded clean |
 | click an order card | details + highlight of its resources in the scene |
 | click the vision window | enlarge / shrink |
 

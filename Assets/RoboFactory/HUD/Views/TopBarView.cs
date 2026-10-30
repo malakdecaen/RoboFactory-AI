@@ -80,10 +80,10 @@ namespace RoboFactory.HUD
                 modeLabels[i] = b.GetComponentInChildren<TextMeshProUGUI>();
                 modeLabels[i].characterSpacing = 1f;
             }
-            liveChip = HudFactory.Chip(Switcher, "Live", "LIVE", HudTheme.Green, 64f, 32f);
-            HudFactory.Place(liveChip.Root, new Vector2(1f, .5f), new Vector2(1f, .5f), new Vector2(-x - 6f, 0f), new Vector2(64f, 32f));
+            liveChip = HudFactory.Chip(Switcher, "Live", "LIVE", HudTheme.Green, 150f, 32f);
+            HudFactory.Place(liveChip.Root, new Vector2(1f, .5f), new Vector2(1f, .5f), new Vector2(-x - 6f, 0f), new Vector2(150f, 32f));
             Button sound = HudFactory.Button(Switcher, "Sound", "", HudTheme.Cyan, () => SoundToggled?.Invoke(), 40f, 32f);
-            HudFactory.Place((RectTransform)sound.transform, new Vector2(1f, .5f), new Vector2(1f, .5f), new Vector2(-x - 76f, 0f), new Vector2(40f, 32f));
+            HudFactory.Place((RectTransform)sound.transform, new Vector2(1f, .5f), new Vector2(1f, .5f), new Vector2(-x - 162f, 0f), new Vector2(40f, 32f));
             soundBg = (Image)sound.targetGraphic;
             soundIcon = HudFactory.Icon(sound.transform, "Icon", HudIcon.Speaker, 22f, HudTheme.TextHi);
 
@@ -154,6 +154,14 @@ namespace RoboFactory.HUD
             }
             string md = (m.Status.Mode ?? "").ToUpperInvariant();
             Color lc = md == "LIVE" ? HudTheme.Green : md == "MOCK" ? HudTheme.Amber : HudTheme.Red;
+            // the run mode chosen in the launcher is always named: RECORDED DEMO / LIVE AI (red while a recording is captured)
+            string runLabel = RoboFactory.Launcher.RunMode.Label;
+            if (runLabel.Length > 0)
+            {
+                md = runLabel;
+                lc = RoboFactory.Launcher.RunMode.Kind == RoboFactory.Launcher.RunKind.Recorded ? HudTheme.Amber
+                   : RoboFactory.Launcher.RunMode.Recording ? HudTheme.Red : HudTheme.Green;
+            }
             liveChip.Set(md == "" ? "—" : md, lc);
             bool muted = SoundMuted != null && SoundMuted();
             Sprite want = HudIcons.Get(muted ? HudIcon.SpeakerOff : HudIcon.Speaker);

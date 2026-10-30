@@ -324,6 +324,7 @@ namespace RoboFactory.HUD
         private void HandleKeys()
         {
             if (orders != null && orders.InputFocused) return;
+            if (RoboFactory.Launcher.LauncherScreen.Active) return; // launcher open: typing the API key must not trigger HUD shortcuts
             if (HudInput.KeyDown(CinematicKey)) SetMode(HudMode.Cinematic, false);
             if (HudInput.KeyDown(OperationsKey)) SetMode(HudMode.Operations, false);
             if (HudInput.KeyDown(DebugKey)) SetMode(HudMode.Debug, false);
