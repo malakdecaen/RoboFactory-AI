@@ -1,0 +1,44 @@
+# Unity
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
+*.csproj
+*.sln
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+*.apk
+*.aab
+*.unitypackage
+crashlytics-build.properties
+sysinfo.txt
+.vs/
+.vscode/
+.idea/
+.DS_Store
+
+# RoboFactory : journaux et captures de session
+/logs/
+/HudCaptures/
+/urgent_reports/
+*.log
+voice_last.wav
+
+# Secrets
+model_api_key
+.env
+*.pem
+*.key
