@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace RoboFactory.Logistics
 {
-    /// <summary>Rôle logistique d'une station de stockage.</summary>
+    /// <summary>Logistics role of a storage station.</summary>
     public enum StationRole
     {
         Pallet,
@@ -11,14 +11,14 @@ namespace RoboFactory.Logistics
     }
 
     /// <summary>
-    /// Marqueur optionnel posé sur un objet de stockage pour forcer son rôle.
-    /// Sans marqueur, le rôle est déduit : TruckBay parent = camion, nom contenant
-    /// "shelving"/"bench"/"banc" = banc, sinon palette.
+    /// Optional marker placed on a storage object to force its role.
+    /// Without a marker, the role is deduced: parent TruckBay = truck, name containing
+    /// "shelving"/"bench"/"banc" = bench, otherwise pallet (French object names are matched too).
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class Station : MonoBehaviour
     {
-        [Tooltip("Rôle forcé. Laisser décoché pour déduire du nom / du TruckBay parent.")]
+        [Tooltip("Forced role. Leave unchecked to deduce it from the name / the parent TruckBay.")]
         public bool useOverride;
         public StationRole overrideRole = StationRole.Bench;
 

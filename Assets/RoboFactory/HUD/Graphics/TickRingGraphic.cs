@@ -3,7 +3,7 @@ using UnityEngine.UI;
 
 namespace RoboFactory.HUD
 {
-    /// <summary>Couronne de graduations radiales (grandes graduations tous les N traits).</summary>
+    /// <summary>Crown of radial ticks (major ticks every N strokes).</summary>
     [RequireComponent(typeof(CanvasRenderer))]
     public sealed class TickRingGraphic : MaskableGraphic
     {

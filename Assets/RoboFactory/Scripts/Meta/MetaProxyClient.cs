@@ -146,7 +146,7 @@ namespace RoboFactory.Hackathon.Meta
         public SupervisionDecision decision;
     }
 
-    /// <summary>Requête d'orchestration urgente : transcription vocale -> interprétation + plan.</summary>
+    /// <summary>Urgent orchestration request: voice transcription -> interpretation + plan.</summary>
     [Serializable]
     public sealed class UrgentRequest
     {
@@ -154,7 +154,7 @@ namespace RoboFactory.Hackathon.Meta
         public int state_version;
         public string mode;             // live | mock | offline
         public string transcript;
-        public int urgent_order_id;     // id local déjà attribué à la commande urgente
+        public int urgent_order_id;     // local id already assigned to the urgent order
         public string state_json;
     }
 
@@ -194,7 +194,7 @@ namespace RoboFactory.Hackathon.Meta
         public UrgentResult result;
     }
 
-    // ------------------------------------------------------------------ ASR temps réel
+    // ------------------------------------------------------------------ real-time ASR
 
     [Serializable]
     internal sealed class AsrStartRequest
@@ -203,7 +203,7 @@ namespace RoboFactory.Hackathon.Meta
         public string mode;             // live | mock
         public string[] keywords;
         public string[] languages;
-        public string mock_text;        // transcription injectée en mode mock
+        public string mock_text;        // transcription injected in mock mode
     }
 
     [Serializable]
@@ -229,7 +229,7 @@ namespace RoboFactory.Hackathon.Meta
     {
         public bool ok;
         public string session_id;
-        public string partial;          // hypothèse CUMULATIVE la plus récente
+        public string partial;          // most recent CUMULATIVE hypothesis
         public string final;
         public int audio_ms;
         public int queued_ms;
@@ -251,7 +251,7 @@ namespace RoboFactory.Hackathon.Meta
     {
         public bool ok;
         public string session_id;
-        public string transcript;       // transcription finale (ou dernier partial)
+        public string transcript;       // final transcription (or last partial)
         public bool final;
         public int audio_ms;
         public bool timed_out;
@@ -260,7 +260,7 @@ namespace RoboFactory.Hackathon.Meta
         public int latency_ms;
     }
 
-    /// <summary>Requête d'orchestration d'entrepôt pour Muse Wonder (route /warehouse du proxy).</summary>
+    /// <summary>Warehouse orchestration request for Muse Wonder (/warehouse route of the gateway).</summary>
     [Serializable]
     public sealed class WarehouseRequest
     {
@@ -269,7 +269,7 @@ namespace RoboFactory.Hackathon.Meta
         public string mode;             // live | mock | offline
         public string trigger;
         public string state_json;
-        public string mock_plan_error;  // test : force un plan invalide en mode mock
+        public string mock_plan_error;  // test: forces an invalid plan in mock mode
     }
 
     [Serializable]
@@ -277,7 +277,7 @@ namespace RoboFactory.Hackathon.Meta
     {
         public bool ok;
         public string mode;
-        public string model;            // modèle Meta réellement utilisé (muse-wonder-1.0 ou repli)
+        public string model;            // Meta model actually used (muse-wonder-1.0 or fallback)
         public int latency_ms;
         public string error;
         public string raw_text;
@@ -333,7 +333,7 @@ namespace RoboFactory.Hackathon.Meta
             yield return Post("/supervise", JsonUtility.ToJson(request), SupervisionTimeoutSeconds, done);
         }
 
-        /// <summary>Plan logistique complet de Muse Wonder (async, jamais bloquant).</summary>
+        /// <summary>Full Muse Wonder logistics plan (async, never blocking).</summary>
         public IEnumerator Orchestrate(WarehouseRequest request, Action<WarehouseResponse> done)
         {
             yield return Post("/warehouse", JsonUtility.ToJson(request), SupervisionTimeoutSeconds, done);
@@ -345,13 +345,13 @@ namespace RoboFactory.Hackathon.Meta
             yield return Post("/order", JsonUtility.ToJson(body), OrderTimeoutSeconds, done);
         }
 
-        /// <summary>Commande urgente vocale : interprétation + plan par Muse Wonder.</summary>
+        /// <summary>Spoken urgent order: interpretation + plan by Muse Wonder.</summary>
         public IEnumerator AskUrgent(UrgentRequest request, Action<UrgentResponse> done)
         {
             yield return Post("/urgent", JsonUtility.ToJson(request), SupervisionTimeoutSeconds, done);
         }
 
-        // ------------------------------------------------------------------ ASR temps réel
+        // ------------------------------------------------------------------ real-time ASR
 
         public IEnumerator AsrStart(string sessionId, string[] keywords, string[] languages,
                                     string mode, string mockText, Action<AsrStartResponse> done)
@@ -367,7 +367,7 @@ namespace RoboFactory.Hackathon.Meta
             yield return Post("/asr/start", JsonUtility.ToJson(body), 45, done);
         }
 
-        /// <summary>Un chunk de micro : la réponse porte le dernier partial (affichage live).</summary>
+        /// <summary>One microphone chunk: the answer carries the latest partial (live display).</summary>
         public IEnumerator AsrAudio(string sessionId, byte[] pcm, Action<AsrAudioResponse> done)
         {
             var body = new AsrAudioRequest

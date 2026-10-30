@@ -7,9 +7,9 @@ using UnityEngine.Networking;
 namespace RoboFactory.Logistics
 {
     /// <summary>
-    /// FINISH TO FREE : une commande normale candidate à finir avant l'urgente.
-    /// Toutes les valeurs viennent de l'état réel (cartons préparés / chargés, réservations,
-    /// distances mesurées dans la scène) ; l'ETA est une estimation calculée, signalée comme telle.
+    /// FINISH TO FREE: a normal order that is a candidate to be finished before the urgent one.
+    /// Every value comes from the real state (staged / loaded boxes, reservations,
+    /// distances measured in the scene); the ETA is a computed estimate, flagged as such.
     /// </summary>
     [Serializable]
     public sealed class FtfCandidate
@@ -22,13 +22,13 @@ namespace RoboFactory.Logistics
         public int total;
         public int staged;
         public int loaded;
-        public int remaining_pick;      // cartons encore à collecter par R1
-        public int remaining_load;      // cartons encore à charger par R2
-        public float eta_free_s;        // estimation : délai avant libération banc + camion
+        public int remaining_pick;      // boxes still to be picked by R1
+        public int remaining_load;      // boxes still to be loaded by R2
+        public float eta_free_s;        // estimate: delay before bench + truck are freed
         public bool frees_bench;
         public bool frees_truck;
-        public int truck_capacity;      // places du camion une fois expédié (vide)
-        public bool can_finish;         // stock libre suffisant pour le reste à collecter
+        public int truck_capacity;      // truck slots once shipped (empty)
+        public bool can_finish;         // enough free stock for what is left to pick
         public string note;
     }
 
@@ -50,8 +50,8 @@ namespace RoboFactory.Logistics
     {
         public string request_id;
         public string mode;
-        public string capacity_json;    // FtfContext sérialisé
-        public string state_json;       // état complet de l'entrepôt (contexte)
+        public string capacity_json;    // serialised FtfContext
+        public string state_json;       // full warehouse state (context)
     }
 
     [Serializable]
@@ -78,7 +78,7 @@ namespace RoboFactory.Logistics
         public CapacityResult result;
     }
 
-    /// <summary>Route /capacity du proxy Meta (même proxy, même clé — jamais côté Unity).</summary>
+    /// <summary>/capacity route of the Meta gateway (same gateway, same key — never on the Unity side).</summary>
     public sealed class MuseCapacityClient
     {
         public string BaseUrl = "http://127.0.0.1:8765";

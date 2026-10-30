@@ -5,8 +5,8 @@ using UnityEngine.UI;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Barre d'état inférieure (V2, 52 px) : robots, commandes, cartons livrés, sécurité,
-    /// camions, liaison Meta. Valeurs 20 px lisibles à distance, aucun log.
+    /// Bottom status bar (V2, 52 px): robots, orders, delivered boxes, safety,
+    /// trucks, Meta link. 20 px values readable from a distance, no log.
     /// </summary>
     public sealed class StatusBarView
     {
@@ -19,7 +19,7 @@ namespace RoboFactory.HUD
         }
 
         private readonly Cell[] cells = new Cell[6];
-        private static readonly string[] Labels = { "ROBOTS", "ACTIVE ORDERS", "CARTONS LOADED", "SAFETY", "TRUCKS", "META LINK" };
+        private static readonly string[] Labels = { "ROBOTS", "ACTIVE ORDERS", "BOXES LOADED", "SAFETY", "TRUCKS", "META LINK" };
         private static readonly HudIcon[] Icons = { HudIcon.Robot, HudIcon.Order, HudIcon.Box, HudIcon.Shield, HudIcon.Truck, HudIcon.Signal };
 
         public void Build(RectTransform parent)

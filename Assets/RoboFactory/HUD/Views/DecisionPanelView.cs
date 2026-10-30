@@ -6,13 +6,13 @@ using UnityEngine.UI;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Panneau AI DECISIONS (V3) — le plus important pour le jury. Une carte héros lisible à
-    /// distance : ORDER # et son état réel (EXECUTING / PAUSED / DELIVERED), puis les ordres
-    /// que Muse Wonder a réellement envoyés — R1 PREPARE palette › banc, R2 LOAD banc › camion,
-    /// TRUCK SHIP — chacun avec son avancement réel (DONE / ACTIVE / QUEUED / PAUSED), WHY
-    /// (justification du modèle), verdict du validateur, modèle et latence réels.
-    /// La carte suit la décision encore en cours d'exécution : une urgente livrée cède la
-    /// place au plan qui tourne réellement. Champ absent = « — », jamais d'exemple fictif.
+    /// AI DECISIONS panel (V3) — the most important one for the jury. A hero card readable from
+    /// a distance: ORDER # and its real state (EXECUTING / PAUSED / DELIVERED), then the instructions
+    /// Muse Wonder actually sent — R1 PREPARE pallet › bench, R2 LOAD bench › truck,
+    /// TRUCK SHIP — each with its real progress (DONE / ACTIVE / QUEUED / PAUSED), WHY
+    /// (the model's justification), validator verdict, real model and latency.
+    /// The card follows the decision still being executed: a delivered urgent order gives way
+    /// to the plan actually running. Missing field = « — », never a fictitious example.
     /// </summary>
     public sealed class DecisionPanelView
     {
@@ -39,7 +39,7 @@ namespace RoboFactory.HUD
         private float revealT = 10f, flashT = 10f;
         private Color accent = HudTheme.Cyan;
 
-        // ordres envoyés par Wonder : collecte R1, chargement R2, expédition camion
+        // instructions sent by Wonder: R1 pick, R2 load, truck shipping
         private static readonly string[] Keys = { "R1", "R2", "TRUCK" };
         private static readonly HudIcon[] Icons = { HudIcon.Robot, HudIcon.Robot, HudIcon.Truck };
         private DecisionVM shown;
@@ -59,7 +59,7 @@ namespace RoboFactory.HUD
             linkText = HudFactory.Text(header, "Link", "", HudTheme.FontMicro, HudTheme.Green, true, TextAlignmentOptions.Left, 1.5f);
             HudFactory.Place(linkText.rectTransform, new Vector2(1f, .5f), new Vector2(0f, .5f), new Vector2(-102f, 0f), new Vector2(96f, 20f));
 
-            // ---- modèle + latence réels
+            // ---- real model + latency
             RectTransform meta = HudFactory.TopStrip(HudFactory.Rect("Meta Link", Root), 56f, 50f, HudTheme.Pad, HudTheme.Pad);
             TextMeshProUGUI ml = HudFactory.Label(meta, "Model Label", "META MODEL", HudTheme.FontMicro);
             HudFactory.Place(ml.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), Vector2.zero, new Vector2(200f, 18f));
@@ -70,7 +70,7 @@ namespace RoboFactory.HUD
             latencyText = HudFactory.Text(meta, "Latency", "—", HudTheme.FontKey, HudTheme.Cyan, true, TextAlignmentOptions.Right);
             HudFactory.Place(latencyText.rectTransform, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(0f, 0f), new Vector2(110f, 30f));
 
-            // ---- carte héros
+            // ---- hero card
             card = HudFactory.Rect("Decision Card", Root);
             HudFactory.TopStrip(card, 116f, 380f, 10f, 10f);
             cardFill = HudFactory.Image(card, "Fill", HudSprites.ChamferFill(10), HudTheme.GlassLight);
@@ -235,7 +235,7 @@ namespace RoboFactory.HUD
             int h = 0;
             for (int i = 0; i < history.Length; i++)
             {
-                // décisions précédentes : toutes sauf celle de la carte
+                // previous decisions: all except the one on the card
                 while (h < m.History.Count && m.History[h] == d) h++;
                 bool on = h < m.History.Count;
                 history[i].gameObject.SetActive(on);
@@ -260,10 +260,10 @@ namespace RoboFactory.HUD
         }
 
         /// <summary>
-        /// Décision affichée sur la carte : la plus récente si elle vient d'arriver ou si elle
-        /// n'a pas de plan (refus, attente) ; sinon la plus récente dont la commande est encore
-        /// en cours d'exécution avec ce plan (une urgente livrée laisse la place au plan qui
-        /// tourne réellement) ; à défaut la dernière décision, affichée comme livrée.
+        /// Decision shown on the card: the most recent one if it has just arrived or if it
+        /// has no plan (refusal, wait); otherwise the most recent one whose order is still
+        /// being executed with that plan (a delivered urgent order gives way to the plan that
+        /// is actually running); failing that the last decision, shown as delivered.
         /// </summary>
         private static DecisionVM PickHero(HudModel m)
         {
@@ -277,7 +277,7 @@ namespace RoboFactory.HUD
                 if (d == null || !d.Accepted || !d.HasPlan || !seen.Add(d.OrderId)) continue;
                 OrderVM o = m.FindOrder(d.OrderId);
                 if (o == null || o.Category == OrderCategory.Done || o.Category == OrderCategory.Pending) continue;
-                // plan encore celui de la commande (sinon décision périmée par une replanification)
+                // plan still the order's plan (otherwise a decision made stale by a replan)
                 if (!string.IsNullOrEmpty(o.Bench) && o.Bench != d.Bench) continue;
                 return d;
             }
@@ -344,8 +344,8 @@ namespace RoboFactory.HUD
         }
 
         /// <summary>
-        /// Les trois ordres du plan accepté, chacun avec son avancement mesuré sur l'état réel :
-        /// cartons préparés/chargés de la commande et commande réellement servie par R1 / R2.
+        /// The three instructions of the accepted plan, each with its progress measured on the real state:
+        /// boxes staged/loaded for the order and order actually served by R1 / R2.
         /// </summary>
         private void FillCommands(DecisionVM d, OrderVM o, HudModel m)
         {
@@ -354,7 +354,7 @@ namespace RoboFactory.HUD
             Color iconColor = d.Urgent && !done ? HudTheme.Orange : HudTheme.Cyan;
             string cyan = "<color=#" + HudTheme.Hex(HudTheme.Cyan) + ">";
 
-            // ---- R1 : collecte palette(s) › banc
+            // ---- R1: pick pallet(s) › bench
             var picks = new List<string>();
             foreach (PickVM p in d.Picks) picks.Add(p.Type + "×" + p.Count + (d.Pallets.Count > 1 ? " @" + p.Pallet : ""));
             bool noPick = d.Picks.Count == 0;
@@ -365,7 +365,7 @@ namespace RoboFactory.HUD
             SetState(0, done || picked || noPick ? Step.Done : r1Here ? Step.Active : paused ? Step.Paused : Step.Queued,
                      r1Here ? m.R1.Activity : null);
 
-            // ---- R2 : chargement banc › camion
+            // ---- R2: load bench › truck
             HudFactory.Set(values[1], "LOAD  " + (d.Truck != "" ? d.Truck : "—"));
             HudFactory.Set(metas[1], "from " + d.Bench + (o != null ? "  ·  " + o.Loaded + "/" + o.Total + " loaded" : ""));
             bool r2Here = m.R2.MissionActive && m.R2.OrderId == d.OrderId;
@@ -373,7 +373,7 @@ namespace RoboFactory.HUD
             SetState(1, done || loaded ? Step.Done : r2Here ? Step.Active : paused ? Step.Paused : Step.Queued,
                      r2Here ? m.R2.Activity : null);
 
-            // ---- camion : expédition
+            // ---- truck: shipping
             TruckVM truck = null;
             foreach (TruckVM t in m.Trucks) if (t.Id == d.Truck) truck = t;
             HudFactory.Set(keys[2], "TRUCK");

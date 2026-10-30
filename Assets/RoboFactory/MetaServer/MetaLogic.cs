@@ -8,14 +8,14 @@ using Newtonsoft.Json.Linq;
 namespace RoboFactory.MetaServer
 {
     /// <summary>
-    /// Traduction fidèle des fonctions pures de meta_proxy.py : lecture de la réponse du
-    /// modèle, validations de forme, modes mock déterministes. Aucune dépendance Unity.
+    /// Faithful translation of the pure functions of meta_proxy.py: reading the model's
+    /// answer, shape validations, deterministic mock modes. No Unity dependency.
     /// </summary>
     internal static class MetaLogic
     {
-        // ------------------------------------------------------------------ sortie du modèle
+        // ------------------------------------------------------------------ model output
 
-        /// <summary>extract_output_text : texte des événements SSE, sinon tous les output_text du JSON.</summary>
+        /// <summary>extract_output_text: text of the SSE events, otherwise every output_text of the JSON.</summary>
         public static string ExtractOutputText(string raw)
         {
             raw = raw ?? "";
@@ -57,7 +57,7 @@ namespace RoboFactory.MetaServer
             return string.Concat(parts);
         }
 
-        /// <summary>str.splitlines() de Python.</summary>
+        /// <summary>Python's str.splitlines().</summary>
         private static IEnumerable<string> SplitLines(string s)
         {
             int start = 0;
@@ -74,7 +74,7 @@ namespace RoboFactory.MetaServer
             if (start < s.Length) yield return s.Substring(start);
         }
 
-        /// <summary>first_json_object : du premier « { » au dernier « } ».</summary>
+        /// <summary>first_json_object: from the first « { » to the last « } ».</summary>
         public static JObject FirstJsonObject(string text)
         {
             text = text ?? "";
@@ -85,7 +85,7 @@ namespace RoboFactory.MetaServer
             catch (Exception) { return null; }
         }
 
-        /// <summary>« if parsed » de Python : None ou {} vide = pas de JSON.</summary>
+        /// <summary>Python's « if parsed »: None or empty {} = no JSON.</summary>
         public static bool HasJson(JObject parsed) => parsed != null && parsed.Count > 0;
 
         // ------------------------------------------------------------------ validations
@@ -328,7 +328,7 @@ namespace RoboFactory.MetaServer
             return result;
         }
 
-        // ------------------------------------------------------------------ modes mock (tests hors ligne)
+        // ------------------------------------------------------------------ mock modes (offline tests)
 
         private static JArray ListOf(JObject state, string key) => Py.Get(state, key) as JArray ?? new JArray();
 
@@ -523,7 +523,7 @@ namespace RoboFactory.MetaServer
             };
         }
 
-        // ---- commande urgente : lecteur de transcription du mode mock
+        // ---- urgent order: transcription reader of the mock mode (French and English keywords)
 
         private static int WordValue(string w)
         {
@@ -585,7 +585,7 @@ namespace RoboFactory.MetaServer
                 {
                     ["action"] = "no_plan", ["urgent"] = false, ["order"] = new JObject { ["A"] = 0, ["B"] = 0, ["C"] = 0 },
                     ["confidence"] = 0.9, ["clarification"] = "", ["plan"] = JValue.CreateNull(),
-                    ["reason"] = "mock: pas une commande urgente"
+                    ["reason"] = "mock: not an urgent order"
                 };
             Dictionary<string, long> counts = ParseTranscriptCounts(transcript);
             if (counts.Values.Sum() <= 0)
@@ -593,8 +593,8 @@ namespace RoboFactory.MetaServer
                 {
                     ["action"] = "clarify", ["urgent"] = true, ["order"] = new JObject { ["A"] = 0, ["B"] = 0, ["C"] = 0 },
                     ["confidence"] = 0.4,
-                    ["clarification"] = "Combien de cartons de chaque type (A, B, C) pour la commande urgente ?",
-                    ["plan"] = JValue.CreateNull(), ["reason"] = "mock: quantités introuvables dans la transcription"
+                    ["clarification"] = "How many boxes of each type (A, B, C) for the urgent order?",
+                    ["plan"] = JValue.CreateNull(), ["reason"] = "mock: quantities not found in the transcription"
                 };
             JToken sj = Py.Get(body, "state_json");
             JObject state = Py.ParseObject(Py.Truthy(sj) && sj.Type == JTokenType.String ? sj.Value<string>() : "{}") ?? new JObject();
@@ -622,7 +622,7 @@ namespace RoboFactory.MetaServer
                     {
                         ["action"] = "no_plan", ["urgent"] = true, ["order"] = Counts(counts), ["confidence"] = 0.95,
                         ["clarification"] = "", ["plan"] = JValue.CreateNull(),
-                        ["reason"] = "mock: stock insuffisant pour la commande urgente"
+                        ["reason"] = "mock: insufficient stock for the urgent order"
                     };
             }
             foreach (JObject pallet in pallets.OfType<JObject>())
@@ -638,23 +638,23 @@ namespace RoboFactory.MetaServer
                 {
                     ["action"] = "wait", ["urgent"] = true, ["order"] = Counts(counts), ["confidence"] = 0.95,
                     ["clarification"] = "", ["plan"] = JValue.CreateNull(),
-                    ["reason"] = "mock: aucun banc ou camion libre pour la commande urgente"
+                    ["reason"] = "mock: no free bench or truck for the urgent order"
                 };
             var plan = new JObject
             {
                 ["action"] = "execute_order", ["order_id"] = orderId, ["picks"] = picks,
                 ["fallback_pallets"] = fallback, ["bench_id"] = Py.GetStr(bench, "id"),
                 ["truck_id"] = Py.GetStr(truck, "id"), ["robot_pick"] = "R1", ["robot_load"] = "R2",
-                ["start_immediately"] = true, ["start_delay_s"] = 0, ["reason"] = "mock: plan urgent déterministe"
+                ["start_immediately"] = true, ["start_delay_s"] = 0, ["reason"] = "mock: deterministic urgent plan"
             };
             return new JObject
             {
                 ["action"] = "execute_order", ["urgent"] = true, ["order"] = Counts(counts), ["confidence"] = 0.95,
-                ["clarification"] = "", ["plan"] = plan, ["reason"] = "mock: commande urgente déterministe"
+                ["clarification"] = "", ["plan"] = plan, ["reason"] = "mock: deterministic urgent order"
             };
         }
 
-        /// <summary>re.findall(r"-?\d+(?:\.\d+)?", output) — nombre de valeurs (route /sam).</summary>
+        /// <summary>re.findall(r"-?\d+(?:\.\d+)?", output) — number of values (/sam route).</summary>
         public static int CountNumbers(string output) => Regex.Matches(output ?? "", @"-?\d+(?:\.\d+)?").Count;
     }
 }

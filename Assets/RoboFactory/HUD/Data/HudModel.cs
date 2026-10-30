@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace RoboFactory.HUD
 {
-    /// <summary>États visuels du cercle Muse Wonder (déduits des vrais états du système).</summary>
+    /// <summary>Visual states of the Muse Wonder circle (deduced from the system's real states).</summary>
     public enum MuseVisualState { Idle, Listening, Transcribing, Planning, Executing, Urgent, Suspending, Resuming, Error }
 
     public enum OrderCategory { Urgent, Active, Suspended, Pending, Done }
@@ -26,7 +26,7 @@ namespace RoboFactory.HUD
         public int LoadedA, LoadedB, LoadedC;
         public string Bench = "";
         public string Truck = "";
-        /// <summary>FINISH TO FREE : commande normale que Muse fait finir pour libérer l'urgente.</summary>
+        /// <summary>FINISH TO FREE: normal order Muse has finished to free the urgent one.</summary>
         public bool FinishingForUrgent;
 
         public int Total => A + B + C;
@@ -35,7 +35,7 @@ namespace RoboFactory.HUD
         public float LoadedFrac => Total > 0 ? Loaded / (float)Total : 0f;
         public float PreparedFrac => Total > 0 ? (Loaded + Staged) / (float)Total : 0f;
 
-        /// <summary>"A×2 · B×1" (types réellement demandés).</summary>
+        /// <summary>"A×2 · B×1" (types actually requested).</summary>
         public string Composition
         {
             get
@@ -56,10 +56,10 @@ namespace RoboFactory.HUD
         public int Count;
     }
 
-    /// <summary>Décision Muse telle qu'enregistrée par l'orchestrateur (jamais inventée).</summary>
+    /// <summary>Muse decision as recorded by the orchestrator (never invented).</summary>
     public sealed class DecisionVM
     {
-        public object Source;            // MuseDecisionRecord d'origine (identité)
+        public object Source;            // original MuseDecisionRecord (identity)
         public string RequestId = "";
         public string Trigger = "";
         public string Mode = "";
@@ -110,9 +110,9 @@ namespace RoboFactory.HUD
         public bool RouteKnown;
         public IReadOnlyList<Vector3> Path;
         public string LegInfo = "";
-        /// <summary>Activité lisible déduite de l'état réel : PREPARING, DELIVERING, LOADING…</summary>
+        /// <summary>Readable activity deduced from the real state: PREPARING, DELIVERING, LOADING…</summary>
         public string Activity = "";
-        /// <summary>Ressource visée par cette activité (P02, B03, T03…), "" si aucune.</summary>
+        /// <summary>Resource targeted by this activity (P02, B03, T03…), "" if none.</summary>
         public string ActivityTarget = "";
     }
 
@@ -124,14 +124,14 @@ namespace RoboFactory.HUD
         public int Loaded;
         public int Capacity;
         public int ReservedOrder = -1;
-        /// <summary>Camion réservé aux commandes urgentes (voie urgente de l'orchestrateur).</summary>
+        /// <summary>Truck reserved for urgent orders (the orchestrator's urgent lane).</summary>
         public bool UrgentLane;
         public bool Selected => ReservedOrder >= 0;
     }
 
     public enum MarkKind { Pallet, Bench, Truck }
 
-    /// <summary>Ressource réellement réservée par une commande (WarehouseWorld.ReservedBy).</summary>
+    /// <summary>Resource actually reserved by an order (WarehouseWorld.ReservedBy).</summary>
     public sealed class MarkVM
     {
         public string Id = "";
@@ -141,14 +141,14 @@ namespace RoboFactory.HUD
         public Transform Transform;
     }
 
-    /// <summary>Palette / banc / camion de la scène, pour la bulle d'infos au survol (valeurs réelles).</summary>
+    /// <summary>Scene pallet / bench / truck, for the hover info bubble (real values).</summary>
     public sealed class ResourceVM
     {
         public string Id = "";
         public MarkKind Kind;
         public Transform Transform;
-        public int OrderId = -1;        // commande qui la réserve (-1 = libre)
-        public string Detail = "";      // stock / contenu / porte
+        public int OrderId = -1;        // order reserving it (-1 = free)
+        public string Detail = "";      // stock / content / door
     }
 
     public sealed class VoiceVM
@@ -198,10 +198,10 @@ namespace RoboFactory.HUD
         public int Resumed;
         public int Loaded;
         public int Total;
-        // ---- FINISH TO FREE (état réel de l'orchestrateur)
+        // ---- FINISH TO FREE (real orchestrator state)
         public bool WaitingCapacity;       // Stage == WaitingForCapacity
-        public bool CapacityEpisode;       // l'urgente courante est passée par l'attente de capacité
-        public bool CapacityReady;         // couple banc + camion vide réellement disponible
+        public bool CapacityEpisode;       // the current urgent order went through the capacity wait
+        public bool CapacityReady;         // bench + empty truck pair actually available
         public int FinishingId = -1;
         public string FreeingBench = "", FreeingTruck = "";
         public string CapacityReason = "", CapacityStrategy = "", CapacityNote = "";
@@ -221,7 +221,7 @@ namespace RoboFactory.HUD
         public string TraceFile = "";
     }
 
-    /// <summary>Instantané complet de l'état affiché, reconstruit à chaque rafraîchissement.</summary>
+    /// <summary>Full snapshot of the displayed state, rebuilt at each refresh.</summary>
     public sealed class HudModel
     {
         public bool Ready;

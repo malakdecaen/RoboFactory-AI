@@ -4,8 +4,8 @@ using UnityEngine;
 namespace RoboFactory.Sim
 {
     /// <summary>
-    /// Emplacements de stockage (palette, banc, plancher de camion) : des colonnes de niveaux,
-    /// chaque niveau étant un point où un carton est posé. Version publique simplifiée.
+    /// Storage locations (pallet, bench, truck floor): columns of levels,
+    /// each level being a point where a box is placed. Simplified public version.
     /// </summary>
     [DisallowMultipleComponent]
     public class ShelfStorage : MonoBehaviour
@@ -22,7 +22,7 @@ namespace RoboFactory.Sim
 
         private void Awake() { Rescan(); }
 
-        /// <summary>Relit les cartons déjà posés sous chaque point de niveau.</summary>
+        /// <summary>Re-reads the boxes already placed under each level point.</summary>
         public void Rescan()
         {
             int count = columns != null ? columns.Length : 0;
@@ -58,7 +58,7 @@ namespace RoboFactory.Sim
             return Valid(column, level) ? slots[column][level] : null;
         }
 
-        /// <summary>Le carton le plus haut de la colonne (celui qu'on peut prendre).</summary>
+        /// <summary>The highest box of the column (the one that can be taken).</summary>
         public bool HasBoxToTake(int column, out int level, out CargoBox box)
         {
             level = -1;
@@ -74,7 +74,7 @@ namespace RoboFactory.Sim
             return false;
         }
 
-        /// <summary>Le plus bas niveau libre de la colonne.</summary>
+        /// <summary>The lowest free level of the column.</summary>
         public bool HasFreePlaceToPut(int column, out int level)
         {
             level = -1;

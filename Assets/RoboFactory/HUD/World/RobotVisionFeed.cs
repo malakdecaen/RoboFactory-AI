@@ -3,9 +3,9 @@ using UnityEngine;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Caméra embarquée réelle d'un robot rendue dans une RenderTexture à cadence et
-    /// résolution limitées (la caméra n'est activée que les frames où une image est due).
-    /// Montée comme enfant du Transform du robot : elle voit ce que le robot voit.
+    /// Real on-board camera of a robot rendered into a RenderTexture at a limited rate and
+    /// resolution (the camera is only enabled on the frames where an image is due).
+    /// Mounted as a child of the robot's Transform: it sees what the robot sees.
     /// </summary>
     public sealed class RobotVisionFeed
     {
@@ -17,7 +17,7 @@ namespace RoboFactory.HUD
 
         public float EyeHeight = .9f;
         public float EyeForward = .22f;
-        [Tooltip("Inclinaison vers le sol (degrés) : cadrage du sol et des cibles devant le robot.")]
+        [Tooltip("Tilt towards the floor (degrees): framing of the floor and the targets in front of the robot.")]
         public float Pitch = 12f;
         public float FieldOfView = 66f;
 
@@ -66,7 +66,7 @@ namespace RoboFactory.HUD
             }
         }
 
-        /// <summary>Active la caméra uniquement pour les frames dues (fps cible).</summary>
+        /// <summary>Enables the camera only for the frames that are due (target fps).</summary>
         public void Tick(float targetFps)
         {
             if (Camera == null) return;

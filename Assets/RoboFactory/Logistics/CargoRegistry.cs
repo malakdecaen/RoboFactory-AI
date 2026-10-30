@@ -5,30 +5,30 @@ using RoboFactory.Sim;
 namespace RoboFactory.Logistics
 {
     /// <summary>
-    /// Registre logistique central (singleton de scène).
+    /// Central logistics registry (scene singleton).
     ///
-    /// - Statut de chaque carton : déduit de la hiérarchie à chaque balayage,
-    ///   donc toujours synchronisé avec le monde (aucun double bookkeeping).
-    /// - Réservations : un carton réservé par un robot ne peut pas être pris par un autre.
-    /// - Requêtes : fournit aux agents des "jobs" (carton sur banc -> slot camion).
+    /// - Status of each box: deduced from the hierarchy at each scan,
+    ///   so always in sync with the world (no double bookkeeping).
+    /// - Reservations: a box reserved by a robot cannot be taken by another one.
+    /// - Queries: provides the agents with "jobs" (box on bench -> truck slot).
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class CargoRegistry : MonoBehaviour
     {
         public static CargoRegistry Instance { get; private set; }
 
-        [Header("Balayage")]
-        [Tooltip("Délai entre deux relectures de la scène.")]
+        [Header("Scanning")]
+        [Tooltip("Delay between two scene re-reads.")]
         public float ScanInterval = .3f;
         public bool LogTransitions = true;
 
-        [Header("Priorité Robot 1 (déposeur)")]
-        [Tooltip("Le robot déposeur a la priorité au banc : tant qu'il se trouve dans ce rayon " +
-                 "d'un dock de banc, aucun carton accessible par ce dock n'est attribué aux autres agents.")]
+        [Header("Robot 1 priority (dropper)")]
+        [Tooltip("The dropping robot has priority at the bench: while it is within this radius " +
+                 "of a bench dock, no box reachable from that dock is assigned to the other agents.")]
         public bool LoaderHasPriority = true;
         public float BenchBlockRadius = 1.6f;
 
-        /// <summary>box, ancien statut, nouveau statut</summary>
+        /// <summary>box, old status, new status</summary>
         public event System.Action<CargoBox, CargoStatus, CargoStatus> StatusChanged;
 
         private readonly Dictionary<CargoBox, CargoStatus> status = new Dictionary<CargoBox, CargoStatus>();
@@ -36,14 +36,14 @@ namespace RoboFactory.Logistics
         private readonly List<ShelfInteractionZone> benchZones = new List<ShelfInteractionZone>();
         private float nextScan;
 
-        /// <summary>Cartons actuellement dans le camion.</summary>
+        /// <summary>Boxes currently in the truck.</summary>
         public int InTruckCount { get; private set; }
-        /// <summary>Cartons actuellement sur les bancs.</summary>
+        /// <summary>Boxes currently on the benches.</summary>
         public int OnBenchCount { get; private set; }
-        /// <summary>Cartons actuellement sur les palettes.</summary>
+        /// <summary>Boxes currently on the pallets.</summary>
         public int OnPalletCount { get; private set; }
 
-        /// <summary>Job de livraison attribué à un robot : carton à prendre + zone du banc + baie.</summary>
+        /// <summary>Delivery job assigned to a robot: box to take + bench zone + bay.</summary>
         public struct DeliveryJob
         {
             public CargoBox Box;
@@ -70,9 +70,9 @@ namespace RoboFactory.Logistics
             }
         }
 
-        // ------------------------------------------------------------------ statuts
+        // ------------------------------------------------------------------ statuses
 
-        /// <summary>Statut logistique d'un carton, déduit de ses ancêtres.</summary>
+        /// <summary>Logistics status of a box, deduced from its ancestors.</summary>
         public static CargoStatus Classify(CargoBox box)
         {
             if (box == null) return CargoStatus.Unknown;
@@ -100,7 +100,7 @@ namespace RoboFactory.Logistics
             return status.TryGetValue(box, out CargoStatus s) ? s : Classify(box);
         }
 
-        /// <summary>Relecture de la scène : met à jour les statuts et publie les transitions.</summary>
+        /// <summary>Scene re-read: updates the statuses and publishes the transitions.</summary>
         public void Scan()
         {
             int truck = 0, bench = 0, pallet = 0;
@@ -121,7 +121,7 @@ namespace RoboFactory.Logistics
                 {
                     StatusChanged?.Invoke(box, before, now);
                     if (LogTransitions && before != CargoStatus.Unknown)
-                        Debug.Log("[Logistique] " + box.name + " : " + CargoStatusNames.Of(before) +
+                        Debug.Log("[Logistics] " + box.name + ": " + CargoStatusNames.Of(before) +
                                   " -> " + CargoStatusNames.Of(now));
                 }
             }
@@ -131,9 +131,9 @@ namespace RoboFactory.Logistics
             RefreshBenchZones();
         }
 
-        // ------------------------------------------------------------------ réservations
+        // ------------------------------------------------------------------ reservations
 
-        /// <summary>Réserve un carton pour un propriétaire (le robot, le bras...).</summary>
+        /// <summary>Reserves a box for an owner (the robot, the arm...).</summary>
         public bool TryReserve(CargoBox box, object owner)
         {
             if (box == null || owner == null) return false;
@@ -163,8 +163,8 @@ namespace RoboFactory.Logistics
         // ------------------------------------------------------------------ jobs
 
         /// <summary>
-        /// Cherche le carton le plus proche posé sur un banc et non réservé,
-        /// dans une baie camion qui a encore de la place. Réserve le carton si trouvé.
+        /// Looks for the closest unreserved box sitting on a bench,
+        /// in a truck bay that still has room. Reserves the box if found.
         /// </summary>
         public bool TryAcquireDelivery(object owner, Vector3 from, out DeliveryJob job)
         {
@@ -182,9 +182,9 @@ namespace RoboFactory.Logistics
             foreach (ShelfInteractionZone zone in benchZones)
             {
                 if (zone == null || zone.dockPoint == null) continue;
-                // Dock dans un volume interdit (NavBlocker) : on passe par l'autre côté.
+                // Dock inside a no-go volume (NavBlocker): go through the other side.
                 if (NavBlocker.BlocksPoint(zone.dockPoint.position)) continue;
-                // Robot 1 a la priorité au banc : on ne sélectionne rien près de lui.
+                // Robot 1 has priority at the bench: nothing is selected near it.
                 if (LoaderBlocks(zone)) continue;
                 CargoBox box = TopBox(zone);
                 if (box == null || IsReserved(box)) continue;
@@ -204,8 +204,8 @@ namespace RoboFactory.Logistics
         }
 
         /// <summary>
-        /// Vrai si le robot déposeur (GridRobotController sans TruckLoaderAgent, autopilot actif)
-        /// est à portée du dock de la zone — les colis de cette zone restent à R1.
+        /// True if the dropping robot (GridRobotController without TruckLoaderAgent, autopilot active)
+        /// is within reach of the zone's dock — the boxes of that zone stay with R1.
         /// </summary>
         private Transform loaderRobot;
         private float nextLoaderFind;
@@ -216,7 +216,7 @@ namespace RoboFactory.Logistics
             Transform r1 = FindLoaderRobot();
             if (r1 == null) return false;
             var controller = r1.GetComponent<GridRobotController>();
-            if (controller != null && !controller.controlsLocked) return false; // R1 inactif : pas de blocage
+            if (controller != null && !controller.controlsLocked) return false; // R1 inactive: no blocking
             return Vector3.Distance(r1.position, zone.dockPoint.position) <= BenchBlockRadius;
         }
 
@@ -248,7 +248,7 @@ namespace RoboFactory.Logistics
             return best;
         }
 
-        /// <summary>Zones de banc valides (dock + stockage). Rechargées à chaque balayage.</summary>
+        /// <summary>Valid bench zones (dock + storage). Reloaded at each scan.</summary>
         private void RefreshBenchZones()
         {
             benchZones.Clear();
@@ -260,7 +260,7 @@ namespace RoboFactory.Logistics
             }
         }
 
-        /// <summary>Carton le plus haut de la colonne de la zone (lecture directe de la scène).</summary>
+        /// <summary>Highest box of the zone's column (read directly from the scene).</summary>
         public static CargoBox TopBox(ShelfInteractionZone zone)
         {
             Transform[] levels = ColumnLevels(zone);
@@ -282,7 +282,7 @@ namespace RoboFactory.Logistics
             return column != null ? column.levels : null;
         }
 
-        /// <summary>Premier niveau libre de la colonne de la zone, -1 si pleine.</summary>
+        /// <summary>First free level of the zone's column, -1 if full.</summary>
         public static int FreeLevel(ShelfInteractionZone zone)
         {
             Transform[] levels = ColumnLevels(zone);

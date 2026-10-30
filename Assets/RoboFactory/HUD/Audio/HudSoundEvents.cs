@@ -3,10 +3,10 @@ using System.Collections.Generic;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Détecte, à chaque rafraîchissement du modèle, les transitions RÉELLES qui méritent un
-    /// son : micro ouvert / fermé, transcription finale reçue, requête Meta envoyée, commande
-    /// livrée, porte de camion en mouvement, alerte de sécurité. Les décisions et les étapes
-    /// d'urgence sont sonorisées directement par MuseHudRoot (événements de HudDataSource).
+    /// Detects, at each model refresh, the REAL transitions that deserve a
+    /// sound: microphone opened / closed, final transcription received, Meta request sent, order
+    /// delivered, truck door moving, safety alert. Decisions and urgent
+    /// stages are sonified directly by MuseHudRoot (HudDataSource events).
     /// </summary>
     public sealed class HudSoundEvents
     {
@@ -48,7 +48,7 @@ namespace RoboFactory.HUD
             lastSafety = m.Status.Safety;
             foreach (OrderVM o in m.Orders) orderState[o.Id] = o.Category;
             foreach (TruckVM t in m.Trucks) doorState[t.Id] = t.Door;
-            primed = true; // aucun son pour l'état déjà présent au démarrage
+            primed = true; // no sound for the state already present at start
         }
     }
 }

@@ -9,8 +9,8 @@ using Newtonsoft.Json.Linq;
 namespace RoboFactory.MetaServer
 {
     /// <summary>
-    /// Configuration, clé API et appels HTTPS vers l'API Meta (équivalent de http_json /
-    /// call_with_retry / call_orchestrator / log du proxy Python). Thread-safe, sans Unity.
+    /// Configuration, API key and HTTPS calls to the Meta API (equivalent of http_json /
+    /// call_with_retry / call_orchestrator / log of the Python proxy). Thread-safe, no Unity.
     /// </summary>
     public static class MetaApi
     {
@@ -36,18 +36,18 @@ namespace RoboFactory.MetaServer
         public static readonly double FallbackTimeout = EnvF("META_FALLBACK_TIMEOUT", 45);
         public static readonly string VoiceModel = Env("META_VOICE_MODEL", "muse-voice-transcribe-1.0");
 
-        // ------------------------------------------------------------------ clé API
+        // ------------------------------------------------------------------ API key
 
         private static string sessionKey;
         private static readonly object keyLock = new object();
 
-        /// <summary>Clé saisie par l'utilisateur (fenêtre LIVE AI) : mémoire seulement, jamais écrite.</summary>
+        /// <summary>Key entered by the user (LIVE AI window): memory only, never written.</summary>
         public static void SetSessionKey(string key)
         {
             lock (keyLock) sessionKey = Sanitize(key);
         }
 
-        /// <summary>Tolère les artefacts de collage (BOM, « Bearer », guillemets) sans jamais journaliser la valeur.</summary>
+        /// <summary>Tolerates paste artefacts (BOM, « Bearer », quotes) without ever logging the value.</summary>
         public static string Sanitize(string value)
         {
             if (string.IsNullOrEmpty(value)) return "";
@@ -58,7 +58,7 @@ namespace RoboFactory.MetaServer
             return value;
         }
 
-        /// <summary>Clé de session, sinon MODEL_API_KEY, sinon ~/.meta/model_api_key (comme le proxy Python).</summary>
+        /// <summary>Session key, otherwise MODEL_API_KEY, otherwise ~/.meta/model_api_key (like the Python proxy).</summary>
         public static string LoadKey()
         {
             lock (keyLock)
@@ -115,7 +115,7 @@ namespace RoboFactory.MetaServer
             public Result(int status, string raw) { Status = status; Raw = raw ?? ""; }
         }
 
-        /// <summary>Exception = réseau / DNS / délai dépassé (status 0 côté Python).</summary>
+        /// <summary>Exception = network / DNS / timeout (status 0 on the Python side).</summary>
         private static Result HttpJson(string url, JObject payload, string key, double timeoutS, bool stream, out bool httpError)
         {
             httpError = false;
@@ -140,7 +140,7 @@ namespace RoboFactory.MetaServer
             }
         }
 
-        /// <summary>call_with_retry : 429/5xx et erreurs réseau retentés (1,5 s, 3 s…), sinon renvoyés tels quels.</summary>
+        /// <summary>call_with_retry: 429/5xx and network errors retried (1.5 s, 3 s…), otherwise returned as is.</summary>
         public static Result CallWithRetry(string url, JObject payload, string key, double timeoutS, bool stream = false, int attempts = 2)
         {
             Result last = new Result(0, "");
@@ -186,8 +186,8 @@ namespace RoboFactory.MetaServer
         }
 
         /// <summary>
-        /// Muse Wonder d'abord ; s'il ne répond pas à temps ou échoue (timeout, réseau, 404 / 408 / 429 / 5xx),
-        /// la même demande part sur Muse Spark. Le modèle réellement utilisé est toujours remonté tel quel.
+        /// Muse Wonder first; if it does not answer in time or fails (timeout, network, 404 / 408 / 429 / 5xx),
+        /// the same request goes to Muse Spark. The model actually used is always reported as is.
         /// </summary>
         public static OrchestratorResult CallOrchestrator(JObject payload, string key)
         {
@@ -210,7 +210,7 @@ namespace RoboFactory.MetaServer
             };
         }
 
-        /// <summary>Corps d'une requête Responses avec un seul message utilisateur.</summary>
+        /// <summary>Body of a Responses request with a single user message.</summary>
         public static JObject UserMessage(string model, params JObject[] content)
         {
             var payload = new JObject();

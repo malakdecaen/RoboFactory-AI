@@ -4,24 +4,24 @@ using UnityEngine;
 namespace RoboFactory.Logistics
 {
     /// <summary>
-    /// Zone interdite pour la navigation GridMover — logique, pas physique :
-    /// le BoxCollider reste trigger, rien ne collisionne, les autres systèmes
-    /// (Robot 1, interaction Warcool) ne la voient pas.
+    /// No-go zone for GridMover navigation — logical, not physical:
+    /// the BoxCollider stays a trigger, nothing collides, the other systems
+    /// (Robot 1, Warcool interaction) do not see it.
     ///
-    /// Le GridMover marque les cellules couvertes comme bloquées : le robot
-    /// contourne la zone et l'overlay la montre en rouge. Un volume rouge
-    /// translucide la rend visible en jeu/build.
+    /// The GridMover marks the covered cells as blocked: the robot
+    /// goes around the zone and the overlay shows it in red. A translucent red
+    /// volume makes it visible in game/build.
     ///
-    /// Usage : ajouter sur un GameObject, régler le BoxCollider sur la zone
-    /// à interdire (ex. un côté de banc pour forcer l'approche par l'autre côté).
+    /// Usage: add it to a GameObject, fit the BoxCollider to the zone
+    /// to forbid (e.g. one side of a bench to force the approach from the other side).
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class NavBlocker : MonoBehaviour
     {
-        /// <summary>Tous les volumes actifs de la scène.</summary>
+        /// <summary>Every active volume in the scene.</summary>
         public static readonly List<NavBlocker> All = new List<NavBlocker>();
 
-        [Tooltip("Volume rouge translucide visible en jeu/build.")]
+        [Tooltip("Translucent red volume visible in game/build.")]
         public bool ShowVolume = true;
         public Color VolumeColor = new Color(1f, .15f, .15f, .18f);
 
@@ -42,7 +42,7 @@ namespace RoboFactory.Logistics
             All.Remove(this);
         }
 
-        /// <summary>Vrai si la cellule (centre + demi-extents monde) touche le volume.</summary>
+        /// <summary>True if the cell (center + world half-extents) touches the volume.</summary>
         public bool Overlaps(Vector3 center, Vector3 halfExtents)
         {
             if (area == null) return false;
@@ -52,13 +52,13 @@ namespace RoboFactory.Logistics
                    Mathf.Abs(center.y - b.center.y) <= halfExtents.y + b.extents.y;
         }
 
-        /// <summary>Vrai si un point (ex. un dock) est dans le volume.</summary>
+        /// <summary>True if a point (e.g. a dock) is inside the volume.</summary>
         public bool Contains(Vector3 point)
         {
             return area != null && area.bounds.Contains(point);
         }
 
-        /// <summary>Test statique : un des volumes actifs couvre-t-il ce point ?</summary>
+        /// <summary>Static test: does one of the active volumes cover this point?</summary>
         public static bool BlocksCell(Vector3 center, Vector3 halfExtents)
         {
             for (int i = 0; i < All.Count; i++)
@@ -86,7 +86,7 @@ namespace RoboFactory.Logistics
                 if (Application.isPlaying) Destroy(col);
                 else DestroyImmediate(col);
             }
-            // Le cube épouse le BoxCollider en local : taille/centre identiques.
+            // The cube matches the BoxCollider locally: same size/center.
             cube.transform.localPosition = area != null ? area.center : Vector3.zero;
             cube.transform.localRotation = Quaternion.identity;
             cube.transform.localScale = area != null ? area.size : Vector3.one;

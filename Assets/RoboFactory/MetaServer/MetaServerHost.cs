@@ -7,11 +7,11 @@ using UnityEngine.Networking;
 namespace RoboFactory.MetaServer
 {
     /// <summary>
-    /// Démarre le serveur Meta intégré (<see cref="MetaLocalServer"/>) au lancement du jeu et l'arrête à
-    /// la fermeture — dans l'éditeur comme dans le build, sans Python ni exécutable externe.
-    /// Si un autre serveur occupe déjà le port 8765 (proxy Python lancé à la main), il est utilisé tel quel.
-    /// Clé API : <see cref="SetApiKey"/> (fenêtre LIVE AI, mémoire seulement), sinon MODEL_API_KEY ou
-    /// ~/.meta/model_api_key. Journal des appels : logs/meta_calls.jsonl.
+    /// Starts the built-in Meta server (<see cref="MetaLocalServer"/>) when the game launches and stops it
+    /// on exit — in the editor as in the build, without Python or an external executable.
+    /// If another server already uses port 8765 (Python proxy started by hand), it is used as is.
+    /// API key: <see cref="SetApiKey"/> (LIVE AI window, memory only), otherwise MODEL_API_KEY or
+    /// ~/.meta/model_api_key. Call log: logs/meta_calls.jsonl.
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class MetaServerHost : MonoBehaviour
@@ -36,7 +36,7 @@ namespace RoboFactory.MetaServer
             instance = go.AddComponent<MetaServerHost>();
         }
 
-        /// <summary>Clé saisie par l'utilisateur : gardée en mémoire pour cette session, jamais écrite sur disque.</summary>
+        /// <summary>Key entered by the user: kept in memory for this session, never written to disk.</summary>
         public static void SetApiKey(string key) { MetaApi.SetSessionKey(key); }
 
         private void Awake()
@@ -68,11 +68,11 @@ namespace RoboFactory.MetaServer
             if (server.Start())
             {
                 State = ServerState.Running;
-                StatusText = "serveur Meta intégré actif" + (KeyPresent ? "" : " — aucune clé API : appels Meta impossibles");
+                StatusText = "built-in Meta server running" + (KeyPresent ? "" : " — no API key: Meta calls impossible");
                 if (!KeyPresent) Debug.LogWarning("[MetaServer] " + StatusText);
                 return;
             }
-            // Port occupé : un serveur répond-il déjà (proxy Python lancé à la main) ?
+            // Port busy: is a server already answering (Python proxy started by hand)?
             string error = server.LastError;
             server = null;
             StartCoroutine(CheckExternal(error));
@@ -87,13 +87,13 @@ namespace RoboFactory.MetaServer
                 if (req.result == UnityWebRequest.Result.Success)
                 {
                     State = ServerState.External;
-                    StatusText = "un autre serveur Meta occupe déjà le port 8765 : il est utilisé";
+                    StatusText = "another Meta server already uses port 8765: it is used";
                     Debug.LogWarning("[MetaServer] " + StatusText);
                 }
                 else
                 {
                     State = ServerState.Failed;
-                    StatusText = "serveur Meta intégré impossible à démarrer : " + bindError;
+                    StatusText = "built-in Meta server could not start: " + bindError;
                     Debug.LogError("[MetaServer] " + StatusText);
                 }
             }

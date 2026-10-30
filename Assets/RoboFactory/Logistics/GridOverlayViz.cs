@@ -5,9 +5,9 @@ using UnityEngine.Rendering;
 namespace RoboFactory.Logistics
 {
     /// <summary>
-    /// Overlay debug au sol : vert = cellule franchissable pour le planificateur,
-    /// rouge = bloquée (colliders). Couche purement visuelle — lit GridMover.CellFree.
-    /// Positions en monde : l'objet n'est PAS parenté au robot.
+    /// Debug overlay on the floor: green = cell traversable for the planner,
+    /// red = blocked (colliders). Purely visual layer — reads GridMover.CellFree.
+    /// World positions: the object is NOT parented to the robot.
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class GridOverlayViz : MonoBehaviour
@@ -15,9 +15,9 @@ namespace RoboFactory.Logistics
         [Header("Source")]
         public GridMover Mover;
 
-        [Header("Grille")]
+        [Header("Grid")]
         public bool ShowGridDebug = true;
-        [Tooltip("Délai entre deux rafraîchissements de la grille, en secondes.")]
+        [Tooltip("Delay between two grid refreshes, in seconds.")]
         public float GridRefresh = 1f;
         public Color FreeCellColor = new Color(0f, .9f, .3f, .22f);
         public Color BlockedCellColor = new Color(1f, .15f, .1f, .35f);
@@ -58,7 +58,7 @@ namespace RoboFactory.Logistics
         {
             if (gridRoot != null) return;
             var go = new GameObject("Grid Overlay Viz (" + name + ")");
-            gridRoot = go.transform; // racine de scène : le mesh stocke des positions monde
+            gridRoot = go.transform; // scene root: the mesh stores world positions
             gridMesh = new Mesh { name = "Grid overlay", indexFormat = IndexFormat.UInt32 };
             go.AddComponent<MeshFilter>().sharedMesh = gridMesh;
             var renderer = go.AddComponent<MeshRenderer>();

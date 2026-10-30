@@ -3,7 +3,7 @@ using UnityEngine.UI;
 
 namespace RoboFactory.HUD
 {
-    /// <summary>Quatre équerres d'angle (cadre de visée) dessinées dans le rectangle.</summary>
+    /// <summary>Four corner brackets (viewfinder frame) drawn in the rectangle.</summary>
     [RequireComponent(typeof(CanvasRenderer))]
     public sealed class BracketsGraphic : MaskableGraphic
     {

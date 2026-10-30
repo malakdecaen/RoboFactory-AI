@@ -5,8 +5,8 @@ using UnityEngine.UI;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Polyligne anti-aliasée dans le rectangle du RectTransform (points normalisés 0..1).
-    /// Sert à l'onde audio réelle du micro et à l'historique des latences Meta.
+    /// Anti-aliased polyline in the RectTransform's rectangle (points normalised 0..1).
+    /// Used for the real microphone waveform and the history of Meta latencies.
     /// </summary>
     [RequireComponent(typeof(CanvasRenderer))]
     public sealed class PolylineGraphic : MaskableGraphic

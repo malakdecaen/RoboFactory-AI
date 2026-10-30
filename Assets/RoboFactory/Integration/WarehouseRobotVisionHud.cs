@@ -15,25 +15,25 @@ namespace RoboFactory.Integration
     [DisallowMultipleComponent]
     public sealed class WarehouseRobotVisionHud : MonoBehaviour
     {
-        [Header("Fenêtre de vision")]
+        [Header("Vision window")]
         public bool ShowVision = true;
         public int ViewWidth = 240;
         public int ViewHeight = 160;
         public Vector2 Margin = new Vector2(12f, 12f);
-        [Tooltip("Hauteur de la caméra sur le robot, en mètres.")]
+        [Tooltip("Height of the camera on the robot, in metres.")]
         public float EyeHeight = .95f;
         public float EyeForward = .28f;
         public float FieldOfView = 62f;
 
-        [Header("Chemin")]
+        [Header("Path")]
         public bool ShowPath = false;
-        [Tooltip("Epaisseur du trace au sol, en metres.")]
+        [Tooltip("Thickness of the floor trace, in metres.")]
         public float PathWidth = .16f;
         public float MarkerSize = .26f;
         public float MarkerSpacing = .45f;
         public Color ClearColour = new Color(.15f, .95f, 1f, .9f);
         public Color BlockedColour = new Color(1f, .2f, .15f, .95f);
-        [Tooltip("Distance analysée devant le robot pour détecter un obstacle.")]
+        [Tooltip("Distance analysed in front of the robot to detect an obstacle.")]
         public float LookAhead = 1.4f;
         public float ReplanCooldown = .6f;
 
@@ -61,7 +61,7 @@ namespace RoboFactory.Integration
             BuildEye();
         }
 
-        /// <summary>Chemin dessine par un MeshRenderer (visible Game view + build, pas de LineRenderer).</summary>
+        /// <summary>Path drawn by a MeshRenderer (visible in Game view + build, no LineRenderer).</summary>
         private void BuildPathMesh()
         {
             var go = new GameObject("Autopilot path mesh");
@@ -185,28 +185,28 @@ namespace RoboFactory.Integration
                 Vector3 node = path[i];
                 travelled += Vector3.Distance(previous, node);
                 previous = node;
-                // MÊME test que le planificateur (ObstacleMask + clearance) : tester
-                // toutes les couches voyait des colliders que l'itinéraire ne peut
-                // jamais éviter -> replan en boucle infinie, robot figé.
+                // SAME test as the planner (ObstacleMask + clearance): testing
+                // every layer saw colliders that the route can never
+                // avoid -> infinite replan loop, frozen robot.
                 if (i < path.Count - 1 && !pilot.PathCellFree(node)) { hit = true; break; }
             }
 
             blocked = hit;
             if (hit)
             {
-                // Garde anti-boucle : un obstacle persistant ne doit pas déclencher
-                // un replan à chaque cooldown — le planificateur a sa propre attente.
+                // Anti-loop guard: a persistent obstacle must not trigger
+                // a replan at every cooldown — the planner has its own wait.
                 forcedReplans++;
                 if (forcedReplans <= 8)
                 {
                     pilot.RequestReplan();
                     if (WarehouseRobotAutopilot.Verbose)
-                        Debug.Log("[Autopilot] obstacle détecté sur le trajet : nouveau chemin calculé.");
+                        Debug.Log("[Autopilot] obstacle detected on the path: new path computed.");
                 }
                 else if (forcedReplans == 9 && WarehouseRobotAutopilot.Verbose)
                 {
-                    Debug.LogWarning("[Autopilot] obstacle persistant sur le trajet : " +
-                                     "replans vision suspendus (le pilote gère l'attente).");
+                    Debug.LogWarning("[Autopilot] persistent obstacle on the path: " +
+                                     "vision replans suspended (the pilot handles the wait).");
                 }
             }
             else forcedReplans = 0;
@@ -231,7 +231,7 @@ namespace RoboFactory.Integration
 
             var title = new GUIStyle(GUI.skin.label) { fontSize = 11, alignment = TextAnchor.MiddleLeft, normal = { textColor = new Color(.85f, .95f, 1f) } };
             GUI.Label(new Rect(frame.x + 6f, frame.y + 3f, ViewWidth, 18f),
-                blocked ? "VISION ROBOT  -  TRAJET BLOQUE" : "VISION ROBOT  -  TRAJET LIBRE", title);
+                blocked ? "ROBOT VISION  -  PATH BLOCKED" : "ROBOT VISION  -  PATH CLEAR", title);
             GUI.color = previous;
         }
 

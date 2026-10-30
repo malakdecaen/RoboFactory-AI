@@ -4,9 +4,9 @@ using UnityEngine;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Repères holographiques 3D posés sur les VRAIES ressources réservées (palettes, bancs,
-    /// camions) et tracé lumineux des VRAIS chemins de navigation des robots
-    /// (WarehouseRobotAutopilot.CurrentPath / GridMover.CurrentPath). Rien de fictif.
+    /// 3D holographic markers placed on the REAL reserved resources (pallets, benches,
+    /// trucks) and glowing trace of the robots' REAL navigation paths
+    /// (WarehouseRobotAutopilot.CurrentPath / GridMover.CurrentPath). Nothing fictitious.
     /// </summary>
     public sealed class WorldMarkersView
     {
@@ -61,7 +61,7 @@ namespace RoboFactory.HUD
             time += dt;
             if (root == null) return;
 
-            // ---- repères de sélection
+            // ---- selection markers
             foreach (Marker mk in markers.Values) mk.Seen = false;
             if (ShowMarkers)
             {
@@ -76,7 +76,7 @@ namespace RoboFactory.HUD
                     }
                     mk.Seen = true;
                     mk.OrderId = v.OrderId;
-                    mk.Color = HudTheme.Orange; // sélection Muse = orange (référence), urgence = orange plus intense
+                    mk.Color = HudTheme.Orange; // Muse selection = orange (reference), urgent = more intense orange
                     UpdateMarker(mk, v, dt);
                 }
             }
@@ -90,7 +90,7 @@ namespace RoboFactory.HUD
                 markers.Remove(key);
             }
 
-            // décroissance des flashs
+            // flash decay
             stale.Clear();
             foreach (string id in flashes.Keys) stale.Add(id);
             foreach (string id in stale)
@@ -99,7 +99,7 @@ namespace RoboFactory.HUD
                 if (f <= 0f) flashes.Remove(id); else flashes[id] = f;
             }
 
-            // ---- chemins réels
+            // ---- real paths
             UpdatePath(pathR1, endR1, m.R1, IsUrgent(m, m.R1) ? HudTheme.Orange : HudTheme.Cyan);
             UpdatePath(pathR2, endR2, m.R2, IsUrgent(m, m.R2) ? HudTheme.Orange : Color.Lerp(HudTheme.Cyan, HudTheme.Blue, .35f));
         }
@@ -110,7 +110,7 @@ namespace RoboFactory.HUD
             return o != null && o.Urgent;
         }
 
-        /// <summary>Contour filaire fin (12 arêtes) autour de la vraie ressource : ne masque jamais le modèle.</summary>
+        /// <summary>Thin wireframe outline (12 edges) around the real resource: never hides the model.</summary>
         private Marker CreateMarker(MarkVM v)
         {
             Bounds b = BoundsOf(v.Transform);
@@ -132,7 +132,7 @@ namespace RoboFactory.HUD
             Vector3 mn = b.min, mx = b.max;
             Vector3 p000 = new Vector3(mn.x, mn.y, mn.z), p100 = new Vector3(mx.x, mn.y, mn.z), p110 = new Vector3(mx.x, mn.y, mx.z), p010 = new Vector3(mn.x, mn.y, mx.z);
             Vector3 p001 = new Vector3(mn.x, mx.y, mn.z), p101 = new Vector3(mx.x, mx.y, mn.z), p111 = new Vector3(mx.x, mx.y, mx.z), p011 = new Vector3(mn.x, mx.y, mx.z);
-            // parcours continu des 12 arêtes (quelques arêtes repassées)
+            // continuous walk over the 12 edges (a few edges traced twice)
             Vector3[] path = { p000, p100, p110, p010, p000, p001, p101, p100, p101, p111, p110, p111, p011, p010, p011, p001 };
             lr.positionCount = path.Length;
             lr.SetPositions(path);
@@ -170,7 +170,7 @@ namespace RoboFactory.HUD
             Color lc = HudTheme.A(c, .45f + .2f * pulse);
             line.startColor = HudTheme.A(c, .25f);
             line.endColor = lc;
-            SetColor(line, lc); // URP Unlit ignore les couleurs de sommets : teinte par bloc de propriétés
+            SetColor(line, lc); // URP Unlit ignores vertex colours: tint through a property block
             Vector3 last = path[path.Count - 1];
             end.position = new Vector3(last.x, p0.y + lift, last.z);
             float s = .38f + .06f * pulse;
@@ -191,7 +191,7 @@ namespace RoboFactory.HUD
             lr.widthMultiplier = .05f;
             lr.textureMode = LineTextureMode.Stretch;
             lr.alignment = LineAlignment.TransformZ;
-            go.transform.rotation = Quaternion.Euler(90f, 0f, 0f); // ruban à plat sur le sol
+            go.transform.rotation = Quaternion.Euler(90f, 0f, 0f); // ribbon lying flat on the floor
             lr.numCornerVertices = 3;
             lr.numCapVertices = 2;
             lr.useWorldSpace = true;
@@ -258,7 +258,7 @@ namespace RoboFactory.HUD
             return mesh;
         }
 
-        /// <summary>Matériau additif non éclairé (URP Unlit, repli Sprites/Default).</summary>
+        /// <summary>Unlit additive material (URP Unlit, Sprites/Default fallback).</summary>
         private static Material Additive(Texture tex)
         {
             Shader shader = Shader.Find("Universal Render Pipeline/Unlit");

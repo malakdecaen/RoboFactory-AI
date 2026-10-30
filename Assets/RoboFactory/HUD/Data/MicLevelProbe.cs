@@ -5,9 +5,9 @@ using UnityEngine;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Lit, en lecture seule, le vrai signal du micro capturé par VoiceCommandController
-    /// (son AudioClip en boucle) pour dessiner l'onde et faire pulser le cercle.
-    /// Aucune donnée simulée : sans clip (mode mock, pas de micro), le niveau reste à 0.
+    /// Reads, read-only, the real microphone signal captured by VoiceCommandController
+    /// (its looping AudioClip) to draw the waveform and make the circle pulse.
+    /// No simulated data: without a clip (mock mode, no microphone), the level stays at 0.
     /// </summary>
     public sealed class MicLevelProbe
     {
@@ -39,7 +39,7 @@ namespace RoboFactory.HUD
             if (samples <= buffer.Length || pos < 0) { HasSignal = false; return; }
             int start = pos - buffer.Length;
             if (start < 0) start += samples;
-            clip.GetData(buffer, start); // lecture circulaire : AudioClip.GetData reboucle sur un clip en boucle
+            clip.GetData(buffer, start); // circular read: AudioClip.GetData wraps around on a looping clip
 
             int per = buffer.Length / Bins;
             float total = 0f;

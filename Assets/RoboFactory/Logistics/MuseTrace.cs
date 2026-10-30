@@ -9,10 +9,10 @@ using UnityEngine;
 namespace RoboFactory.Logistics
 {
     /// <summary>
-    /// Journal détaillé d'une session PlayMode : un fichier par Play dans
-    /// &lt;projet&gt;/logs/muse_trace_*.log. Chaque ligne = horodatage réel, temps de
-    /// jeu, frame, catégorie, message. Écriture immédiate (flush) pour que le
-    /// fichier reste exploitable même si Play est arrêté brutalement.
+    /// Detailed journal of a PlayMode session: one file per Play in
+    /// &lt;project&gt;/logs/muse_trace_*.log. Each line = real timestamp, game
+    /// time, frame, category, message. Written immediately (flush) so that the
+    /// file stays usable even if Play is stopped abruptly.
     /// </summary>
     public static class MuseTrace
     {
@@ -33,7 +33,7 @@ namespace RoboFactory.Logistics
             }
             catch (Exception)
             {
-                // le journal ne doit jamais casser la simulation
+                // the journal must never break the simulation
             }
         }
 
@@ -44,24 +44,24 @@ namespace RoboFactory.Logistics
             FilePath = Path.Combine(dir, "muse_trace_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log");
             writer = new StreamWriter(FilePath, false, new UTF8Encoding(false)) { AutoFlush = true };
             writer.WriteLine("# RoboFactory — trace PlayMode " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") +
-                             "  scène=" + UnityEngine.SceneManagement.SceneManager.GetActiveScene().name);
+                             "  scene=" + UnityEngine.SceneManagement.SceneManager.GetActiveScene().name);
             Debug.Log("[MuseTrace] journal : " + FilePath);
         }
 
         public static void Close()
         {
             if (writer == null) return;
-            Log("TRACE", "fin de session");
+            Log("TRACE", "end of session");
             writer.Dispose();
             writer = null;
         }
     }
 
     /// <summary>
-    /// Enregistreur par différence : compare l'état complet de la simulation
-    /// toutes les 0,1 s et journalise chaque changement. Capture aussi les
-    /// messages Unity tagués ([Muse], [Camion], ...), avertissements et exceptions.
-    /// Installé automatiquement dès qu'un MuseOrchestrator est présent.
+    /// Differential recorder: compares the full simulation state
+    /// every 0.1 s and logs each change. Also captures the
+    /// tagged Unity messages ([Muse], [Truck], ...), warnings and exceptions.
+    /// Installed automatically as soon as a MuseOrchestrator is present.
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class MuseTraceRecorder : MonoBehaviour
@@ -90,8 +90,8 @@ namespace RoboFactory.Logistics
         private void Start()
         {
             orch = FindFirstObjectByType<MuseOrchestrator>();
-            MuseTrace.Log("TRACE", "début — mode " + (orch != null ? orch.Mode : "?") +
-                          ", modèle " + (orch != null ? orch.ModelUsed : "?"));
+            MuseTrace.Log("TRACE", "start — mode " + (orch != null ? orch.Mode : "?") +
+                          ", model " + (orch != null ? orch.ModelUsed : "?"));
         }
 
         private void OnUnityLog(string message, string stack, LogType type)
@@ -119,38 +119,38 @@ namespace RoboFactory.Logistics
             Diff("STAGE", "phase", orch.CurrentPhase.ToString());
             Diff("URGENT", "status", orch.UrgentStatus);
             Diff("URGENT", "error", orch.UrgentError);
-            Diff("URGENT", "counts", "urgente=#" + orch.UrgentOrderId + " suspending=" +
+            Diff("URGENT", "counts", "urgent=#" + orch.UrgentOrderId + " suspending=" +
                  orch.SuspendingCount + " paused=" + orch.PausedCount + " resumed=" + orch.ResumedCount);
 
-            // ---- commandes
+            // ---- orders
             foreach (WhOrderState o in orch.OrdersSnapshot)
                 Diff("ORDER", "order" + o.id,
-                     "#" + o.id + (o.urgent ? " URGENT" : "") + " [" + o.status + "] besoin " +
-                     o.a + "A/" + o.b + "B/" + o.c + "C  banc " + Cnt(o.staged_a, o.staged_b, o.staged_c) +
-                     "  camion " + Cnt(o.loaded_a, o.loaded_b, o.loaded_c) +
+                     "#" + o.id + (o.urgent ? " URGENT" : "") + " [" + o.status + "] need " +
+                     o.a + "A/" + o.b + "B/" + o.c + "C  bench " + Cnt(o.staged_a, o.staged_b, o.staged_c) +
+                     "  truck " + Cnt(o.loaded_a, o.loaded_b, o.loaded_c) +
                      "  -> " + (string.IsNullOrEmpty(o.bench_id) ? "-" : o.bench_id) + "/" +
                      (string.IsNullOrEmpty(o.truck_id) ? "-" : o.truck_id));
 
-            // ---- ressources
+            // ---- resources
             WarehouseWorld world = WarehouseWorld.Instance;
             TruckLoaderAgent r2 = orch.Robot2;
             if (world != null)
             {
                 foreach (string id in world.PalletIds)
-                    Diff("RESERV", "res" + id, id + " réservée par " + (world.ReservedBy(id) ?? "personne"));
+                    Diff("RESERV", "res" + id, id + " reserved by " + (world.ReservedBy(id) ?? "nobody"));
                 foreach (string id in world.BenchIds)
-                    Diff("RESERV", "res" + id, id + " réservé par " + (world.ReservedBy(id) ?? "personne"));
+                    Diff("RESERV", "res" + id, id + " reserved by " + (world.ReservedBy(id) ?? "nobody"));
                 foreach (string id in world.TruckIds)
                 {
                     TruckBay bay = world.Truck(id);
                     if (bay == null) continue;
                     bool r2In = r2 != null && bay.IsInside(r2.transform.position);
-                    Diff("TRUCK", "truck" + id, id + " porte=" + bay.Door + " réservé=#" +
-                         bay.ReservedOrderId + " chargés=" + bay.LoadedCount + " R2dedans=" + r2In);
-                    // Alerte sécurité : R2 dans une remorque dont la porte n'est pas ouverte.
+                    Diff("TRUCK", "truck" + id, id + " door=" + bay.Door + " reserved=#" +
+                         bay.ReservedOrderId + " loaded=" + bay.LoadedCount + " R2inside=" + r2In);
+                    // Safety alert: R2 inside a trailer whose door is not open.
                     bool danger = r2In && !bay.IsDoorOpen;
                     Diff("ALERT", "trap" + id, danger
-                        ? "!!! R2 DANS " + id + " AVEC PORTE " + bay.Door + " — risque d'enfermement"
+                        ? "!!! R2 INSIDE " + id + " WITH DOOR " + bay.Door + " — risk of being locked in"
                         : "", logEmpty: false);
                 }
             }
@@ -161,16 +161,16 @@ namespace RoboFactory.Logistics
                 Diff("R1", "r1", r1.Status + "  mission=" + r1.MissionActive,
                      suffix: "  pos=" + Pos(r1.transform));
             if (r2 != null)
-                Diff("R2", "r2", r2.Status + "  mission=" + r2.MissionActive + " commande=#" +
-                     r2.DirectedOrderId + "  porte-carton=" + (r2.Carried != null ? r2.Carried.name : "rien"),
+                Diff("R2", "r2", r2.Status + "  mission=" + r2.MissionActive + " order=#" +
+                     r2.DirectedOrderId + "  carrying=" + (r2.Carried != null ? r2.Carried.name : "nothing"),
                      suffix: "  pos=" + Pos(r2.transform));
 
-            // ---- voix
+            // ---- voice
             if (voice != null)
             {
                 Diff("VOICE", "vstate", voice.State + " (" + voice.LastAsrMode + ")");
                 Diff("VOICE", "vstatus", voice.StatusText);
-                Diff("VOICE", "vlive", voice.LiveTranscript.Length > 0 ? "partiel : " + voice.LiveTranscript : "");
+                Diff("VOICE", "vlive", voice.LiveTranscript.Length > 0 ? "partial: " + voice.LiveTranscript : "");
                 Diff("VOICE", "vfinal", voice.FinalTranscript.Length > 0
                     ? "FINAL : " + voice.FinalTranscript + "  (ASR " + voice.LastAsrLatencyMs +
                       " ms, audio " + voice.AudioProcessedMs + " ms)" : "");
@@ -178,7 +178,7 @@ namespace RoboFactory.Logistics
             }
         }
 
-        /// <summary>Journalise la clé seulement si sa valeur a changé.</summary>
+        /// <summary>Logs the key only if its value changed.</summary>
         private void Diff(string category, string key, string value, bool logEmpty = true,
                           string suffix = "")
         {
@@ -186,7 +186,7 @@ namespace RoboFactory.Logistics
             if (last.TryGetValue(key, out string prev) && prev == value) return;
             last[key] = value;
             if (value.Length == 0 && (!logEmpty || prev == null)) return;
-            MuseTrace.Log(category, value.Length > 0 ? value + suffix : key + " effacé");
+            MuseTrace.Log(category, value.Length > 0 ? value + suffix : key + " cleared");
         }
 
         private static string Cnt(int a, int b, int c) => a + "A/" + b + "B/" + c + "C";

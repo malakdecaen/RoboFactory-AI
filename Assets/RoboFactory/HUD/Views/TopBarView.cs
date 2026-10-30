@@ -6,9 +6,9 @@ using UnityEngine.UI;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Bande supérieure (V2) : identité + heure, sélecteur de mode, badge LIVE/MOCK, et deux
-    /// cartes de contexte autour du cercle — COMMANDE EN COURS et CAMION UTILISÉ (données réelles)
-    /// — pour comprendre la situation en trois secondes. Notification courte du mode cinéma.
+    /// Top strip (V2): identity + time, mode selector, LIVE/MOCK badge, and two
+    /// context cards around the circle — CURRENT ORDER and TRUCK IN USE (real data)
+    /// — to understand the situation in three seconds. Short notification of the cinema mode.
     /// </summary>
     public sealed class TopBarView
     {
@@ -30,7 +30,7 @@ namespace RoboFactory.HUD
         private Image soundBg;
         private Image camBg, camIcon;
         private TextMeshProUGUI camHint, camLabel;
-        /// <summary>Bouton caméra (à droite du bloc marque), visible dans tous les modes.</summary>
+        /// <summary>Camera button (right of the brand block), visible in every mode.</summary>
         public RectTransform CamSwitch { get; private set; }
         private readonly Button[] modeButtons = new Button[3];
         private readonly TextMeshProUGUI[] modeLabels = new TextMeshProUGUI[3];
@@ -87,7 +87,7 @@ namespace RoboFactory.HUD
             soundBg = (Image)sound.targetGraphic;
             soundIcon = HudFactory.Icon(sound.transform, "Icon", HudIcon.Speaker, 22f, HudTheme.TextHi);
 
-            // bouton caméra : vue de la scène <-> vue orbite (touche C), entre la marque et la carte commande
+            // camera button: scene view <-> orbit view (C key), between the brand and the order card
             CamSwitch = HudFactory.Rect("Camera Switch", parent);
             HudFactory.Place(CamSwitch, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(HudTheme.Margin + HudTheme.OrdersWidth + 10f, -14f), new Vector2(118f, 58f));
             Button camButton = HudFactory.Button(CamSwitch, "Camera View", "", HudTheme.Cyan, () => CamToggled?.Invoke(), 104f, 32f);
@@ -166,7 +166,7 @@ namespace RoboFactory.HUD
             HudFactory.Set(camLabel, CamLabel != null ? CamLabel() : orbit ? "ORBIT" : "SCENE");
             if (camHint.gameObject.activeSelf != orbit) camHint.gameObject.SetActive(orbit);
 
-            // ---- commande en cours (la plus récemment lancée, sinon l'urgente / la première active)
+            // ---- current order (the most recently started, otherwise the urgent one / the first active one)
             OrderVM active = m.FindOrder(m.Urgent.OrderId);
             if (active == null || active.Category == OrderCategory.Done) active = m.FindOrder(m.ActiveOrderId);
             if (active == null || active.Category == OrderCategory.Done)
@@ -180,7 +180,7 @@ namespace RoboFactory.HUD
             }
             else SetFlank(orderCard, "—", "no order in progress", HudTheme.TextLow);
 
-            // ---- camion utilisé : celui de la commande en cours, sinon un camion ouvert
+            // ---- truck in use: the current order's truck, otherwise an open truck
             TruckVM truck = null;
             if (active != null && active.Truck != "")
                 foreach (TruckVM t in m.Trucks) if (t.Id == active.Truck) truck = t;

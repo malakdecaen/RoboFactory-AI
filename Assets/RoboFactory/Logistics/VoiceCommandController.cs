@@ -6,78 +6,78 @@ using UnityEngine;
 namespace RoboFactory.Logistics
 {
     /// <summary>
-    /// Commandes urgentes vocales : push-to-talk sur le micro, conversion en
-    /// PCM16 mono 24 kHz, envoi en chunks au proxy Python (/asr/*), transcription
-    /// partielle affichée en direct, transcription FINALE envoyée à Muse Wonder
-    /// via SubmitUrgentTranscript. La clé Meta ne quitte jamais le proxy —
-    /// Unity ne voit que du PCM et du texte.
+    /// Spoken urgent orders: push-to-talk on the microphone, conversion to
+    /// PCM16 mono 24 kHz, sent in chunks to the Meta gateway (/asr/*), partial
+    /// transcription shown live, FINAL transcription sent to Muse Wonder
+    /// through SubmitUrgentTranscript. The Meta key never leaves the gateway —
+    /// Unity only sees PCM and text.
     ///
-    /// Flux audio : le proxy ré-émet l'audio vers Meta par trames de 80 ms cadencées
-    /// en temps réel ; une trame incomplète y est complétée par du silence et un
-    /// tampon vide y produit une trame de silence. L'envoi Unity est donc :
-    ///  - groupé (tout ce qui attend part dans UNE requête : une requête HTTP lente
-    ///    ne fait plus prendre de retard au flux) ;
-    ///  - aligné sur 80 ms pendant la capture (aucun trou de silence inséré au
-    ///    milieu des mots) ;
-    ///  - précédé d'un pré-tampon (~400 ms d'avance côté proxy : les à-coups de
-    ///    cadence ne vident plus son tampon en pleine phrase).
-    /// Si la session temps réel échoue alors que le micro a bien capté de la voix,
-    /// l'enregistrement complet est retranscrit une fois dans une session neuve.
+    /// Audio flow: the gateway re-emits the audio to Meta in 80 ms frames paced
+    /// in real time; an incomplete frame is padded with silence there and an
+    /// empty buffer produces a frame of silence. Sending from Unity is therefore:
+    ///  - batched (everything waiting goes in ONE request: a slow HTTP request
+    ///    no longer makes the stream fall behind);
+    ///  - aligned on 80 ms during capture (no gap of silence inserted in the
+    ///    middle of words);
+    ///  - preceded by a pre-buffer (~400 ms ahead on the gateway side: pacing
+    ///    hiccups no longer empty its buffer in the middle of a sentence).
+    /// If the real-time session fails while the microphone did capture a voice,
+    /// the full recording is transcribed once more in a new session.
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class VoiceCommandController : MonoBehaviour
     {
         public enum VoiceState { Idle, Starting, Recording, Finishing }
 
-        [Header("Références")]
+        [Header("References")]
         public MuseOrchestrator Orchestrator;
-        [Tooltip("Vide = reprendre le ProxyUrl de l'orchestrateur.")]
+        [Tooltip("Empty = use the orchestrator's ProxyUrl.")]
         public string ProxyUrl = "";
 
         [Header("Capture")]
-        [Tooltip("Durée max d'une prise de parole avant envoi automatique (s).")]
+        [Tooltip("Maximum length of an utterance before automatic sending (s).")]
         public float MaxRecordSeconds = 20f;
-        [Tooltip("Intervalle de lecture du tampon micro (ms).")]
+        [Tooltip("Microphone buffer read interval (ms).")]
         public int PollMs = 200;
-        [Tooltip("Avance d'audio constituée côté proxy avant le premier envoi (ms).")]
+        [Tooltip("Audio lead built up on the gateway side before the first send (ms).")]
         public int PrebufferMs = 400;
-        [Tooltip("Échec de la session temps réel avec de la voix captée : retranscrire l'enregistrement complet une fois.")]
+        [Tooltip("Real-time session failure with captured voice: transcribe the full recording once more.")]
         public bool RetryWholeCapture = true;
-        [Tooltip("Niveau crête (0-1) sous lequel la capture est considérée muette.")]
+        [Tooltip("Peak level (0-1) below which the capture is considered silent.")]
         public float SilencePeak = .004f;
-        [Tooltip("Écrit la dernière capture dans Logs/voice_last.wav (vérification à l'écoute).")]
+        [Tooltip("Writes the last capture to Logs/voice_last.wav (to check by listening).")]
         public bool SaveLastCapture = true;
-        [Tooltip("Vocabulaire entrepôt transmis à Meta (biais de reconnaissance).")]
+        [Tooltip("Warehouse vocabulary sent to Meta (recognition bias; French terms, the speech model also understands English).")]
         public string[] Keywords =
         {
             "palette", "banc", "camion", "carton", "commande urgente",
             "caisse", "urgent", "livrer", "charger"
         };
         public string[] Languages = { "French", "English" };
-        [Tooltip("Mode mock : texte renvoyé comme transcription (test sans micro ni API).")]
-        public string MockTranscript = "commande urgente, deux cartons A et un carton B";
+        [Tooltip("Mock mode: text returned as the transcription (test without a microphone or API).")]
+        public string MockTranscript = "urgent order, two boxes A and one box B";
 
         public VoiceState State { get; private set; } = VoiceState.Idle;
         public bool Busy => State != VoiceState.Idle;
         public bool IsRecording => State == VoiceState.Recording;
-        /// <summary>Transcription partielle cumulative la plus récente.</summary>
+        /// <summary>Most recent cumulative partial transcription.</summary>
         public string LiveTranscript { get; private set; } = "";
-        /// <summary>Dernière transcription finale envoyée à Muse.</summary>
+        /// <summary>Last final transcription sent to Muse.</summary>
         public string FinalTranscript { get; private set; } = "";
-        public string StatusText { get; private set; } = "micro prêt";
+        public string StatusText { get; private set; } = "mic ready";
         public int LastAsrLatencyMs { get; private set; }
         public string LastAsrModel { get; private set; } = "";
-        /// <summary>Mode ASR réel de la dernière session ("live" | "mock").</summary>
+        /// <summary>Real ASR mode of the last session ("live" | "mock").</summary>
         public string LastAsrMode { get; private set; } = "";
-        /// <summary>Vrai uniquement quand Meta a renvoyé une transcription FINALE soumise à Muse.</summary>
+        /// <summary>True only when Meta returned a FINAL transcription submitted to Muse.</summary>
         public bool LastSubmittedFinal { get; private set; }
-        /// <summary>ms d'audio acceptés par Meta — preuve de transport, PAS de transcription.</summary>
+        /// <summary>ms of audio accepted by Meta — proof of transport, NOT of transcription.</summary>
         public int AudioProcessedMs { get; private set; }
-        /// <summary>Dernier échec ASR lisible (jamais masqué au HUD).</summary>
+        /// <summary>Last readable ASR failure (never hidden in the HUD).</summary>
         public string LastFailure { get; private set; } = "";
-        /// <summary>Niveau crête (0-1) de la dernière capture : diagnostic micro muet.</summary>
+        /// <summary>Peak level (0-1) of the last capture: silent-microphone diagnostics.</summary>
         public float LastCapturePeak { get; private set; }
-        /// <summary>Durée (s) de la dernière capture envoyée.</summary>
+        /// <summary>Duration (s) of the last capture sent.</summary>
         public float LastCaptureSeconds { get; private set; }
         public float RecordingElapsed => State == VoiceState.Recording ? Time.unscaledTime - recordStart : 0f;
 
@@ -91,26 +91,26 @@ namespace RoboFactory.Logistics
         private int sessionSeq;
         private int generation;
         private bool mockSession;
-        private bool sessionReady;   // /asr/start a répondu OK : on peut envoyer l'audio
-        private bool sessionFailed;  // /asr/start a échoué : capture abandonnée
+        private bool sessionReady;   // /asr/start answered OK: audio can be sent
+        private bool sessionFailed;  // /asr/start failed: capture abandoned
         private readonly Queue<byte[]> outbox = new Queue<byte[]>();
         private int consecutiveSendFails;
 
-        // ---- envoi groupé : tampon d'envoi, requête en vol, pré-tampon atteint
+        // ---- batched sending: send buffer, request in flight, pre-buffer reached
         private readonly List<byte> sendBuf = new List<byte>();
         private bool sendInFlight;
         private bool primed;
-        /// <summary>Copie intégrale de la capture (PCM 24 kHz) : diagnostic + nouvel essai.</summary>
+        /// <summary>Full copy of the capture (PCM 24 kHz): diagnostics + retry.</summary>
         private readonly List<byte> captured = new List<byte>();
         private float capturePeak;
 
-        // ---- resampleur : tampon continu + curseur fractionnaire
+        // ---- resampler: continuous buffer + fractional cursor
         private readonly List<float> resIn = new List<float>();
         private double resCursor;
         private const int TargetRate = 24000;
-        /// <summary>Trame du cadenceur du proxy (ASR_FRAME_MS = 80 ms en s16le 24 kHz).</summary>
+        /// <summary>Gateway pacer frame (ASR_FRAME_MS = 80 ms in s16le 24 kHz).</summary>
         private const int FrameBytes = TargetRate * 2 * 80 / 1000;
-        /// <summary>Plafond d'une requête (2 s, multiple de la trame).</summary>
+        /// <summary>Maximum size of a request (2 s, a multiple of the frame).</summary>
         private const int MaxSendBytes = FrameBytes * 25;
 
         private void Start()
@@ -128,39 +128,39 @@ namespace RoboFactory.Logistics
             {
                 if (Time.unscaledTime - recordStart > MaxRecordSeconds)
                 {
-                    StatusText = "durée max atteinte — envoi";
+                    StatusText = "maximum duration reached — sending";
                     EndTalk();
                 }
             }
             else if (clip != null && Time.unscaledTime - recordStart > 1f)
             {
-                StatusText = "micro arrêté — envoi de ce qui a été capté";
+                StatusText = "mic stopped — sending what was captured";
                 EndTalk();
             }
         }
 
-        // ------------------------------------------------------------------ API bouton
+        // ------------------------------------------------------------------ button API
 
-        /// <summary>Bascule appuyé/relâché (bouton MICRO du HUD).</summary>
+        /// <summary>Toggles pressed/released (HUD MIC button).</summary>
         public void Toggle()
         {
             if (State == VoiceState.Idle) BeginTalk();
             else if (State == VoiceState.Recording) EndTalk();
         }
 
-        /// <summary>Push-to-talk : appui.</summary>
+        /// <summary>Push-to-talk: press.</summary>
         public void BeginTalk()
         {
             if (State != VoiceState.Idle) return;
             if (Orchestrator != null && Orchestrator.Mode == "offline")
             {
-                StatusText = "mode offline : ASR indisponible";
+                StatusText = "offline mode: ASR unavailable";
                 return;
             }
             bool mock = Orchestrator != null && Orchestrator.Mode == "mock";
             if (!mock && (Microphone.devices == null || Microphone.devices.Length == 0))
             {
-                StatusText = "aucun micro détecté (mode mock disponible)";
+                StatusText = "no microphone detected (mock mode available)";
                 return;
             }
             generation++;
@@ -183,15 +183,15 @@ namespace RoboFactory.Logistics
             AudioProcessedMs = 0;
             LastAsrMode = mock ? "mock" : "live";
 
-            // Le micro démarre TOUT DE SUITE : on peut parler pendant que la session
-            // Meta s'ouvre (parfois plusieurs secondes à froid). L'audio est mis en
-            // tampon dans l'outbox puis envoyé dès que la session est prête.
+            // The microphone starts RIGHT AWAY: you can speak while the Meta session
+            // opens (sometimes several seconds when cold). The audio is
+            // buffered in the outbox then sent as soon as the session is ready.
             if (!mock)
             {
                 clip = Microphone.Start(null, true, Mathf.CeilToInt(MaxRecordSeconds) + 2, TargetRate);
                 if (clip == null)
                 {
-                    StatusText = "micro refusé par le système";
+                    StatusText = "microphone refused by the system";
                     LastFailure = StatusText;
                     return;
                 }
@@ -201,20 +201,20 @@ namespace RoboFactory.Logistics
             }
             recordStart = Time.unscaledTime;
             State = VoiceState.Recording;
-            StatusText = mock ? "MOCK — relâchez pour envoyer : «" + MockTranscript + "»"
-                              : "● REC — parlez (connexion Meta en cours…)";
+            StatusText = mock ? "MOCK — release to send: «" + MockTranscript + "»"
+                              : "● REC — speak (connecting to Meta…)";
             int gen = generation;
             StartCoroutine(StartSession(gen));
             StartCoroutine(mock ? MockPump(gen) : MicPump(gen));
             StartCoroutine(Sender(gen));
         }
 
-        /// <summary>Push-to-talk : relâché -> envoi de la transcription finale.</summary>
+        /// <summary>Push-to-talk: released -> the final transcription is sent.</summary>
         public void EndTalk()
         {
             if (State != VoiceState.Recording) return;
             State = VoiceState.Finishing;
-            StatusText = "fin de capture…";
+            StatusText = "ending capture…";
             if (!mockSession)
             {
                 Harvest();
@@ -222,16 +222,16 @@ namespace RoboFactory.Logistics
                 LastCapturePeak = capturePeak;
                 string device = Microphone.devices != null && Microphone.devices.Length > 0
                     ? Microphone.devices[0] : "?";
-                Debug.Log("[Voice] capture " + LastCaptureSeconds.ToString("F1") + " s · crête " +
-                          PeakDb(capturePeak) + " dBFS · micro par défaut (1er : «" + device + "») " +
-                          micRate + " Hz × " + micChannels + " canal(aux)");
+                Debug.Log("[Voice] capture " + LastCaptureSeconds.ToString("F1") + " s · peak " +
+                          PeakDb(capturePeak) + " dBFS · default microphone (1st: «" + device + "») " +
+                          micRate + " Hz × " + micChannels + " channel(s)");
                 if (SaveLastCapture) SaveWav(captured);
             }
             StopMic();
             StartCoroutine(FinishSession(generation));
         }
 
-        /// <summary>Annule la capture sans envoyer quoi que ce soit à Muse.</summary>
+        /// <summary>Cancels the capture without sending anything to Muse.</summary>
         public void CancelTalk()
         {
             if (State == VoiceState.Idle) return;
@@ -243,7 +243,7 @@ namespace RoboFactory.Logistics
             resIn.Clear();
             resCursor = 0;
             State = VoiceState.Idle;
-            StatusText = "capture annulée";
+            StatusText = "capture cancelled";
             if (!string.IsNullOrEmpty(sessionId))
                 StartCoroutine(proxy.AsrCancel(sessionId, _ => { }));
             sessionId = null;
@@ -264,23 +264,23 @@ namespace RoboFactory.Logistics
                 StopMic();
                 outbox.Clear();
                 sendBuf.Clear();
-                StatusText = "ASR indisponible : " + (r != null ? r.error : "proxy muet");
+                StatusText = "ASR unavailable: " + (r != null ? r.error : "gateway silent");
                 LastFailure = StatusText;
                 State = VoiceState.Idle;
                 yield break;
             }
             LastAsrModel = r.model;
-            if (!string.IsNullOrEmpty(r.mode)) LastAsrMode = r.mode; // vérité proxy
+            if (!string.IsNullOrEmpty(r.mode)) LastAsrMode = r.mode; // gateway truth
             LastAsrLatencyMs = r.latency_ms;
             sessionReady = true;
             if (State == VoiceState.Recording && !mockSession)
-                StatusText = "● REC — parlez (français / anglais)";
+                StatusText = "● REC — speak (French / English)";
         }
 
-        /// <summary>Prélève régulièrement l'audio du tampon micro en l'envoyant à l'outbox.</summary>
+        /// <summary>Regularly takes the audio from the microphone buffer and sends it to the outbox.</summary>
         private IEnumerator MicPump(int gen)
         {
-            // temps réel : indépendant d'un éventuel Time.timeScale
+            // real time: independent of any Time.timeScale
             var wait = new WaitForSecondsRealtime(Mathf.Max(50, PollMs) / 1000f);
             while (gen == generation && State == VoiceState.Recording)
             {
@@ -289,11 +289,11 @@ namespace RoboFactory.Logistics
             }
         }
 
-        /// <summary>Mode mock : petits chunks de silence pour animer la transcription.</summary>
+        /// <summary>Mock mode: small chunks of silence to animate the transcription.</summary>
         private IEnumerator MockPump(int gen)
         {
             var wait = new WaitForSecondsRealtime(.3f);
-            var silence = new byte[TargetRate * 2 / 10]; // 100 ms de silence PCM16
+            var silence = new byte[TargetRate * 2 / 10]; // 100 ms of PCM16 silence
             while (gen == generation && State == VoiceState.Recording)
             {
                 if (outbox.Count < 4) outbox.Enqueue(silence);
@@ -301,7 +301,7 @@ namespace RoboFactory.Logistics
             }
         }
 
-        /// <summary>Octets captés pas encore remis au proxy (outbox + tampon d'envoi + requête en vol).</summary>
+        /// <summary>Captured bytes not yet handed to the gateway (outbox + send buffer + request in flight).</summary>
         private int PendingBytes()
         {
             int n = sendBuf.Count;
@@ -310,10 +310,10 @@ namespace RoboFactory.Logistics
         }
 
         /// <summary>
-        /// Envoie l'audio en attente, groupé en une requête ; la réponse porte le
-        /// partial live. Pendant la capture on n'envoie que des multiples de 80 ms
-        /// (pas de trame complétée par du silence au milieu d'un mot) ; le reste
-        /// part à la fin de la prise.
+        /// Sends the pending audio, batched into one request; the answer carries the
+        /// live partial. During capture only multiples of 80 ms are sent
+        /// (no frame padded with silence in the middle of a word); the rest
+        /// leaves at the end of the utterance.
         /// </summary>
         private IEnumerator Sender(int gen)
         {
@@ -345,7 +345,7 @@ namespace RoboFactory.Logistics
                 {
                     if (++consecutiveSendFails >= 3 && State == VoiceState.Recording)
                     {
-                        StatusText = "flux ASR perdu : " + (r != null ? r.error : "proxy muet");
+                        StatusText = "ASR stream lost: " + (r != null ? r.error : "gateway silent");
                         outbox.Clear();
                         sendBuf.Clear();
                         EndTalk();
@@ -361,18 +361,18 @@ namespace RoboFactory.Logistics
             }
         }
 
-        /// <summary>Vide l'outbox puis demande la transcription finale au proxy.</summary>
+        /// <summary>Empties the outbox then asks the gateway for the final transcription.</summary>
         private IEnumerator FinishSession(int gen)
         {
-            // Relâché avant que la session Meta soit prête : attendre son ouverture
-            // (l'audio capté est en tampon), sinon abandon propre.
+            // Released before the Meta session was ready: wait for it to open
+            // (the captured audio is buffered), otherwise abort cleanly.
             float openDeadline = Time.unscaledTime + 30f;
             while (!sessionReady && !sessionFailed && gen == generation && Time.unscaledTime < openDeadline)
                 yield return null;
             if (gen != generation || sessionFailed) yield break;
             if (!sessionReady)
             {
-                StatusText = "session ASR non ouverte après 30 s — rien envoyé à Muse";
+                StatusText = "ASR session not opened after 30 s — nothing sent to Muse";
                 LastFailure = StatusText;
                 State = VoiceState.Idle;
                 outbox.Clear();
@@ -395,16 +395,16 @@ namespace RoboFactory.Logistics
             bool usable = r != null && r.ok && r.final && !r.timed_out && text.Length > 0;
             bool voiceCaptured = mockSession || capturePeak >= SilencePeak;
 
-            // Session temps réel ratée alors que la voix a bien été captée : on
-            // retranscrit l'enregistrement complet d'un seul bloc (le proxy le
-            // ré-émet en temps réel, sans trou), une seule fois.
+            // Real-time session missed while the voice was captured: we
+            // transcribe the full recording in a single block (the gateway
+            // re-emits it in real time, without gaps), only once.
             if (!usable && !mockSession && RetryWholeCapture && voiceCaptured && captured.Count > FrameBytes)
             {
-                string firstError = r == null ? "proxy muet"
-                    : !string.IsNullOrEmpty(r.error) ? r.error : "aucune parole reconnue";
-                Debug.LogWarning("[Voice] session temps réel sans transcription (" + firstError +
-                                 ") : nouvel essai sur l'enregistrement complet");
-                StatusText = "2e essai : retranscription de l'enregistrement complet…";
+                string firstError = r == null ? "gateway silent"
+                    : !string.IsNullOrEmpty(r.error) ? r.error : "no speech recognised";
+                Debug.LogWarning("[Voice] real-time session without transcription (" + firstError +
+                                 "): retrying on the full recording");
+                StatusText = "2nd attempt: transcribing the full recording…";
                 AsrFinishResponse r2 = null;
                 yield return TranscribeWhole(gen, x => r2 = x);
                 if (gen != generation) yield break;
@@ -422,12 +422,12 @@ namespace RoboFactory.Logistics
                 FinalTranscript = "";
                 LastSubmittedFinal = false;
                 StatusText = !voiceCaptured
-                    ? "micro silencieux (crête " + PeakDb(capturePeak) +
-                      " dBFS) — vérifiez le micro d'entrée par défaut de Windows"
+                    ? "silent microphone (peak " + PeakDb(capturePeak) +
+                      " dBFS) — check the Windows default input microphone"
                     : text.Length > 0
-                        ? "transcription incomplète — NON envoyée à Muse (reformulez)"
-                        : "aucune transcription : " + (r != null && !string.IsNullOrEmpty(r.error)
-                            ? r.error : "aucune parole reconnue");
+                        ? "incomplete transcription — NOT sent to Muse (please rephrase)"
+                        : "no transcription: " + (r != null && !string.IsNullOrEmpty(r.error)
+                            ? r.error : "no speech recognised");
                 LastFailure = StatusText;
                 yield break;
             }
@@ -440,7 +440,7 @@ namespace RoboFactory.Logistics
             if (Orchestrator != null) Orchestrator.SubmitUrgentTranscript(text);
         }
 
-        /// <summary>Nouvelle session ASR alimentée d'un bloc avec toute la capture.</summary>
+        /// <summary>New ASR session fed in one block with the whole capture.</summary>
         private IEnumerator TranscribeWhole(int gen, System.Action<AsrFinishResponse> done)
         {
             string retryId = "asr-" + (++sessionSeq) + "-retry-" + Time.frameCount;
@@ -467,7 +467,7 @@ namespace RoboFactory.Logistics
 
         // ------------------------------------------------------------------ audio
 
-        /// <summary>Lit les nouveaux échantillons micro, les passe en PCM16 mono 24 kHz.</summary>
+        /// <summary>Reads the new microphone samples, converts them to PCM16 mono 24 kHz.</summary>
         private void Harvest()
         {
             if (clip == null) return;
@@ -483,7 +483,7 @@ namespace RoboFactory.Logistics
                 samples = new float[total * micChannels];
                 clip.GetData(samples, lastMicPos);
             }
-            else // boucle circulaire : segment fin + segment début
+            else // circular buffer: end segment + start segment
             {
                 var head = new float[(clip.samples - lastMicPos) * micChannels];
                 var tail = new float[pos * micChannels];
@@ -521,13 +521,13 @@ namespace RoboFactory.Logistics
             }
         }
 
-        /// <summary>Rééchantillonnage linéaire continu vers 24 kHz, sortie s16le.</summary>
+        /// <summary>Continuous linear resampling to 24 kHz, s16le output.</summary>
         private byte[] ToPcm24k(float[] mono)
         {
             foreach (float f in mono) resIn.Add(f);
             double step = micRate / (double)TargetRate;
             var shorts = new List<short>(mono.Length);
-            // Interpolation linéaire : il faut l'échantillon suivant, on garde le reste.
+            // Linear interpolation: the next sample is needed, the rest is kept.
             while (resCursor + 1 < resIn.Count)
             {
                 int i = (int)resCursor;
@@ -562,7 +562,7 @@ namespace RoboFactory.Logistics
             return peak <= 0f ? "-inf" : (20f * Mathf.Log10(peak)).ToString("F0");
         }
 
-        /// <summary>Dernière capture en WAV (24 kHz mono 16 bits) dans le dossier Logs du projet.</summary>
+        /// <summary>Last capture as WAV (24 kHz mono 16 bits) in the project's Logs folder.</summary>
         private static void SaveWav(List<byte> pcm)
         {
             try
@@ -590,7 +590,7 @@ namespace RoboFactory.Logistics
             }
             catch (System.Exception e)
             {
-                Debug.LogWarning("[Voice] voice_last.wav non écrit : " + e.Message);
+                Debug.LogWarning("[Voice] voice_last.wav not written: " + e.Message);
             }
         }
     }

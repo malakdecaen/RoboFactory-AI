@@ -6,8 +6,8 @@ using UnityEngine.UI;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Fabrique de composants visuels du design system : panneaux de verre, textes,
-    /// puces, boutons, barres de progression. Uniquement de la présentation.
+    /// Factory of the design system's visual components: glass panels, texts,
+    /// chips, buttons, progress bars. Presentation only.
     /// </summary>
     public static class HudFactory
     {
@@ -22,7 +22,7 @@ namespace RoboFactory.HUD
             return rt;
         }
 
-        /// <summary>Ancre en un point (anchor = pivot) avec position et taille.</summary>
+        /// <summary>Anchors at a point (anchor = pivot) with position and size.</summary>
         public static RectTransform Place(RectTransform rt, Vector2 anchor, Vector2 pos, Vector2 size)
         {
             rt.anchorMin = rt.anchorMax = anchor;
@@ -41,7 +41,7 @@ namespace RoboFactory.HUD
             return rt;
         }
 
-        /// <summary>Étire dans le parent avec des marges (gauche, haut, droite, bas).</summary>
+        /// <summary>Stretches inside the parent with margins (left, top, right, bottom).</summary>
         public static RectTransform Stretch(RectTransform rt, float left = 0f, float top = 0f, float right = 0f, float bottom = 0f)
         {
             rt.anchorMin = Vector2.zero;
@@ -52,7 +52,7 @@ namespace RoboFactory.HUD
             return rt;
         }
 
-        /// <summary>Bande pleine largeur collée en haut du parent.</summary>
+        /// <summary>Full-width strip stuck to the top of the parent.</summary>
         public static RectTransform TopStrip(RectTransform rt, float y, float height, float left = 0f, float right = 0f)
         {
             rt.anchorMin = new Vector2(0f, 1f);
@@ -63,7 +63,7 @@ namespace RoboFactory.HUD
             return rt;
         }
 
-        // ------------------------------------------------------------------ éléments
+        // ------------------------------------------------------------------ elements
 
         public static Image Image(Transform parent, string name, Sprite sprite, Color color, bool sliced = true)
         {
@@ -77,9 +77,9 @@ namespace RoboFactory.HUD
         }
 
         /// <summary>
-        /// Panneau technologique : ombre portée douce, fond bleu nuit ~86 % à coins coupés,
-        /// léger dégradé lumineux en haut, contour fin et reflet supérieur.
-        /// Le RectTransform renvoyé ne porte pas d'Image : le fond est l'enfant "Fill".
+        /// Tech panel: soft drop shadow, ~86 % night-blue background with cut corners,
+        /// light glowing gradient at the top, thin outline and top reflection.
+        /// The returned RectTransform carries no Image: the background is the "Fill" child.
         /// </summary>
         public static RectTransform GlassPanel(Transform parent, string name, Color? fill = null, Color? stroke = null,
                                                int cut = 12, bool raycast = true, bool shadow = true)
@@ -92,14 +92,14 @@ namespace RoboFactory.HUD
             }
             Image bg = Image(rt, "Fill", HudSprites.ChamferFill(cut), fill ?? HudTheme.Glass);
             Stretch(bg.rectTransform);
-            bg.raycastTarget = raycast; // les panneaux bloquent les clics vers la scène
+            bg.raycastTarget = raycast; // panels block clicks towards the scene
 
             Image grad = Image(rt, "Gradient", HudSprites.VerticalFade(), HudTheme.A(HudTheme.Blue, .09f), false);
             grad.rectTransform.anchorMin = new Vector2(0f, .45f);
             grad.rectTransform.anchorMax = new Vector2(1f, 1f);
             grad.rectTransform.offsetMin = new Vector2(2f, 0f);
             grad.rectTransform.offsetMax = new Vector2(-2f, -2f);
-            grad.rectTransform.localScale = new Vector3(1f, -1f, 1f); // clair en haut
+            grad.rectTransform.localScale = new Vector3(1f, -1f, 1f); // light at the top
 
             Image line = Image(rt, "Stroke", HudSprites.ChamferStroke(cut), stroke ?? HudTheme.Stroke);
             Stretch(line.rectTransform);
@@ -116,7 +116,7 @@ namespace RoboFactory.HUD
         public static Image PanelFill(RectTransform panel) { Transform t = panel.Find("Fill"); return t != null ? t.GetComponent<Image>() : null; }
         public static Image PanelStroke(RectTransform panel) { Transform t = panel.Find("Stroke"); return t != null ? t.GetComponent<Image>() : null; }
 
-        /// <summary>Pictogramme du jeu d'icônes HUD.</summary>
+        /// <summary>Pictogram from the HUD icon set.</summary>
         public static Image Icon(Transform parent, string name, HudIcon icon, float size, Color color)
         {
             Image img = Image(parent, name, HudIcons.Get(icon), color, false);
@@ -125,7 +125,7 @@ namespace RoboFactory.HUD
             return img;
         }
 
-        /// <summary>En-tête de panneau : icône, titre, filet lumineux.</summary>
+        /// <summary>Panel header: icon, title, glowing rule.</summary>
         public static TextMeshProUGUI Header(RectTransform panel, HudIcon icon, string title, float height = 48f)
         {
             RectTransform header = TopStrip(Rect("Header", panel), 0f, height);
@@ -160,14 +160,14 @@ namespace RoboFactory.HUD
             return t;
         }
 
-        /// <summary>Petit libellé majuscule espacé (titres de champs).</summary>
+        /// <summary>Small spaced uppercase label (field titles).</summary>
         public static TextMeshProUGUI Label(Transform parent, string name, string text, float size = HudTheme.FontMicro,
                                             Color? color = null, TextAlignmentOptions align = TextAlignmentOptions.Left)
         {
             return Text(parent, name, text, size, color ?? HudTheme.TextLow, false, align, HudTheme.LabelSpacing);
         }
 
-        /// <summary>Puce colorée (badge d'état) : fond teinté + contour + texte.</summary>
+        /// <summary>Coloured chip (status badge): tinted background + outline + text.</summary>
         public static Chip Chip(Transform parent, string name, string text, Color color, float width = 72f, float height = 18f)
         {
             RectTransform rt = Rect(name, parent);
@@ -193,7 +193,7 @@ namespace RoboFactory.HUD
         {
             RectTransform rt = Rect(name, parent);
             rt.sizeDelta = new Vector2(width, height);
-            // fond sombre opaque (lisible devant n'importe quel décor) + teinte d'accent animée par le bouton
+            // opaque dark background (readable in front of any scenery) + accent tint animated by the button
             var baseImg = rt.gameObject.AddComponent<Image>();
             baseImg.sprite = HudSprites.Rounded(4);
             baseImg.type = UnityEngine.UI.Image.Type.Sliced;
@@ -222,7 +222,7 @@ namespace RoboFactory.HUD
             return button;
         }
 
-        /// <summary>Barre de progression à deux segments (ex. chargé + préparé).</summary>
+        /// <summary>Two-segment progress bar (e.g. loaded + staged).</summary>
         public static DualBar DualBar(Transform parent, string name, Color main, Color second, float height = 3f)
         {
             RectTransform rt = Rect(name, parent);
@@ -244,7 +244,7 @@ namespace RoboFactory.HUD
             return bar;
         }
 
-        /// <summary>Séparateur horizontal estompé.</summary>
+        /// <summary>Faded horizontal separator.</summary>
         public static Image Divider(Transform parent, string name, float alpha = .35f)
         {
             Image img = Image(parent, name, HudSprites.FadeLine(), HudTheme.A(HudTheme.Cyan, alpha), false);
@@ -260,7 +260,7 @@ namespace RoboFactory.HUD
             return g;
         }
 
-        /// <summary>Affecte un texte seulement s'il a changé (évite les reconstructions TMP).</summary>
+        /// <summary>Sets a text only if it changed (avoids TMP rebuilds).</summary>
         public static void Set(TMP_Text t, string value)
         {
             if (t == null) return;
@@ -274,7 +274,7 @@ namespace RoboFactory.HUD
         }
     }
 
-    /// <summary>Badge d'état réutilisable.</summary>
+    /// <summary>Reusable status badge.</summary>
     public sealed class Chip
     {
         public RectTransform Root;
@@ -301,7 +301,7 @@ namespace RoboFactory.HUD
         }
     }
 
-    /// <summary>Barre à deux segments, valeurs 0..1 (segment second = cumul affiché derrière).</summary>
+    /// <summary>Two-segment bar, values 0..1 (second segment = cumulative value shown behind).</summary>
     public sealed class DualBar
     {
         public RectTransform Root;

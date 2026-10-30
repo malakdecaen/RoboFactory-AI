@@ -3,9 +3,9 @@ using UnityEngine;
 namespace RoboFactory.Logistics
 {
     /// <summary>
-    /// Couche visuelle uniquement : dessine le chemin restant d'un GridMover
-    /// avec une LineRenderer au sol (visible en Game view ET dans un build).
-    /// Aucune logique métier ni navigation ici.
+    /// Visual layer only: draws the remaining path of a GridMover
+    /// with a LineRenderer on the floor (visible in Game view AND in a build).
+    /// No business logic or navigation here.
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class GridPathViz : MonoBehaviour
@@ -13,9 +13,9 @@ namespace RoboFactory.Logistics
         [Header("Source")]
         public GridMover Mover;
 
-        [Header("Ligne")]
+        [Header("Line")]
         public bool ShowPath = true;
-        public Color PathColor = new Color(1f, .6f, .1f); // orange, distinct du cyan du robot 1
+        public Color PathColor = new Color(1f, .6f, .1f); // orange, distinct from robot 1's cyan
         public float PathLineWidth = .03f;
         public float Lift = .02f;
 
@@ -46,7 +46,7 @@ namespace RoboFactory.Logistics
                     pathHash = hash;
                     Rebuild();
                 }
-                // Le premier point suit le robot en direct, même sans changement de trajet.
+                // The first point follows the robot live, even without a path change.
                 if (pathLine.positionCount > 0)
                     pathLine.SetPosition(0, Mover.transform.position + Vector3.up * Lift);
             }

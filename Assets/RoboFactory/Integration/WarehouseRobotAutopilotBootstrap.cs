@@ -22,14 +22,14 @@ namespace RoboFactory.Integration
             foreach (GridRobotController candidate in Object.FindObjectsByType<GridRobotController>(
                          FindObjectsInactive.Exclude, FindObjectsSortMode.None))
             {
-                // Le robot de chargement camion a son propre pilote : pas d'autopilot.
+                // The truck loading robot has its own pilot: no autopilot.
                 if (candidate.GetComponent<RoboFactory.Logistics.TruckLoaderAgent>() != null) continue;
                 controller = candidate;
                 break;
             }
             if (controller == null)
             {
-                Debug.LogWarning("[Autopilot] scène Warcool détectée mais aucun GridRobotController disponible.");
+                Debug.LogWarning("[Autopilot] Warcool scene detected but no GridRobotController available.");
                 return;
             }
 
@@ -37,7 +37,7 @@ namespace RoboFactory.Integration
             if (pilot == null)
             {
                 pilot = controller.gameObject.AddComponent<WarehouseRobotAutopilot>();
-                Debug.Log("[Autopilot] composant ajouté automatiquement sur " + controller.name);
+                Debug.Log("[Autopilot] component added automatically on " + controller.name);
             }
 
             pilot.Controller = controller;
@@ -47,8 +47,8 @@ namespace RoboFactory.Integration
             if (controller.GetComponent<WarehouseRobotVisionHud>() == null)
                 controller.gameObject.AddComponent<WarehouseRobotVisionHud>();
             pilot.enabled = true;
-            Debug.Log("[Autopilot] prêt : AutoStart=" + pilot.AutoStart + " animator=" + (pilot.Animator != null) +
-                      " interactor=" + (pilot.Interactor != null) + " actif=" + controller.gameObject.activeInHierarchy);
+            Debug.Log("[Autopilot] ready: AutoStart=" + pilot.AutoStart + " animator=" + (pilot.Animator != null) +
+                      " interactor=" + (pilot.Interactor != null) + " active=" + controller.gameObject.activeInHierarchy);
         }
     }
 }

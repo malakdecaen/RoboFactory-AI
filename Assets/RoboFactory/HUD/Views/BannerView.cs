@@ -5,8 +5,8 @@ using UnityEngine.UI;
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// Bandeau temporaire PRIORITY OVERRIDE / RESUMING OPERATIONS, puis pastille persistante
-    /// de progression de l'urgence. Piloté uniquement par les transitions réelles de
+    /// Temporary PRIORITY OVERRIDE / RESUMING OPERATIONS banner, then a persistent pill
+    /// showing the urgent order's progress. Driven only by the real transitions of
     /// MuseOrchestrator.Stage.
     /// </summary>
     public sealed class BannerView
@@ -19,7 +19,7 @@ namespace RoboFactory.HUD
         private TextMeshProUGUI bannerTitle, bannerSub, pillText;
         private DualBar pillBar;
 
-        // ---- FINISH TO FREE : carte persistante tant que l'urgente attend sa capacité
+        // ---- FINISH TO FREE: persistent card while the urgent order waits for its capacity
         private RectTransform capCard;
         private CanvasGroup capGroup;
         private Image capAccent, capStroke;
@@ -108,14 +108,14 @@ namespace RoboFactory.HUD
             }
         }
 
-        /// <summary>Entrée en attente de capacité : bandeau PRIORITY OVERRIDE explicite.</summary>
+        /// <summary>Entering the capacity wait: explicit PRIORITY OVERRIDE banner.</summary>
         public void ShowCapacityOverride(int urgentId)
         {
             Show("PRIORITY OVERRIDE", "ALL LOADING BAYS OCCUPIED  ·  URGENT ORDER #" + urgentId + " WAITING FOR CAPACITY",
                  HudTheme.Orange, 6.5f, true);
         }
 
-        /// <summary>Capacité libérée puis urgente lancée.</summary>
+        /// <summary>Capacity freed then urgent order started.</summary>
         public void ShowResourcesAvailable(int urgentId, string bench, string truck)
         {
             Show("RESOURCES AVAILABLE", "URGENT ORDER #" + urgentId + ": EXECUTING" +
@@ -134,7 +134,7 @@ namespace RoboFactory.HUD
 
         private bool liveOverride;
 
-        /// <summary>Id de l'urgente : celui de l'orchestrateur, sinon la commande urgente en attente de plan.</summary>
+        /// <summary>Urgent order id: the orchestrator's, otherwise the urgent order waiting for a plan.</summary>
         private static int UrgentId(HudModel m)
         {
             if (m.Urgent.OrderId >= 0) return m.Urgent.OrderId;
@@ -148,7 +148,7 @@ namespace RoboFactory.HUD
             Show("PRIORITY OVERRIDE", "URGENT ORDER #" + orderId + "  ·  " + paused + " NORMAL ORDER(S) SUSPENDED", HudTheme.Orange, 6.5f, true);
         }
 
-        /// <summary>Décision Muse acceptée pour l'urgente : rappel bref de la nouvelle affectation.</summary>
+        /// <summary>Muse decision accepted for the urgent order: brief reminder of the new assignment.</summary>
         public void ShowUrgentPlan(DecisionVM d)
         {
             Show("PRIORITY OVERRIDE", "URGENT #" + d.OrderId + "   " + string.Join(" + ", d.Pallets) + "  ›  " + d.Bench + "  ›  " + d.Truck, HudTheme.Orange, 4.5f, true);
@@ -176,7 +176,7 @@ namespace RoboFactory.HUD
             hazardR.gameObject.SetActive(hazard);
         }
 
-        /// <summary>Carte FINISH TO FREE : uniquement des valeurs réelles de l'orchestrateur.</summary>
+        /// <summary>FINISH TO FREE card: only real values from the orchestrator.</summary>
         private void TickCapacity(float dt, HudModel m)
         {
             UrgentVM u = m.Urgent;
@@ -190,7 +190,7 @@ namespace RoboFactory.HUD
             HudFactory.SetColor(capAccent, c);
             HudFactory.SetColor(capStroke, HudTheme.A(c, .55f + .35f * pulse));
             HudFactory.Set(capReason, ready ? "Resources available" : (u.CapacityReason != "" ? u.CapacityReason : "All loading bays occupied"));
-            // stratégie Muse si elle existe ; sinon on dit clairement qu'on attend une place
+            // Muse strategy if there is one; otherwise we clearly say we are waiting for a slot
             string strategy = u.FinishingId >= 0 ? "Muse Strategy: Finish Order #" + u.FinishingId
                             : u.CapacityStrategy != "" ? u.CapacityStrategy
                             : "Waiting for the first free bench + empty dock";
@@ -231,10 +231,10 @@ namespace RoboFactory.HUD
                 if (bannerT > bannerDuration + .6f) { bannerT = -1f; bannerGroup.alpha = 0f; }
             }
 
-            // pastille persistante tant que l'urgence est réellement en cours
+            // persistent pill while the urgent order is really in progress
             if (liveOverride && bannerT >= 0f)
             {
-                // le texte suit les vrais compteurs pendant que le bandeau est affiché
+                // the text follows the real counters while the banner is shown
                 int id = UrgentId(m);
                 int held = Mathf.Max(m.Urgent.Paused, m.Urgent.Suspending);
                 HudFactory.Set(bannerSub, (id >= 0 ? "URGENT ORDER #" + id : "URGENT ORDER") + "  ·  " +

@@ -3,9 +3,9 @@ using UnityEngine;
 namespace RoboFactory.Sim
 {
     /// <summary>
-    /// Point d'accroche du carton porté. Dans la version publique la prise et la dépose sont faites
-    /// directement par les scripts RoboFactory (transfert immédiat, sans animation de bras) : ce composant
-    /// n'expose que l'état et le point d'accroche.
+    /// Attach point of the carried box. In the public version picking and dropping are done
+    /// directly by the RoboFactory scripts (immediate transfer, no arm animation): this component
+    /// only exposes the state and the attach point.
     /// </summary>
     public class RobotCargoInteractor : MonoBehaviour
     {

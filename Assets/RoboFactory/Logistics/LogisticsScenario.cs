@@ -4,53 +4,53 @@ using RoboFactory.Sim;
 namespace RoboFactory.Logistics
 {
     /// <summary>
-    /// Scénarios de test du flux logistique, lancés depuis le menu contextuel du composant
-    /// (roue dentée dans l'inspecteur, éditeur ou Play).
+    /// Logistics flow test scenarios, launched from the component's context menu
+    /// (gear icon in the inspector, editor or Play).
     ///
-    /// Matrice couverte :
-    ///   - "Un carton sur le banc"  : test 1 carton (R2 doit le livrer au camion)
-    ///   - "Précharger le camion"   : test camion déjà partiellement chargé
-    ///   - "Vider les bancs"        : test banc vide (R2 doit rester en AttenteColis)
-    ///   - "Vider le camion"        : renvoie les cartons du camion vers les palettes
-    ///   - "Rapport"                : état de tous les cartons + remplissage camion
+    /// Covered matrix:
+    ///   - "One box on the bench"  : 1-box test (R2 must deliver it to the truck)
+    ///   - "Preload the truck"     : truck already partially loaded
+    ///   - "Empty the benches"     : empty bench test (R2 must stay in WaitingForBoxes)
+    ///   - "Empty the truck"       : sends the truck's boxes back to the pallets
+    ///   - "Report"                : state of every box + truck fill level
     /// </summary>
     [DisallowMultipleComponent]
     public sealed class LogisticsScenario : MonoBehaviour
     {
-        [Header("Préchargement")]
-        [Tooltip("Nombre de cartons déplacés des palettes vers le camion.")]
+        [Header("Preloading")]
+        [Tooltip("Number of boxes moved from the pallets to the truck.")]
         public int PreloadCount = 4;
 
-        [ContextMenu("Rapport logistique")]
+        [ContextMenu("Logistics report")]
         public void Report()
         {
             var registry = CargoRegistry.Instance != null ? CargoRegistry.Instance
                                                           : FindAnyObjectByType<CargoRegistry>();
             if (registry != null) registry.Scan();
             foreach (CargoBox box in FindObjectsByType<CargoBox>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-                Debug.Log("[Scénario] " + box.name + " : " + CargoStatusNames.Of(CargoRegistry.Classify(box)));
+                Debug.Log("[Scenario] " + box.name + ": " + CargoStatusNames.Of(CargoRegistry.Classify(box)));
             foreach (TruckBay bay in FindObjectsByType<TruckBay>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-                Debug.Log("[Scénario] camion " + bay.name + " : " + bay.LoadedCount + "/" + bay.Capacity +
-                          (bay.IsFull ? " (PLEIN)" : ""));
+                Debug.Log("[Scenario] truck " + bay.name + ": " + bay.LoadedCount + "/" + bay.Capacity +
+                          (bay.IsFull ? " (FULL)" : ""));
         }
 
-        [ContextMenu("Un carton sur le banc")]
+        [ContextMenu("One box on the bench")]
         public void OneBoxOnBench()
         {
             CargoBox box = FirstBoxAt(StationRole.Pallet);
-            if (box == null) { Debug.LogWarning("[Scénario] aucun carton sur les palettes."); return; }
+            if (box == null) { Debug.LogWarning("[Scenario] no box on the pallets."); return; }
             ShelfInteractionZone zone = FirstFreeZone(StationRole.Bench);
-            if (zone == null) { Debug.LogWarning("[Scénario] aucune place libre sur les bancs."); return; }
+            if (zone == null) { Debug.LogWarning("[Scenario] no free slot on the benches."); return; }
             if (PutBox(zone, box))
-                Debug.Log("[Scénario] " + box.name + " placé sur le banc " + zone.shelf.name +
-                          " (colonne " + zone.columnIndex + ").");
+                Debug.Log("[Scenario] " + box.name + " placed on bench " + zone.shelf.name +
+                          " (column " + zone.columnIndex + ").");
         }
 
-        [ContextMenu("Précharger le camion")]
+        [ContextMenu("Preload the truck")]
         public void PreloadTruck()
         {
             TruckBay bay = FindAnyObjectByType<TruckBay>();
-            if (bay == null || bay.Storage == null) { Debug.LogWarning("[Scénario] aucun TruckBay."); return; }
+            if (bay == null || bay.Storage == null) { Debug.LogWarning("[Scenario] no TruckBay."); return; }
             int moved = 0;
             foreach (CargoBox box in FindObjectsByType<CargoBox>(FindObjectsInactive.Include, FindObjectsSortMode.None))
             {
@@ -62,13 +62,13 @@ namespace RoboFactory.Logistics
                 bay.Storage.PutBox(0, level, box);
                 moved++;
             }
-            Debug.Log("[Scénario] " + moved + " carton(s) préchargé(s) dans le camion (" +
+            Debug.Log("[Scenario] " + moved + " box(es) preloaded into the truck (" +
                       bay.LoadedCount + "/" + bay.Capacity + ").");
             var registry = CargoRegistry.Instance;
             if (registry != null) registry.Scan();
         }
 
-        [ContextMenu("Vider les bancs")]
+        [ContextMenu("Empty the benches")]
         public void ClearBenches()
         {
             int moved = 0;
@@ -77,10 +77,10 @@ namespace RoboFactory.Logistics
                 if (box == null || CargoRegistry.Classify(box) != CargoStatus.OnBench) continue;
                 if (MoveToFreePallet(box)) moved++;
             }
-            Debug.Log("[Scénario] " + moved + " carton(s) retiré(s) des bancs -> palettes.");
+            Debug.Log("[Scenario] " + moved + " box(es) removed from the benches -> pallets.");
         }
 
-        [ContextMenu("Vider le camion")]
+        [ContextMenu("Empty the truck")]
         public void ClearTruck()
         {
             int moved = 0;
@@ -89,7 +89,7 @@ namespace RoboFactory.Logistics
                 if (box == null || CargoRegistry.Classify(box) != CargoStatus.InTruck) continue;
                 if (MoveToFreePallet(box)) moved++;
             }
-            Debug.Log("[Scénario] " + moved + " carton(s) sorti(s) du camion -> palettes.");
+            Debug.Log("[Scenario] " + moved + " box(es) taken out of the truck -> pallets.");
         }
 
         // ------------------------------------------------------------------ helpers
@@ -106,7 +106,7 @@ namespace RoboFactory.Logistics
             return null;
         }
 
-        /// <summary>Première zone avec un niveau libre dans le rôle demandé.</summary>
+        /// <summary>First zone with a free level in the requested role.</summary>
         private ShelfInteractionZone FirstFreeZone(StationRole role)
         {
             foreach (ShelfInteractionZone zone in
@@ -128,7 +128,7 @@ namespace RoboFactory.Logistics
             return true;
         }
 
-        /// <summary>Retire le carton de la table de SON ShelfStorage actuel (s'il y est enregistré).</summary>
+        /// <summary>Removes the box from ITS current ShelfStorage's table (if registered there).</summary>
         private void RemoveFromAnyStorage(CargoBox box)
         {
             ShelfStorage shelf = box.GetComponentInParent<ShelfStorage>();
@@ -142,13 +142,13 @@ namespace RoboFactory.Logistics
             }
         }
 
-        /// <summary>Déplace le carton sur le premier niveau libre d'une palette.</summary>
+        /// <summary>Moves the box to the first free level of a pallet.</summary>
         private bool MoveToFreePallet(CargoBox box)
         {
             ShelfInteractionZone zone = FirstFreeZone(StationRole.Pallet);
             if (zone == null)
             {
-                // Aucune place : on le dépose simplement hors stockage (statut "au sol").
+                // No room: simply drop it outside any storage (status "on the floor").
                 RemoveFromAnyStorage(box);
                 box.transform.SetParent(null, true);
                 box.isCarried = false;
@@ -157,7 +157,7 @@ namespace RoboFactory.Logistics
             return PutBox(zone, box);
         }
 
-        /// <summary>Premier niveau libre d'une colonne de stockage, -1 si pleine.</summary>
+        /// <summary>First free level of a storage column, -1 if full.</summary>
         private static int FreeStorageLevel(ShelfStorage shelf, int column)
         {
             if (shelf == null || shelf.columns == null || column < 0 || column >= shelf.columns.Length) return -1;
