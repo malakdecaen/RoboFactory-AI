@@ -20,7 +20,7 @@ namespace RoboFactory.Logistics.EditorTools
 
         private static string SceneToBuild() => File.Exists(Path.Combine(Directory.GetParent(Application.dataPath).FullName, Scene)) ? Scene : PublicScene;
 
-        [MenuItem("RoboFactory/Build/Build Windows (jury)")]
+        [MenuItem("RoboFactory/Build/Build Windows")]
         public static void BuildWindows()
         {
             string root = Directory.GetParent(Application.dataPath).FullName;

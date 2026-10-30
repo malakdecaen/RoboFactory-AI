@@ -26,7 +26,7 @@ namespace RoboFactory.Sim.EditorTools
         private static readonly Dictionary<string, Transform> built = new Dictionary<string, Transform>();
         private static readonly Dictionary<string, Material> materials = new Dictionary<string, Material>();
 
-        [MenuItem("RoboFactory/Public/Créer la scène simplifiée")]
+        [MenuItem("RoboFactory/Public/Build simplified scene")]
         public static void Build()
         {
             if (!File.Exists(LayoutPath))
