@@ -83,7 +83,7 @@ namespace RoboFactory.Launcher
                 }
                 else if (HudInput.KeyDown(KeyCode.Return) && !busy)
                 {
-                    if (step == Step.Mode) Show(Step.Recorded);
+                    if (step == Step.Mode) OpenRecorded();
                     else if (step == Step.LiveKey) StartCoroutine(Verify());
                 }
                 return;
@@ -171,7 +171,7 @@ namespace RoboFactory.Launcher
             Card(pageMode, 0f, 168f, HudIcon.Play, "RECORDED DEMO",
                  "Pre-recorded demonstrations of real Meta decisions. The robots, boxes, doors and trucks really run in Unity.",
                  HudIcon.Check, "No API key  ·  No Internet connection", HudTheme.Green, HudTheme.Cyan, "DEFAULT",
-                 () => Show(Step.Recorded));
+                 () => OpenRecorded());
             Card(pageMode, 188f, 168f, HudIcon.Bolt, "LIVE AI",
                  "Real Muse Wonder decisions and voice commands through the Meta Model API.",
                  HudIcon.Key, "Personal API key and connection required", HudTheme.Amber, HudTheme.Blue, null,
@@ -244,6 +244,17 @@ namespace RoboFactory.Launcher
                 recordedChips[i].Set(has ? calls + " META CALLS" : "NOT RECORDED YET", has ? HudTheme.Green : HudTheme.Amber);
                 recordedButtons[i].interactable = has;
             }
+        }
+
+        /// <summary>One scenario only: RECORDED DEMO starts it directly when its recording is shipped.</summary>
+        private void OpenRecorded()
+        {
+            if (ScenarioScripts.All.Length == 1 && ScenarioPlayer.HasRecording(ScenarioScripts.All[0].Id, out _))
+            {
+                StartRecorded(ScenarioScripts.All[0].Id);
+                return;
+            }
+            Show(Step.Recorded);
         }
 
         private void StartRecorded(string id)

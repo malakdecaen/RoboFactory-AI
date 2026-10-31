@@ -18,7 +18,7 @@ namespace RoboFactory.Launcher
     }
 
     /// <summary>
-    /// The three demo scenarios. Only the INPUTS (the operator's orders) are scripted here: the Meta
+    /// The demo scenario. Only the INPUTS (the operator's orders) are scripted here: the Meta
     /// decisions always come from real Meta calls, recorded in LIVE AI and replayed in RECORDED DEMO.
     /// A recording stores the inputs that were really sent, so editing a script never changes a recording.
     /// </summary>
@@ -26,31 +26,6 @@ namespace RoboFactory.Launcher
     {
         public static readonly ScenarioScript[] All =
         {
-            new ScenarioScript
-            {
-                Id = "normal",
-                Title = "NORMAL ORDERS",
-                Summary = "Three ordinary orders: Muse picks the pallets, bench and truck of each one.",
-                Inputs =
-                {
-                    new ScriptInput { T = 1,  A = 2, B = 1 },
-                    new ScriptInput { T = 12, C = 2 },
-                    new ScriptInput { T = 25, A = 1, B = 2 }
-                }
-            },
-            new ScenarioScript
-            {
-                Id = "urgent",
-                Title = "URGENT INTERRUPTION",
-                Summary = "A spoken urgent order suspends the running orders, runs first, then the others resume.",
-                Inputs =
-                {
-                    new ScriptInput { T = 1,  A = 2, B = 1 },
-                    new ScriptInput { T = 8,  C = 2 },
-                    new ScriptInput { T = 15, A = 1, B = 2 },
-                    new ScriptInput { T = 40, Urgent = true, Transcript = "Urgent order! Two B boxes and one A box, right now." }
-                }
-            },
             new ScenarioScript
             {
                 Id = "saturation",
