@@ -35,13 +35,13 @@ At launch a start screen offers two modes; the HUD always shows which one is run
 | Robots, boxes, doors, trucks | really simulated in Unity, every plan is still validated against the live state | same |
 | Voice | disabled | microphone for urgent orders, free typed orders |
 
-**RECORDED DEMO** has three scenarios: *Normal orders*, *Urgent interruption* (the urgent order suspends the running orders, then they resume) and *Full saturation* (5 orders fill the 3 benches and 3 trucks, then 1 urgent order frees a bay). The scene is reloaded before each scenario, and a cargo audit at the end checks that no box was lost or duplicated.
+**RECORDED DEMO** plays one scenario, *Full saturation*: 5 orders fill the 3 benches and 3 trucks, then 1 spoken urgent order makes Muse free a bay (FINISH TO FREE) and the suspended orders resume. It starts directly. The scene is reloaded before each run, and a cargo audit at the end checks that no box was lost or duplicated.
 
 **LIVE AI** asks for your key, checks it with real requests to Muse Wonder and Muse Spark, and keeps it **in memory only** (never written to a file, a log or a recording). Without typing it you can also use the `MODEL_API_KEY` environment variable or the file `%USERPROFILE%\.meta\model_api_key`.
 
 ### Recording the demos yourself
 
-Recordings are only made from real Meta answers: in LIVE AI choose *Record a scenario*, let it run to the end, then use **RoboFactory → Recorded Demo → Promote captured recordings** in the editor. The files go to `Assets/StreamingAssets/RecordedDemos/<scenario>.json` (`normal`, `urgent`, `saturation`) and ship with the build. A scenario without a recording shows *NOT RECORDED YET* in RECORDED DEMO. Press **F5** during a run to return to the start screen.
+Recordings are only made from real Meta answers: in LIVE AI choose *Record a scenario*, let it run to the end, then use **RoboFactory → Recorded Demo → Promote captured recordings** in the editor. The file goes to `Assets/StreamingAssets/RecordedDemos/saturation.json` and ships with the build. Without it, RECORDED DEMO shows *NOT RECORDED YET*. Press **F5** during a run to return to the start screen.
 
 ## Full version (Release build)
 
