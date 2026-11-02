@@ -411,6 +411,8 @@ namespace RoboFactory.MetaServer
             if (key == null) { Fail(ctx, 503, "/inspect", started, NoKey); return; }
             string img = image.Value<string>();
             JObject payload = MetaApi.UserMessage(MetaApi.VisionModel, MetaApi.Text(MetaPrompts.INSPECT_PROMPT), MetaApi.Image("data:image/png;base64," + img));
+            // direct visual answer: low reasoning effort (much lower latency, recommended by Meta for direct answers)
+            payload["reasoning"] = new JObject { ["effort"] = Py.StrOr(Py.Get(body, "effort"), "low") };
             MetaApi.Result r = MetaApi.CallWithRetry(MetaApi.BaseUrl + "/responses", payload, key, 60);
             if (r.Status != 200) { Fail(ctx, 502, "/inspect", started, "upstream status " + r.Status, new JObject { ["upstream"] = Py.Cut(r.Raw, 400) }); return; }
             string output = MetaLogic.ExtractOutputText(r.Raw);

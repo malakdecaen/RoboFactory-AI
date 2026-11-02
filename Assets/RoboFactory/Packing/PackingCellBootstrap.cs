@@ -20,11 +20,12 @@ namespace RoboFactory.Packing
         {
             new Vector3(-2.561f, Belt, -10.192f),   // south-east (items go east along the south side, out of the black box)
             new Vector3(-2.561f, Belt, -4.873f),    // north-east
-            new Vector3(-12.573f, Belt, -4.873f),   // north-west (scanner, then the arm, on the north side)
+            new Vector3(-12.573f, Belt, -4.873f),   // north-west (the arm picks on the north side)
             new Vector3(-12.573f, Belt, -10.192f),  // south-west, then back east through the black box
         };
         private static readonly Vector3 Spawn = new Vector3(-8.75f, Belt, -10.192f);
-        private static readonly Vector3 Scan = new Vector3(-4.3f, Belt, -4.873f);
+        // right after the black box exit: Muse Spark has the whole way to the arm (~13 m) to answer
+        private static readonly Vector3 Scan = new Vector3(-6.6f, Belt, -10.192f);
         private static readonly Vector3 Pick = new Vector3(-6.389f, Belt, -4.873f);
         private static readonly Vector3[] Trays =
         {
