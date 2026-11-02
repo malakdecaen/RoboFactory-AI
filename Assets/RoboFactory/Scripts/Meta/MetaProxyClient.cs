@@ -390,8 +390,28 @@ namespace RoboFactory.Hackathon.Meta
             yield return Post("/asr/cancel", JsonUtility.ToJson(body), 15, done);
         }
 
+        /// <summary>Answer given by the RECORDED DEMO: no network call is made at all.</summary>
+        public sealed class ReplayAnswer
+        {
+            public string Json;          // recorded answer, null = this route is not available offline
+            public float DelaySeconds;   // recorded latency of the real Meta call
+        }
+
+        /// <summary>Set while a recording is replayed (RECORDED DEMO): the request never leaves the process.</summary>
+        public static Func<string, string, ReplayAnswer> ReplayHandler;
+
         private IEnumerator Post<T>(string route, string json, int timeout, Action<T> done) where T : class
         {
+            if (ReplayHandler != null)
+            {
+                ReplayAnswer answer = ReplayHandler(route, json);
+                if (answer != null)
+                {
+                    if (answer.DelaySeconds > 0f) yield return new WaitForSeconds(answer.DelaySeconds);
+                    done?.Invoke(answer.Json != null ? Parse<T>(answer.Json) : null);
+                    yield break;
+                }
+            }
             using (var request = new UnityWebRequest(BaseUrl + route, "POST"))
             {
                 request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
