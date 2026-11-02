@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using RoboFactory.Hackathon.Meta;
 using UnityEngine;
+using RoboFactory.Sim;
 
 namespace RoboFactory.Packing
 {
@@ -36,13 +37,14 @@ namespace RoboFactory.Packing
         [Header("Cartons on the trays (one open carton per tray, each with its recipe)")]
         public Vector3[] TraySlots = new Vector3[0];
         public float TrayYaw;
+        [Tooltip("Used only when no box of that type exists in the scene to copy.")]
         public Vector3 CartonSize = new Vector3(.32f, .24f, .42f);
+        /// <summary>One carton per tray; the type letter is the warehouse box type robot R1 handles (A wooden crate, B big cardboard, C medium cardboard).</summary>
         public CartonRecipe[] TrayRecipes =
         {
             CartonRecipe.Of("A", 4, "4 bottles", ItemKind.Bottle),
-            CartonRecipe.Of("B", 3, "3 mugs", ItemKind.Mug),
-            CartonRecipe.Of("C", 5, "5 other products", ItemKind.Can, ItemKind.Ball, ItemKind.ToyCar, ItemKind.Book, ItemKind.GiftBox),
-            CartonRecipe.Of("C", 5, "5 other products", ItemKind.Can, ItemKind.Ball, ItemKind.ToyCar, ItemKind.Book, ItemKind.GiftBox),
+            CartonRecipe.Of("B", 4, "4 mugs", ItemKind.Mug),
+            CartonRecipe.Of("C", 4, "4 balls", ItemKind.Ball),
         };
         [Tooltip("Until the transport robot takes the closed cartons: a closed carton leaves its tray after a few seconds.")]
         public bool AutoClearClosedCartons = true;
@@ -116,7 +118,8 @@ namespace RoboFactory.Packing
                 if (Arm.CanReach(TraySlots[i] + Vector3.up * (CartonSize.y + .25f))) reachableTrays.Add(i);
             if (reachableTrays.Count == 0) for (int i = 0; i < Mathf.Min(TraySlots.Length, Trays.Length); i++) reachableTrays.Add(i);
             BuildScanCamera();
-            foreach (int i in reachableTrays) NewCarton(i);
+            FindBoxTemplates();
+            foreach (int i in reachableTrays) if (i < TrayRecipes.Length) NewCarton(i);
             Debug.Log("[PACK] cell ready: loop " + Track.Length.ToString("F1", CultureInfo.InvariantCulture) + " m, scan at " +
                       Track.Ahead(spawnS, scanS).ToString("F1", CultureInfo.InvariantCulture) + " m, pick at " +
                       Track.Ahead(spawnS, pickS).ToString("F1", CultureInfo.InvariantCulture) + " m, trays reachable " + string.Join(",", reachableTrays) +
@@ -370,14 +373,76 @@ namespace RoboFactory.Packing
         /// <summary>Puts a new empty carton of the tray's recipe on tray <paramref name="tray"/>.</summary>
         public PackingCarton NewCarton(int tray)
         {
-            if (tray < 0 || tray >= TraySlots.Length || tray >= Trays.Length) return null;
+            if (tray < 0 || tray >= TraySlots.Length || tray >= Trays.Length || tray >= TrayRecipes.Length) return null;
             if (Trays[tray] != null && Trays[tray].State != PackingCarton.CartonState.Taken) return null;
-            CartonRecipe recipe = TrayRecipes[tray % TrayRecipes.Length];
-            PackingCarton c = PackingCarton.Create(++cartonNumber, TraySlots[tray], Quaternion.Euler(0f, TrayYaw, 0f), CartonSize, recipe, transform);
+            CartonRecipe recipe = TrayRecipes[tray];
+            Vector3 size = CartonSize;
+            Quaternion boxRot = Quaternion.identity;
+            Vector3 boxCentre = Vector3.zero;
+            bool real = templates.TryGetValue(recipe.Type, out CargoBox template) && template != null;
+            if (real)
+            {
+                // open carton with the footprint of R1's box (long side along the tray)
+                Vector3 s = templateSize[recipe.Type];
+                boxRot = s.x > s.z ? Quaternion.Euler(0f, 90f, 0f) : Quaternion.identity;
+                size = new Vector3(Mathf.Min(s.x, s.z), s.y, Mathf.Max(s.x, s.z));
+                boxCentre = templateCentre[recipe.Type];
+            }
+            Quaternion trayRot = Quaternion.Euler(0f, TrayYaw, 0f);
+            PackingCarton c = PackingCarton.Create(++cartonNumber, TraySlots[tray], trayRot, size, recipe, transform);
             c.TraySlot = tray;
+            if (real)
+            {
+                GameObject box = Instantiate(template.gameObject);
+                box.name = template.gameObject.name + " (packed " + recipe.Type + "#" + c.Number + ")";
+                box.transform.localScale = template.transform.lossyScale;
+                Quaternion rot = trayRot * boxRot;
+                // bottom centre of the box on the tray (offsets in the box axes, metres)
+                Vector3 bottom = new Vector3(boxCentre.x, boxCentre.y - templateSize[recipe.Type].y / 2f, boxCentre.z);
+                box.transform.SetPositionAndRotation(TraySlots[tray] - rot * bottom, rot);
+                box.transform.SetParent(c.transform, true);
+                foreach (Rigidbody rb in box.GetComponentsInChildren<Rigidbody>()) rb.isKinematic = true;
+                CargoBox cargo = box.GetComponent<CargoBox>();
+                if (cargo != null) { cargo.isCarried = false; cargo.orderId = -1; }
+                box.SetActive(false);
+                c.RealBox = box;
+            }
             Trays[tray] = c;
-            Debug.Log("[PACK] carton " + recipe.Type + "#" + c.Number + " opened on tray " + (tray + 1) + ": " + recipe.Description);
+            Debug.Log("[PACK] carton " + recipe.Type + "#" + c.Number + " opened on tray " + (tray + 1) + ": " + recipe.Description +
+                      (real ? " (closes into a copy of " + template.gameObject.name + ")" : ""));
             return c;
+        }
+
+        private readonly Dictionary<string, CargoBox> templates = new Dictionary<string, CargoBox>();
+        private readonly Dictionary<string, Vector3> templateSize = new Dictionary<string, Vector3>();
+        private readonly Dictionary<string, Vector3> templateCentre = new Dictionary<string, Vector3>();
+
+        /// <summary>One box of each type A/B/C already in the warehouse (the boxes R1 handles), measured in its own axes.</summary>
+        private void FindBoxTemplates()
+        {
+            foreach (CargoBox b in FindObjectsByType<CargoBox>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+            {
+                if (b == null || b.isCarried || b.transform.IsChildOf(transform)) continue;
+                string type = b.TypeLetter;
+                if (string.IsNullOrEmpty(type) || templates.ContainsKey(type)) continue;
+                bool any = false;
+                Vector3 min = Vector3.zero, max = Vector3.zero;
+                foreach (Renderer r in b.GetComponentsInChildren<Renderer>())
+                {
+                    Bounds wb = r.bounds;
+                    for (int k = 0; k < 8; k++)
+                    {
+                        Vector3 corner = new Vector3(k % 2 == 0 ? wb.min.x : wb.max.x, (k / 2) % 2 == 0 ? wb.min.y : wb.max.y, k / 4 == 0 ? wb.min.z : wb.max.z);
+                        Vector3 l = Vector3.Scale(b.transform.InverseTransformPoint(corner), b.transform.lossyScale);
+                        if (!any) { min = max = l; any = true; } else { min = Vector3.Min(min, l); max = Vector3.Max(max, l); }
+                    }
+                }
+                if (!any) continue;
+                templates[type] = b;
+                templateSize[type] = max - min;
+                templateCentre[type] = (min + max) / 2f;   // box axes, metres (scale applied)
+                Debug.Log("[PACK] box type " + type + " = " + b.gameObject.name + " (" + (max - min).ToString("F2") + " m)");
+            }
         }
 
         /// <summary>Called by the transport robot when it takes a carton away: an empty carton of the same recipe replaces it.</summary>
