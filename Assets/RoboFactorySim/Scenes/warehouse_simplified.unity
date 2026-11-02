@@ -14133,7 +14133,7 @@ GameObject:
   - component: {fileID: 773421822}
   - component: {fileID: 773421821}
   m_Layer: 0
-  m_Name: NavBlocker_BenchesNorth
+  m_Name: NavBlocker_BancsNord
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
