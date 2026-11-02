@@ -36,6 +36,8 @@ namespace RoboFactory.HUD
         private readonly List<TextMeshProUGUI> samLabels = new List<TextMeshProUGUI>();
         /// <summary>Seconds the SAM boxes stay fully visible, then fade-out duration.</summary>
         public float SamHold = 2.5f, SamFade = 3.5f;
+        /// <summary>Image SAM analysed, shown instead of the live video while its result is fresh.</summary>
+        private Texture samFrame;
         private float time;
         private float size, sizeTarget;
 
@@ -161,8 +163,9 @@ namespace RoboFactory.HUD
             UpdateResolution();
             Feed.Active = visible && r.Present;
             Feed.Tick(Expanded ? ExpandedFps : CompactFps);
-            if (video.texture != Feed.Texture) video.texture = Feed.Texture;
-            HudFactory.SetColor(video, Feed.Texture != null ? Color.white : new Color(.05f, .08f, .12f, 1f));
+            Texture shown = samFrame != null ? samFrame : Feed.Texture;
+            if (video.texture != shown) video.texture = shown;
+            HudFactory.SetColor(video, shown != null ? Color.white : new Color(.05f, .08f, .12f, 1f));
 
             size = Mathf.Lerp(size, sizeTarget, 1f - Mathf.Exp(-10f * dt));
             float w = Mathf.Lerp(HudTheme.VisionW, HudTheme.VisionExpandedW, size);
@@ -171,7 +174,7 @@ namespace RoboFactory.HUD
 
             bool live = r.Present && Feed.Texture != null && Feed.Active;
             HudFactory.SetColor(liveDot, HudTheme.A(live ? HudTheme.Red : HudTheme.TextLow, live ? .5f + .5f * Mathf.Sin(time * 5f) : .8f));
-            HudFactory.Set(fpsText, !r.Present ? "NO ROBOT" : live ? "LIVE " + Mathf.RoundToInt(Feed.MeasuredFps) : "PAUSED");
+            HudFactory.Set(fpsText, !r.Present ? "NO ROBOT" : samFrame != null ? "SAM FRAME" : live ? "LIVE " + Mathf.RoundToInt(Feed.MeasuredFps) : "PAUSED");
             HudFactory.Set(title, robotId + "  <color=#" + HudTheme.Hex(HudTheme.TextMid) + ">" + r.Role + "</color>");
 
             string target = !string.IsNullOrEmpty(r.ActivityTarget) ? r.ActivityTarget
@@ -204,6 +207,7 @@ namespace RoboFactory.HUD
             if (sam == null)
             {
                 SetChip("SAM 3.1 · NOT CONNECTED", HudTheme.Amber);
+                samFrame = null;
                 ShowBoxes(null, 0f);
                 ShowVerdict(null, 0f);
                 return;
@@ -232,6 +236,8 @@ namespace RoboFactory.HUD
             }
             float age = Time.unscaledTime - sam.At;
             float alpha = sam.Status == "OK" ? 1f - Mathf.Clamp01((age - SamHold) / Mathf.Max(.01f, SamFade)) : 0f;
+            // the boxes are drawn on the very image SAM analysed (inspection camera), not on the live video
+            samFrame = sam.Status == "OK" && alpha > .01f && sam.Snapshot != null ? sam.Snapshot : null;
             ShowBoxes(sam.Status == "OK" ? sam.Detections : null, alpha);
             bool showZone = sam.Status == "OK" && sam.HasZone && alpha > .01f;
             if (zone.gameObject.activeSelf != showZone) zone.gameObject.SetActive(showZone);

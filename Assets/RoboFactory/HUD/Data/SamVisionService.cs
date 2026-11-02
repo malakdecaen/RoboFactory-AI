@@ -16,8 +16,9 @@ namespace RoboFactory.HUD
     /// <summary>
     /// SAM 3.1 on the on-board cameras of R1 and R2: visual check of the boxes, and of the order R2 loads.
     ///
-    /// The camera image of the robot (the same camera as the ROBOT VISION window) is captured at the exact moment
-    /// a check is meaningful and sent to Meta SAM 3.1 with the name of the object to find:
+    /// Each robot carries an inspection camera (mast-mounted, looking down at the work in front of it, rendered
+    /// only when a check is due). Its image is captured at the exact moment a check is meaningful, shown in the
+    /// ROBOT VISION window with SAM's boxes on it, and sent to Meta SAM 3.1 with the name of the object to find:
     ///   - R1 has just taken a box from a pallet / put one on a staging bench;
     ///   - R2 arrives at a bench to take a box;
     ///   - R2 has just put a box in a truck → the truck load is checked, and when the order is complete
@@ -74,7 +75,12 @@ namespace RoboFactory.HUD
             public string VerdictText = "";
             public bool OrderVerified;
             public readonly List<Detection> Detections = new List<Detection>();
+            /// <summary>Image SAM analysed (shown in the ROBOT VISION window while the result is fresh).</summary>
+            public Texture2D Snapshot;
             public bool InFlight;
+            internal bool Capturing;
+            internal Camera Cam;
+            internal RenderTexture Target;
             public float BackoffUntil;
             public int Calls, Failures, Verified, Mismatches, OrdersVerified;
             internal float LastPersonCheck;
@@ -106,6 +112,10 @@ namespace RoboFactory.HUD
             public bool HasZone;
             public bool Verify;                       // bench / truck: a verdict is given
             public CargoBox NewBox;                   // box just put there (must be seen)
+            public ShelfStorage Storage;
+            public CargoBox[] Boxes;
+            public bool UseSlots;
+            public Texture2D Snapshot;
             public int OrderId = -1, OrderTotal, OrderInTruck;
             public float At;
         }
@@ -122,6 +132,11 @@ namespace RoboFactory.HUD
         public float SlotMatchIoU = .2f;
         public float HiddenOverlap = .6f;
         public float DefaultBoxSize = .6f;
+        public float MinSlotInImage = .25f;
+        [Header("Inspection camera (box checks)")]
+        public float InspectHeight = 1.55f, InspectForward = .05f, InspectPitch = 38f, InspectFov = 75f;
+        [Header("Path camera (employees)")]
+        public float PathHeight = 1.0f, PathForward = .22f, PathPitch = 8f, PathFov = 70f;
         public bool Enabled = true;
 
         public readonly RobotSam R1 = new RobotSam { RobotId = "R1" };
@@ -131,6 +146,8 @@ namespace RoboFactory.HUD
         private readonly MetaProxyClient proxy;
         private WarehouseRobotAutopilot boundR1;
         private RobotVisionFeed feedR1, feedR2;
+        private Transform robotR1, robotR2;
+        private int cullingMask = ~0;
         private HudModel model;
         private TruckLoaderAgent.R2State lastR2State = TruckLoaderAgent.R2State.Stopped;
         private string lastR1Bench = "", lastR2Truck = "", lastR2Bench = "";
@@ -138,7 +155,6 @@ namespace RoboFactory.HUD
         private CargoBox lastR2Box;
         /// <summary>Boxes confirmed by SAM at the moment they were loaded, per order.</summary>
         private readonly Dictionary<int, HashSet<CargoBox>> verifiedLoads = new Dictionary<int, HashSet<CargoBox>>();
-        private Texture2D readback;
         private int seq;
 
         public SamVisionService(MonoBehaviour host, string proxyUrl)
@@ -158,6 +174,9 @@ namespace RoboFactory.HUD
             feedR1 = cameraR1;
             feedR2 = cameraR2;
             model = data.Model;
+            robotR1 = data.R1 != null ? data.R1.transform : null;
+            robotR2 = data.R2 != null ? data.R2.transform : null;
+            if (cameraR1 != null && cameraR1.Camera != null) cullingMask = cameraR1.Camera.cullingMask;
             Bind(data.R1);
             HudModel m = data.Model;
             WarehouseWorld world = data.World != null ? data.World : WarehouseWorld.Instance;
@@ -181,7 +200,7 @@ namespace RoboFactory.HUD
                 if (s != lastR2State)
                 {
                     if (s == TruckLoaderAgent.R2State.Picking && lastR2Bench.Length > 0 && world != null)
-                        CheckStorage(R2, feedR2, "bench", lastR2Bench, world.Bench(lastR2Bench), true, null);
+                        CheckStorage(R2, robotR2, "bench", lastR2Bench, world.Bench(lastR2Bench), true, null);
                     if (lastR2State == TruckLoaderAgent.R2State.Dropping && lastR2Truck.Length > 0 && world != null)
                         CheckTruck(world.Truck(lastR2Truck), lastR2Truck, lastR2Order, lastR2Box);
                     lastR2State = s;
@@ -189,8 +208,8 @@ namespace RoboFactory.HUD
             }
 
             // employees in front of a moving robot
-            CheckPerson(R1, feedR1, m.R1);
-            CheckPerson(R2, feedR2, m.R2);
+            CheckPerson(R1, m.R1);
+            CheckPerson(R2, m.R2);
 
             Pump(R1);
             Pump(R2);
@@ -221,14 +240,20 @@ namespace RoboFactory.HUD
         public void Dispose()
         {
             Unbind();
-            if (readback != null) UnityEngine.Object.Destroy(readback);
-            readback = null;
+            foreach (RobotSam r in new[] { R1, R2 })
+            {
+                if (r.Cam != null) UnityEngine.Object.Destroy(r.Cam.gameObject);
+                if (r.Target != null) { r.Target.Release(); UnityEngine.Object.Destroy(r.Target); }
+                if (r.Snapshot != null) UnityEngine.Object.Destroy(r.Snapshot);
+                if (r.Pending != null && r.Pending.Snapshot != null) UnityEngine.Object.Destroy(r.Pending.Snapshot);
+                r.Cam = null; r.Target = null; r.Snapshot = null; r.Pending = null;
+            }
         }
 
         private void OnR1Picked(CargoBox box, WarehouseRobotAutopilot.PickLeg leg)
         {
             if (leg == null) return;
-            CheckStorage(R1, feedR1, "pallet", leg.PalletId ?? "", leg.Pallet, false, null);
+            CheckStorage(R1, robotR1, "pallet", leg.PalletId ?? "", leg.Pallet, false, null);
         }
 
         private void OnR1Staged(CargoBox box)
@@ -236,18 +261,17 @@ namespace RoboFactory.HUD
             WarehouseWorld world = WarehouseWorld.Instance;
             string bench = lastR1Bench;
             if (world == null || bench.Length == 0) return;
-            CheckStorage(R1, feedR1, "bench", bench, world.Bench(bench), true, box);
+            CheckStorage(R1, robotR1, "bench", bench, world.Bench(bench), true, box);
         }
 
         /// <summary>Pallet or bench in front of the robot: slot-by-slot check.</summary>
-        private void CheckStorage(RobotSam r, RobotVisionFeed feed, string kind, string place, ShelfStorage storage, bool verify, CargoBox newBox)
+        private void CheckStorage(RobotSam r, Transform robot, string kind, string place, ShelfStorage storage, bool verify, CargoBox newBox)
         {
             if (storage == null) return;
-            var q = new Request { Place = place, PlaceKind = kind, Verify = verify, NewBox = newBox };
-            CargoBox[] boxes = storage.GetComponentsInChildren<CargoBox>(false);
-            AddParts(q, boxes);
-            BuildSlots(feed, q, storage, boxes);
-            Submit(r, feed, q);
+            var q = new Request { Place = place, PlaceKind = kind, Verify = verify, NewBox = newBox, Storage = storage, UseSlots = true };
+            q.Boxes = storage.GetComponentsInChildren<CargoBox>(false);
+            AddParts(q, q.Boxes);
+            Submit(r, robot, q);
         }
 
         /// <summary>R2 has just dropped a box in a truck: the load (and the order when complete) is checked.</summary>
@@ -256,6 +280,9 @@ namespace RoboFactory.HUD
             if (truck == null) return;
             var q = new Request { Place = truckId, PlaceKind = "truck", Verify = true, OrderId = orderId, NewBox = newBox };
             CargoBox[] boxes = truck.GetComponentsInChildren<CargoBox>(false);
+            q.Boxes = boxes;
+            q.Storage = truck.Storage;
+            q.UseSlots = true;
             AddParts(q, boxes);
             if (orderId >= 0)
             {
@@ -263,22 +290,21 @@ namespace RoboFactory.HUD
                 OrderVM o = model != null ? model.FindOrder(orderId) : null;
                 q.OrderTotal = o != null ? o.Total : 0;
             }
-            BuildSlots(feedR2, q, truck.Storage, boxes);
-            Submit(R2, feedR2, q);
+            Submit(R2, robotR2, q);
         }
 
-        private void CheckPerson(RobotSam r, RobotVisionFeed feed, RobotVM vm)
+        private void CheckPerson(RobotSam r, RobotVM vm)
         {
             if (vm == null || vm.Transform == null || !vm.Present || !vm.MissionActive) return;
             float now = Time.unscaledTime;
-            if (now - r.LastPersonCheck < PersonInterval || r.InFlight || r.Pending != null) return;
+            if (now - r.LastPersonCheck < PersonInterval || r.InFlight || r.Capturing || r.Pending != null) return;
             if (now - r.RequestedAt < MinInterval) return;
             int inView = PeopleInView(vm.Transform);
             if (inView <= 0) return;
             r.LastPersonCheck = now;
             var q = new Request { Place = "path", PlaceKind = "path", Scene = inView };
             q.Parts.Add(new Part { Concept = ConceptPerson, Scene = inView });
-            Submit(r, feed, q);
+            Submit(r, vm.Transform, q);
         }
 
         private int PeopleInView(Transform robot)
@@ -316,15 +342,85 @@ namespace RoboFactory.HUD
             if (crates > 0) q.Parts.Add(new Part { Concept = ConceptCrate, Scene = crates });
         }
 
-        /// <summary>Captures the image now (it must show the place at this very moment) and queues the call.</summary>
-        private void Submit(RobotSam r, RobotVisionFeed feed, Request q)
+        /// <summary>Photographs the place now with the inspection camera (it must show this very moment) and queues the call.</summary>
+        private void Submit(RobotSam r, Transform robot, Request q)
         {
-            if (!Enabled || feed == null || feed.Camera == null) return;
+            if (!Enabled || robot == null || r.Capturing) return;
             if (r.Pending != null && r.Pending.PlaceKind != "path" && q.PlaceKind == "path") return; // a place check matters more
-            q.Png = Capture(feed);
-            if (q.Png == null) { r.Failures++; return; }
+            host.StartCoroutine(CaptureThenQueue(r, robot, q));
+        }
+
+        private IEnumerator CaptureThenQueue(RobotSam r, Transform robot, Request q)
+        {
+            r.Capturing = true;
+            Camera cam = InspectionCamera(r, robot);
+            bool path = q.PlaceKind == "path";
+            cam.transform.localPosition = new Vector3(0f, path ? PathHeight : InspectHeight, path ? PathForward : InspectForward);
+            cam.transform.localRotation = Quaternion.Euler(path ? PathPitch : InspectPitch, 0f, 0f);
+            cam.fieldOfView = path ? PathFov : InspectFov;
+            cam.cullingMask = cullingMask;
+            if (q.UseSlots) BuildSlots(cam, q, q.Storage, q.Boxes);
+            // rendered by the pipeline this frame (like the ROBOT VISION feed), read back at the end of the frame
+            cam.enabled = true;
+            yield return new WaitForEndOfFrame();
+            Texture2D snap = null;
+            string png = null;
+            RenderTexture previous = RenderTexture.active;
+            try
+            {
+                RenderTexture.active = r.Target;
+                snap = new Texture2D(Width, Height, TextureFormat.RGB24, false) { name = "SAM " + r.RobotId };
+                snap.ReadPixels(new Rect(0, 0, Width, Height), 0, 0, false);
+                snap.Apply(false);
+                png = Convert.ToBase64String(snap.EncodeToPNG());
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("[SAM] camera capture failed: " + e.Message);
+            }
+            finally
+            {
+                RenderTexture.active = previous;
+                if (cam != null) cam.enabled = false;
+                r.Capturing = false;
+            }
+            if (png == null)
+            {
+                r.Failures++;
+                if (snap != null) UnityEngine.Object.Destroy(snap);
+                yield break;
+            }
+            q.Png = png;
+            q.Snapshot = snap;
             q.At = Time.unscaledTime;
+            if (r.Pending != null && r.Pending.Snapshot != null) UnityEngine.Object.Destroy(r.Pending.Snapshot);
             r.Pending = q;
+        }
+
+        private Camera InspectionCamera(RobotSam r, Transform robot)
+        {
+            if (r.Cam != null && r.Cam.transform.parent == robot) return r.Cam;
+            if (r.Cam != null) UnityEngine.Object.Destroy(r.Cam.gameObject);
+            if (r.Target == null)
+            {
+                r.Target = new RenderTexture(Width, Height, 24, RenderTextureFormat.ARGB32) { name = "SAM Inspection " + r.RobotId, antiAliasing = 1 };
+                r.Target.Create();
+            }
+            var go = new GameObject("SAM Inspection Camera " + r.RobotId);
+            go.transform.SetParent(robot, false);
+            Camera cam = go.AddComponent<Camera>();
+            cam.nearClipPlane = .05f;
+            cam.farClipPlane = 40f;
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = new Color(.03f, .05f, .08f);
+            cam.useOcclusionCulling = false;
+            cam.allowMSAA = false;
+            cam.allowHDR = false;
+            cam.depth = -60f;
+            cam.targetTexture = r.Target;
+            cam.enabled = false;
+            r.Cam = cam;
+            return cam;
         }
 
         // ------------------------------------------------------------------ calls
@@ -333,7 +429,12 @@ namespace RoboFactory.HUD
         {
             if (r.Pending == null || r.InFlight) return;
             float now = Time.unscaledTime;
-            if (now < r.BackoffUntil) { r.Pending = null; return; }
+            if (now < r.BackoffUntil)
+            {
+                if (r.Pending.Snapshot != null) UnityEngine.Object.Destroy(r.Pending.Snapshot);
+                r.Pending = null;
+                return;
+            }
             Request q = r.Pending;
             r.Pending = null;
             r.InFlight = true;
@@ -383,6 +484,8 @@ namespace RoboFactory.HUD
 
             r.InFlight = false;
             r.At = Time.unscaledTime;
+            if (r.Snapshot != null && r.Snapshot != q.Snapshot) UnityEngine.Object.Destroy(r.Snapshot);
+            r.Snapshot = q.Snapshot;
             r.Detections.Clear();
             r.Zone = q.Zone;
             r.HasZone = q.HasZone;
@@ -563,12 +666,11 @@ namespace RoboFactory.HUD
         /// Every slot of the storage (pallet, bench, truck) projected into the robot camera image: rectangle,
         /// depth, box present or not; slots covered by a nearer box are marked hidden (not judged).
         /// </summary>
-        private void BuildSlots(RobotVisionFeed feed, Request q, ShelfStorage storage, CargoBox[] boxes)
+        private void BuildSlots(Camera cam, Request q, ShelfStorage storage, CargoBox[] boxes)
         {
             q.Slots.Clear();
             q.HasZone = false;
-            if (feed == null || feed.Camera == null) return;
-            Camera cam = feed.Camera;
+            if (cam == null) return;
             Vector3 typical = Vector3.one * DefaultBoxSize;
             if (boxes != null)
                 foreach (CargoBox b in boxes)
@@ -657,8 +759,8 @@ namespace RoboFactory.HUD
             Rect clipped = Rect.MinMaxRect(Mathf.Clamp01(full.xMin), Mathf.Clamp01(full.yMin), Mathf.Clamp01(full.xMax), Mathf.Clamp01(full.yMax));
             float fullArea = full.width * full.height, clippedArea = clipped.width * clipped.height;
             rect = clipped;
-            // at least half of the slot must be in the image to be judged
-            return fullArea > 1e-5f && clippedArea >= .5f * fullArea;
+            // enough of the slot must be in the image to be judged
+            return fullArea > 1e-5f && clippedArea >= MinSlotInImage * fullArea;
         }
 
         private static float Intersection(Rect a, Rect b)
@@ -673,51 +775,6 @@ namespace RoboFactory.HUD
             float i = Intersection(a, b);
             float u = a.width * a.height + b.width * b.height - i;
             return u > 1e-6f ? i / u : 0f;
-        }
-
-        // ------------------------------------------------------------------ capture
-
-        /// <summary>
-        /// Robot camera frame at a fixed size, as base64 PNG: the latest frame of the ROBOT VISION feed when it is
-        /// running (OPERATIONS view), otherwise one frame rendered on demand by the same camera.
-        /// </summary>
-        private string Capture(RobotVisionFeed feed)
-        {
-            Camera cam = feed.Camera;
-            RenderTexture rt = null;
-            RenderTexture previousTarget = cam.targetTexture;
-            RenderTexture previousActive = RenderTexture.active;
-            try
-            {
-                rt = RenderTexture.GetTemporary(Width, Height, 24, RenderTextureFormat.ARGB32);
-                if (feed.Active && feed.Texture != null && feed.Texture.IsCreated())
-                    Graphics.Blit(feed.Texture, rt);
-                else
-                {
-                    cam.targetTexture = rt;
-                    cam.Render();
-                }
-                RenderTexture.active = rt;
-                if (readback == null || readback.width != Width || readback.height != Height)
-                {
-                    if (readback != null) UnityEngine.Object.Destroy(readback);
-                    readback = new Texture2D(Width, Height, TextureFormat.RGB24, false);
-                }
-                readback.ReadPixels(new Rect(0, 0, Width, Height), 0, 0, false);
-                readback.Apply(false);
-                return Convert.ToBase64String(readback.EncodeToPNG());
-            }
-            catch (Exception e)
-            {
-                Debug.LogWarning("[SAM] camera capture failed: " + e.Message);
-                return null;
-            }
-            finally
-            {
-                cam.targetTexture = previousTarget;
-                RenderTexture.active = previousActive;
-                if (rt != null) RenderTexture.ReleaseTemporary(rt);
-            }
         }
 
         private static string Clean(string id)
