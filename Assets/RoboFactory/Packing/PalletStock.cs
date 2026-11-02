@@ -162,9 +162,13 @@ namespace RoboFactory.Packing
             return false;
         }
 
-        /// <summary>Wooden pallet built by code (public version), 1.25 m x 1.45 m like the warehouse pallets.</summary>
-        private static GameObject ProceduralPallet(string name, Vector3 at, float yaw)
+        /// <summary>
+        /// Wooden pallet built by code (public version), 1.25 m x 1.45 m like the warehouse pallets: by the scene
+        /// builder (materials saved as assets), or at run time when the scene has none.
+        /// </summary>
+        public static GameObject ProceduralPallet(string name, Vector3 at, float yaw, System.Func<Color, float, float, Material> material = null)
         {
+            mat = material ?? PackingItemFactory.Mat;
             var root = new GameObject(name);
             root.transform.SetPositionAndRotation(at, Quaternion.Euler(0f, yaw, 0f));
             Color wood = new Color(.66f, .5f, .3f), dark = new Color(.45f, .33f, .2f);
@@ -174,15 +178,17 @@ namespace RoboFactory.Packing
             return root;
         }
 
+        private static System.Func<Color, float, float, Material> mat;
+
         private static void Part(Transform parent, Vector3 local, Vector3 size, Color color)
         {
             GameObject g = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            Object.Destroy(g.GetComponent<Collider>());
+            Object.DestroyImmediate(g.GetComponent<Collider>());
             g.name = "pallet";
             g.transform.SetParent(parent, false);
             g.transform.localPosition = local;
             g.transform.localScale = size;
-            g.GetComponent<Renderer>().sharedMaterial = PackingItemFactory.Mat(color, .2f, 0f);
+            g.GetComponent<Renderer>().sharedMaterial = mat(color, .2f, 0f);
         }
     }
 }

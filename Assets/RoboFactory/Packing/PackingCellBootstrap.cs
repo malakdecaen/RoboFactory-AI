@@ -36,7 +36,7 @@ namespace RoboFactory.Packing
         // grab a box on a pallet. Tray top 0.85 m → 0.676 m.
         private const float TrayTop = .676f;
         private static readonly Vector3 BinCentre = new Vector3(-8.345f, 0f, -5.871f);
-        private static readonly Vector3 ArmBase = new Vector3(-6.3885f, 0f, -6.2903f);
+        public static readonly Vector3 ArmBase = new Vector3(-6.3885f, 0f, -6.2903f);
         private const float ArmScale = 1.25f;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -79,7 +79,9 @@ namespace RoboFactory.Packing
             }
             else
             {
-                Dressing.Build(go.transform);
+                // public version: the line is normally built with the scene (RoboFactory → Public → Build simplified
+                // scene); built here only if the scene does not have it
+                if (GameObject.Find(Dressing.RootName) == null) Dressing.Build(go.transform);
                 cell.ArmFactory = c => new ProceduralArm(c.transform, ArmBase, 0f);
             }
             // transport robot R3: closed cartons from the trays to the empty pallets on the left (stock for R1)
@@ -103,12 +105,19 @@ namespace RoboFactory.Packing
             return n;
         }
 
-        /// <summary>Conveyor loop, black box, trays and reject bin built by code (public version).</summary>
-        private static class Dressing
+        /// <summary>
+        /// Conveyor loop, black box, trays and reject bin built by code (public version), by the scene builder
+        /// (materials saved as assets) or, if the scene does not have them, at run time.
+        /// </summary>
+        public static class Dressing
         {
-            public static void Build(Transform parent)
+            public const string RootName = "Packing Cell Dressing";
+            private static System.Func<Color, float, float, Material> mat;
+
+            public static Transform Build(Transform parent, System.Func<Color, float, float, Material> material = null)
             {
-                var root = new GameObject("Packing Cell Dressing").transform;
+                mat = material ?? PackingItemFactory.Mat;
+                var root = new GameObject(RootName).transform;
                 root.SetParent(parent, false);
                 Color belt = new Color(.12f, .12f, .13f), frame = new Color(.55f, .57f, .6f), black = new Color(.06f, .06f, .07f);
                 for (int i = 0; i < Corners.Length; i++)
@@ -143,16 +152,17 @@ namespace RoboFactory.Packing
                 Box(root, BinCentre + new Vector3(-w / 2f, h / 2f, 0f), Quaternion.identity, new Vector3(.05f, h, w), grey, .3f);
                 Box(root, BinCentre + new Vector3(0f, h / 2f, w / 2f), Quaternion.identity, new Vector3(w, h, .05f), grey, .3f);
                 Box(root, BinCentre + new Vector3(0f, h / 2f, -w / 2f), Quaternion.identity, new Vector3(w, h, .05f), grey, .3f);
+                return root;
             }
 
             private static void Box(Transform parent, Vector3 pos, Quaternion rot, Vector3 size, Color color, float smooth)
             {
                 GameObject g = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                Object.Destroy(g.GetComponent<Collider>());
+                Object.DestroyImmediate(g.GetComponent<Collider>());
                 g.transform.SetParent(parent, false);
                 g.transform.SetPositionAndRotation(pos, rot);
                 g.transform.localScale = size;
-                g.GetComponent<Renderer>().sharedMaterial = PackingItemFactory.Mat(color, smooth, .2f);
+                g.GetComponent<Renderer>().sharedMaterial = mat(color, smooth, .2f);
             }
         }
     }

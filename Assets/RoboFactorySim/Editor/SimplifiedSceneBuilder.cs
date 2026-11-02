@@ -56,6 +56,7 @@ namespace RoboFactory.Sim.EditorTools
             BuildObstacles(layout);
             BuildRobots(layout);
             BuildSceneComponents(layout);
+            BuildPackingCell();
             BuildCamera(layout);
 
             Directory.CreateDirectory(Path.GetDirectoryName(ScenePath));
@@ -531,6 +532,7 @@ namespace RoboFactory.Sim.EditorTools
                 else parent = null;
                 if (parent == null) parent = Group("Environment");
                 bool worker = path.StartsWith("Worker");
+                if (worker) continue;   // no worker standing in the public scene
                 bool onStation = owner.StartsWith("storage:") || owner.StartsWith("truck:");
                 // The robots of the full project drive around every solid collider standing on the floor: the
                 // colliders of the benches / pallets / trucks, the worker in the aisle, the loaded pallet on R2's way
@@ -659,6 +661,23 @@ namespace RoboFactory.Sim.EditorTools
                 ApplySettings(comp, c["json"]);
                 if (comp is Behaviour behaviour && c["enabled"] != null) behaviour.enabled = c["enabled"].Value<bool>();
             }
+        }
+
+        /// <summary>
+        /// Packing cell of the warehouse, with the scene: conveyor loop, black box, trays, reject bin, the arm and
+        /// the two pallets on the left where R3 brings the cartons (the cell's behaviour, the scan, R3 and the stock
+        /// equipment of the pallets are added when the scene starts, as in the full project).
+        /// </summary>
+        private static void BuildPackingCell()
+        {
+            Func<Color, float, float, Material> mat = (c, s, m) =>
+                Mat("sim_pack_" + ColorUtility.ToHtmlStringRGB(c) + "_" + Mathf.RoundToInt(s * 100f) + "_" + Mathf.RoundToInt(m * 100f), c, s, m);
+            Transform root = Group("Packing Cell Line");
+            RoboFactory.Packing.PackingCellBootstrap.Dressing.Build(root, mat);
+            RoboFactory.Packing.ProceduralArm.BuildModel(root, RoboFactory.Packing.PackingCellBootstrap.ArmBase, mat);
+            for (int i = 0; i < RoboFactory.Packing.PalletStock.Names.Length; i++)
+                RoboFactory.Packing.PalletStock.ProceduralPallet(RoboFactory.Packing.PalletStock.Names[i], RoboFactory.Packing.PalletStock.Places[i],
+                                                                 RoboFactory.Packing.PalletStock.Yaws[i], mat).transform.SetParent(root, true);
         }
 
         private static void BuildCamera(JObject layout)

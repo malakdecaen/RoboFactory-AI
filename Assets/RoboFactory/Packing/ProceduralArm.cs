@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 namespace RoboFactory.Packing
@@ -5,15 +6,18 @@ namespace RoboFactory.Packing
     /// <summary>
     /// Industrial arm built by code (public version): turret (yaw), shoulder, elbow, wrist kept vertical, gripper.
     /// Analytic IK in the vertical plane of the target (elbow up), same contract as the IK arm of the full project.
+    /// The model is normally built with the public scene (BuildModel, called by the scene builder); at run time
+    /// the arm drives the model found in the scene ("Packing Arm"), or builds it if the scene has none.
     /// </summary>
     public sealed class ProceduralArm : IPackingArm
     {
-        // sized like the scaled arm of the full project: reaches the four trays (2 m to 2.4 m) above 0.6 m cartons
-        public float ShoulderHeight = 1.2f;
-        public float ShoulderOffset = .3f;   // shoulder ahead of the turret axis
-        public float Upper = 1.15f;
-        public float Fore = 1.15f;
-        public float Tool = .3f;
+        public const string ModelName = "Packing Arm";
+        // sized like the scaled arm of the full project: reaches the trays (2 m to 2.4 m) above the 0.5 m boxes
+        public const float ShoulderHeight = 1.2f;
+        public const float ShoulderOffset = .3f;   // shoulder ahead of the turret axis
+        public const float Upper = 1.15f;
+        public const float Fore = 1.15f;
+        public const float Tool = .3f;
         public float Speed { get; set; } = 1.6f;
 
         private readonly Transform root, yawT, shoulderT, elbowT, wristT;
@@ -28,39 +32,57 @@ namespace RoboFactory.Packing
 
         public ProceduralArm(Transform parent, Vector3 basePosition, float homeYaw)
         {
-            Color orange = new Color(.95f, .5f, .1f), dark = new Color(.15f, .15f, .17f), steel = new Color(.6f, .62f, .65f);
-            root = new GameObject("Packing Arm").transform;
-            root.SetParent(parent, false);
-            root.position = basePosition;
-            Part(root, PrimitiveType.Cylinder, new Vector3(0f, .15f, 0f), new Vector3(.7f, .15f, .7f), dark);
-            yawT = new GameObject("turret").transform;
-            yawT.SetParent(root, false);
-            yawT.localPosition = Vector3.up * .3f;
-            Part(yawT, PrimitiveType.Cylinder, new Vector3(0f, .25f, 0f), new Vector3(.5f, .25f, .5f), orange);
-            Part(yawT, PrimitiveType.Cube, new Vector3(0f, ShoulderHeight - .45f, ShoulderOffset * .5f), new Vector3(.32f, .5f, .45f), orange);
-            shoulderT = new GameObject("shoulder").transform;
-            shoulderT.SetParent(yawT, false);
-            shoulderT.localPosition = new Vector3(0f, ShoulderHeight - .3f, ShoulderOffset);
-            Part(shoulderT, PrimitiveType.Cylinder, Vector3.zero, new Vector3(.26f, .2f, .26f), dark).localRotation = Quaternion.Euler(0f, 0f, 90f);
-            Part(shoulderT, PrimitiveType.Cube, new Vector3(0f, 0f, Upper / 2f), new Vector3(.18f, .2f, Upper), orange);
-            elbowT = new GameObject("elbow").transform;
-            elbowT.SetParent(shoulderT, false);
-            elbowT.localPosition = new Vector3(0f, 0f, Upper);
-            Part(elbowT, PrimitiveType.Cylinder, Vector3.zero, new Vector3(.2f, .16f, .2f), dark).localRotation = Quaternion.Euler(0f, 0f, 90f);
-            Part(elbowT, PrimitiveType.Cube, new Vector3(0f, 0f, Fore / 2f), new Vector3(.13f, .14f, Fore), orange);
-            wristT = new GameObject("wrist").transform;
-            wristT.SetParent(elbowT, false);
-            wristT.localPosition = new Vector3(0f, 0f, Fore);
-            Part(wristT, PrimitiveType.Cylinder, new Vector3(0f, 0f, Tool * .3f), new Vector3(.1f, Tool * .3f, .1f), steel).localRotation = Quaternion.Euler(90f, 0f, 0f);
-            Part(wristT, PrimitiveType.Cube, new Vector3(.04f, 0f, Tool * .85f), new Vector3(.02f, .06f, Tool * .3f), dark);
-            Part(wristT, PrimitiveType.Cube, new Vector3(-.04f, 0f, Tool * .85f), new Vector3(.02f, .06f, Tool * .3f), dark);
-            Grip = new GameObject("Packing Grip").transform;
-            Grip.SetParent(wristT, false);
-            Grip.localPosition = new Vector3(0f, 0f, Tool);
+            GameObject existing = GameObject.Find(ModelName);
+            root = existing != null ? existing.transform : BuildModel(parent, basePosition, null);
+            yawT = root.Find("turret");
+            shoulderT = yawT.Find("shoulder");
+            elbowT = shoulderT.Find("elbow");
+            wristT = elbowT.Find("wrist");
+            Grip = wristT.Find("Packing Grip");
             Vector3 fwd = Quaternion.Euler(0f, homeYaw, 0f) * Vector3.forward;
-            Home = basePosition + fwd * (.6f * (Upper + Fore)) + Vector3.up * (ShoulderHeight + .3f + .2f - Tool);
+            Home = root.position + fwd * (.6f * (Upper + Fore)) + Vector3.up * (ShoulderHeight + .3f + .2f - Tool);
             tip = goal = Home;
             Solve(tip);
+        }
+
+        /// <summary>Builds the arm's model (joints named turret / shoulder / elbow / wrist / Packing Grip).</summary>
+        public static Transform BuildModel(Transform parent, Vector3 basePosition, Func<Color, float, float, Material> material)
+        {
+            Func<Color, float, float, Material> mat = material ?? PackingItemFactory.Mat;
+            Color orange = new Color(.95f, .5f, .1f), dark = new Color(.15f, .15f, .17f), steel = new Color(.6f, .62f, .65f);
+            Transform root = new GameObject(ModelName).transform;
+            root.SetParent(parent, false);
+            root.position = basePosition;
+            Part(root, PrimitiveType.Cylinder, new Vector3(0f, .15f, 0f), new Vector3(.7f, .15f, .7f), dark, mat);
+            Transform yawT = new GameObject("turret").transform;
+            yawT.SetParent(root, false);
+            yawT.localPosition = Vector3.up * .3f;
+            Part(yawT, PrimitiveType.Cylinder, new Vector3(0f, .25f, 0f), new Vector3(.5f, .25f, .5f), orange, mat);
+            Part(yawT, PrimitiveType.Cube, new Vector3(0f, ShoulderHeight - .45f, ShoulderOffset * .5f), new Vector3(.32f, .5f, .45f), orange, mat);
+            Transform shoulderT = new GameObject("shoulder").transform;
+            shoulderT.SetParent(yawT, false);
+            shoulderT.localPosition = new Vector3(0f, ShoulderHeight - .3f, ShoulderOffset);
+            Part(shoulderT, PrimitiveType.Cylinder, Vector3.zero, new Vector3(.26f, .2f, .26f), dark, mat).localRotation = Quaternion.Euler(0f, 0f, 90f);
+            Part(shoulderT, PrimitiveType.Cube, new Vector3(0f, 0f, Upper / 2f), new Vector3(.18f, .2f, Upper), orange, mat);
+            Transform elbowT = new GameObject("elbow").transform;
+            elbowT.SetParent(shoulderT, false);
+            elbowT.localPosition = new Vector3(0f, 0f, Upper);
+            Part(elbowT, PrimitiveType.Cylinder, Vector3.zero, new Vector3(.2f, .16f, .2f), dark, mat).localRotation = Quaternion.Euler(0f, 0f, 90f);
+            Part(elbowT, PrimitiveType.Cube, new Vector3(0f, 0f, Fore / 2f), new Vector3(.13f, .14f, Fore), orange, mat);
+            Transform wristT = new GameObject("wrist").transform;
+            wristT.SetParent(elbowT, false);
+            wristT.localPosition = new Vector3(0f, 0f, Fore);
+            Part(wristT, PrimitiveType.Cylinder, new Vector3(0f, 0f, Tool * .3f), new Vector3(.1f, Tool * .3f, .1f), steel, mat).localRotation = Quaternion.Euler(90f, 0f, 0f);
+            Part(wristT, PrimitiveType.Cube, new Vector3(.04f, 0f, Tool * .85f), new Vector3(.02f, .06f, Tool * .3f), dark, mat);
+            Part(wristT, PrimitiveType.Cube, new Vector3(-.04f, 0f, Tool * .85f), new Vector3(.02f, .06f, Tool * .3f), dark, mat);
+            Transform grip = new GameObject("Packing Grip").transform;
+            grip.SetParent(wristT, false);
+            grip.localPosition = new Vector3(0f, 0f, Tool);
+            // rest pose: arm folded up, gripper down (the run time IK takes over at once)
+            shoulderT.localRotation = Quaternion.Euler(-60f, 0f, 0f);
+            elbowT.localRotation = Quaternion.Euler(120f, 0f, 0f);
+            wristT.rotation = Quaternion.LookRotation(Vector3.down, root.forward);
+            return root;
         }
 
         private Vector3 ShoulderWorld(float yaw) => root.position + Vector3.up * (.3f + ShoulderHeight - .3f) + Quaternion.Euler(0f, yaw, 0f) * Vector3.forward * ShoulderOffset;
@@ -104,14 +126,14 @@ namespace RoboFactory.Packing
             wristT.rotation = Quaternion.LookRotation(Vector3.down, heading);
         }
 
-        private static Transform Part(Transform parent, PrimitiveType type, Vector3 local, Vector3 scale, Color color)
+        private static Transform Part(Transform parent, PrimitiveType type, Vector3 local, Vector3 scale, Color color, Func<Color, float, float, Material> mat)
         {
             GameObject g = GameObject.CreatePrimitive(type);
-            Object.Destroy(g.GetComponent<Collider>());
+            UnityEngine.Object.DestroyImmediate(g.GetComponent<Collider>());
             g.transform.SetParent(parent, false);
             g.transform.localPosition = local;
             g.transform.localScale = scale;
-            g.GetComponent<Renderer>().sharedMaterial = PackingItemFactory.Mat(color, .45f, .2f);
+            g.GetComponent<Renderer>().sharedMaterial = mat(color, .45f, .2f);
             return g.transform;
         }
     }
