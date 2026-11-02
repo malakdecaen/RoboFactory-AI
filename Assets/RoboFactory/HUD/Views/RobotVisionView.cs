@@ -29,8 +29,9 @@ namespace RoboFactory.HUD
         private TextMeshProUGUI title, fpsText, targetLabel, targetText, routeText;
         private Image liveDot, stroke, scanLine;
         private BracketsGraphic brackets;
-        private Chip detect;
+        private Chip detect, verdict;
         private RectTransform overlay;
+        private BracketsGraphic zone;
         private readonly List<BracketsGraphic> samBoxes = new List<BracketsGraphic>();
         private readonly List<TextMeshProUGUI> samLabels = new List<TextMeshProUGUI>();
         /// <summary>Seconds the SAM boxes stay fully visible, then fade-out duration.</summary>
@@ -93,6 +94,13 @@ namespace RoboFactory.HUD
 
             overlay = HudFactory.Rect("SAM Overlay", frame);
             HudFactory.Stretch(overlay);
+            // work zone where SAM's objects are counted (bench / truck / pallet slots projected in the image)
+            zone = HudFactory.Add<BracketsGraphic>(overlay, "SAM Zone");
+            zone.Length = 14f;
+            zone.Width = 1.5f;
+            zone.Inset = 0f;
+            zone.raycastTarget = false;
+            zone.gameObject.SetActive(false);
 
             detect = HudFactory.Chip(frame, "Detection", "SAM 3.1 · STANDBY", HudTheme.TextMid, 300f, 22f);
             // full width of the video (minus margins), opaque dark background: readable on any scenery
@@ -105,6 +113,19 @@ namespace RoboFactory.HUD
             detect.Label.fontSizeMin = 9f;
             detect.Label.fontSizeMax = HudTheme.FontMicro;
             detect.Label.overflowMode = TextOverflowModes.Ellipsis;
+
+            // verdict of the visual check (BOXES / ORDER VERIFIED, or CHECK when SAM disagrees with the scene)
+            verdict = HudFactory.Chip(frame, "Verdict", "", HudTheme.Green, 300f, 22f);
+            verdict.Root.anchorMin = new Vector2(0f, 1f);
+            verdict.Root.anchorMax = new Vector2(1f, 1f);
+            verdict.Root.pivot = new Vector2(0f, 1f);
+            verdict.Root.offsetMin = new Vector2(10f, -58f);
+            verdict.Root.offsetMax = new Vector2(-10f, -36f);
+            verdict.Label.enableAutoSizing = true;
+            verdict.Label.fontSizeMin = 9f;
+            verdict.Label.fontSizeMax = HudTheme.FontMicro;
+            verdict.Label.overflowMode = TextOverflowModes.Ellipsis;
+            verdict.Root.gameObject.SetActive(false);
             detect.Label.characterSpacing = .5f;
             detect.Fill.color = new Color(.02f, .03f, .05f, .85f);
 
@@ -184,19 +205,19 @@ namespace RoboFactory.HUD
             {
                 SetChip("SAM 3.1 · NOT CONNECTED", HudTheme.Amber);
                 ShowBoxes(null, 0f);
+                ShowVerdict(null, 0f);
                 return;
             }
             string where = sam.PlaceKind == "path" ? "PATH" : (sam.Place ?? "").Length > 0 ? sam.Place : sam.PlaceKind.ToUpperInvariant();
-            string concept = (sam.Concept ?? "").ToUpperInvariant();
             switch (sam.Status)
             {
                 case "SEGMENTING":
-                    SetChip("SAM 3.1 · SEGMENTING " + concept + " · " + where + Dots(), HudTheme.Cyan);
+                    SetChip("SAM 3.1 · " + where + " · LOOKING FOR " + SamVisionService.Plural(sam.Label, 2) + Dots(), HudTheme.Cyan);
                     break;
                 case "OK":
                     string scene = sam.Scene >= 0 ? " · SCENE " + sam.Scene : "";
                     string lat = (sam.LatencyMs / 1000f).ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + " s";
-                    SetChip("SAM 3.1 · " + sam.Seen + " " + concept + (sam.Seen == 1 ? "" : "S") + " · " + where + scene + " · " + lat +
+                    SetChip("SAM 3.1 · " + where + " · " + sam.Seen + " " + SamVisionService.Plural(sam.Label, sam.Seen) + scene + " · " + lat +
                             (sam.Recorded ? " · REC" : ""), sam.Seen > 0 ? HudTheme.Green : HudTheme.TextMid);
                     break;
                 case "FAILED":
@@ -212,6 +233,30 @@ namespace RoboFactory.HUD
             float age = Time.unscaledTime - sam.At;
             float alpha = sam.Status == "OK" ? 1f - Mathf.Clamp01((age - SamHold) / Mathf.Max(.01f, SamFade)) : 0f;
             ShowBoxes(sam.Status == "OK" ? sam.Detections : null, alpha);
+            bool showZone = sam.Status == "OK" && sam.HasZone && alpha > .01f;
+            if (zone.gameObject.activeSelf != showZone) zone.gameObject.SetActive(showZone);
+            if (showZone)
+            {
+                zone.rectTransform.anchorMin = new Vector2(sam.Zone.xMin, 1f - sam.Zone.yMax);
+                zone.rectTransform.anchorMax = new Vector2(sam.Zone.xMax, 1f - sam.Zone.yMin);
+                zone.rectTransform.offsetMin = zone.rectTransform.offsetMax = Vector2.zero;
+                HudFactory.SetColor(zone, HudTheme.A(HudTheme.Cyan, .7f * alpha));
+            }
+            // the verdict stays a little longer than the boxes
+            float verdictAlpha = sam.Status == "OK" ? 1f - Mathf.Clamp01((age - SamHold - 4f) / Mathf.Max(.01f, SamFade)) : 0f;
+            ShowVerdict(sam.Status == "OK" ? sam : null, verdictAlpha);
+        }
+
+        private void ShowVerdict(SamVisionService.RobotSam sam, float alpha)
+        {
+            bool on = sam != null && !string.IsNullOrEmpty(sam.Verdict) && alpha > .01f;
+            if (verdict.Root.gameObject.activeSelf != on) verdict.Root.gameObject.SetActive(on);
+            if (!on) return;
+            Color c = sam.Verdict == "VERIFIED" ? HudTheme.Green : HudTheme.Amber;
+            HudFactory.Set(verdict.Label, sam.VerdictText);
+            verdict.SetColor(HudTheme.A(c, alpha));
+            verdict.Fill.color = new Color(.02f, .03f, .05f, .9f * alpha);
+            HudFactory.SetColor(verdict.Label, HudTheme.A(Color.Lerp(c, Color.white, sam.OrderVerified ? .15f : .45f), alpha));
         }
 
         private string Dots() => new string('.', 1 + (int)(time * 3f) % 3);

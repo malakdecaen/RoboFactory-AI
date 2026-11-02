@@ -85,7 +85,7 @@ namespace RoboFactory.Logistics
         private readonly Dictionary<string, float> doorLoadingTotal = new Dictionary<string, float>();
 
         private int routeChanges, suspensions, incidentsCount, cartonMoves;
-        private int samCalls, samWithObjects, samFailed;
+        private int samCalls, samWithObjects, samFailed, samVerified, samMismatches, samOrdersVerified;
         private readonly List<string> incidentLines = new List<string>();
         private string lastStage = "", lastVoiceState = "", lastFinal = "", lastFailure = "";
         private float idleSince = -1f;
@@ -171,7 +171,14 @@ namespace RoboFactory.Logistics
             {
                 // SAM 3.1 on a robot camera (SamVisionService): "R1 pallet P02 'box': 3 segmented (scene 4) · sam-3.1 1.8 s"
                 string text = message.Substring("[SAM] ".Length);
-                if (text.Contains(" segmented")) { samCalls++; if (!text.Contains(": 0 segmented")) samWithObjects++; }
+                if (text.Contains(" segmented"))
+                {
+                    samCalls++;
+                    if (!text.Contains(": 0 segmented")) samWithObjects++;
+                    if (text.Contains(" · VERIFIED")) samVerified++;
+                    if (text.Contains(" · MISMATCH")) samMismatches++;
+                    if (text.Contains(" · ORDER #") && text.Contains(" VERIFIED (")) samOrdersVerified++;
+                }
                 else if (text.Contains("failed") || text.Contains("no recorded")) { samCalls++; samFailed++; }
                 Line("SAM", text);
                 return;
@@ -611,7 +618,8 @@ namespace RoboFactory.Logistics
 
             // ---- SAM 3.1 (robot cameras)
             sb.AppendLine("SAM 3.1 — " + samCalls + " segmentation(s) of the robot cameras: " + samWithObjects + " with objects, " +
-                          (samCalls - samWithObjects - samFailed) + " empty, " + samFailed + " without answer");
+                          (samCalls - samWithObjects - samFailed) + " empty, " + samFailed + " without answer; checks: " +
+                          samVerified + " verified, " + samMismatches + " mismatch(es); orders verified by SAM: " + samOrdersVerified);
 
             // ---- doors
             foreach (KeyValuePair<string, float> kv in doorOpenTotal)
