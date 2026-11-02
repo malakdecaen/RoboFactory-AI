@@ -86,6 +86,7 @@ namespace RoboFactory.Logistics
 
         private int routeChanges, suspensions, incidentsCount, cartonMoves;
         private int samCalls, samWithObjects, samFailed, samVerified, samMismatches, samOrdersVerified;
+        private int packScans, packScanWrong, packScanFailed, packTaken, packRejected, packCartons;
         private readonly List<string> incidentLines = new List<string>();
         private string lastStage = "", lastVoiceState = "", lastFinal = "", lastFailure = "";
         private float idleSince = -1f;
@@ -132,7 +133,7 @@ namespace RoboFactory.Logistics
                 writer.WriteLine("# RoboFactory — flow journal " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") +
                                  "  scene=" + UnityEngine.SceneManagement.SceneManager.GetActiveScene().name);
                 writer.WriteLine("# columns: real time | game time | gap since the previous line | actor | action");
-                writer.WriteLine("# actors: ORDER, MUSE, SAM, R1, R2, DOOR, BOX, URGENT, VOICE, INCIDENT; a SUMMARY follows each end of activity");
+                writer.WriteLine("# actors: ORDER, MUSE, SAM, PACK, R1, R2, DOOR, BOX, URGENT, VOICE, INCIDENT; a SUMMARY follows each end of activity");
                 writer.WriteLine();
                 Debug.Log("[FlowRecorder] flow journal: " + FilePath);
             }
@@ -181,6 +182,17 @@ namespace RoboFactory.Logistics
                 }
                 else if (text.Contains("failed") || text.Contains("no recorded")) { samCalls++; samFailed++; }
                 Line("SAM", text);
+                return;
+            }
+            if (message.StartsWith("[PACK] "))
+            {
+                // packing cell: scans (Muse Spark), decisions, arm, cartons
+                string text = message.Substring("[PACK] ".Length);
+                if (text.StartsWith("scan product")) { packScans++; if (text.Contains(" MISMATCH")) packScanWrong++; if (text.Contains("no answer")) packScanFailed++; }
+                else if (text.Contains(" packed in carton")) packTaken++;
+                else if (text.Contains("dropped in the reject bin")) packRejected++;
+                else if (text.Contains(" complete and closed")) packCartons++;
+                Line("PACK", text);
                 return;
             }
             if (message.StartsWith("[Muse] incident: "))
@@ -620,6 +632,10 @@ namespace RoboFactory.Logistics
             sb.AppendLine("SAM 3.1 — " + samCalls + " segmentation(s) of the robot cameras: " + samWithObjects + " with objects, " +
                           (samCalls - samWithObjects - samFailed) + " empty, " + samFailed + " without answer; checks: " +
                           samVerified + " verified, " + samMismatches + " mismatch(es); orders verified by SAM: " + samOrdersVerified);
+
+            // ---- packing cell (Muse Spark inspection)
+            sb.AppendLine("PACKING — " + packScans + " scan(s) by Muse Spark (" + packScanFailed + " without answer, " + packScanWrong +
+                          " disagreeing with the simulation), " + packTaken + " product(s) packed, " + packRejected + " rejected, " + packCartons + " carton(s) closed");
 
             // ---- doors
             foreach (KeyValuePair<string, float> kv in doorOpenTotal)

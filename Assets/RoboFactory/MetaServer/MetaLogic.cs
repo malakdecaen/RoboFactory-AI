@@ -655,6 +655,24 @@ namespace RoboFactory.MetaServer
         }
 
         /// <summary>re.findall(r"-?\d+(?:\.\d+)?", output) — number of values (/sam route).</summary>
+        /// <summary>Quality inspection answer: kind and defect from closed lists, confidence 0..1.</summary>
+        public static JObject ValidateInspection(JObject payload, out string error)
+        {
+            error = "";
+            string kind = Py.StrOr(Py.Get(payload, "kind")).Trim().ToLowerInvariant().Replace("_", " ");
+            string defect = Py.StrOr(Py.Get(payload, "defect")).Trim().ToLowerInvariant();
+            if (Array.IndexOf(MetaPrompts.INSPECT_KINDS, kind) < 0) { error = "unknown kind '" + kind + "'"; return null; }
+            if (Array.IndexOf(MetaPrompts.INSPECT_DEFECTS, defect) < 0) { error = "unknown defect '" + defect + "'"; return null; }
+            double confidence = 0;
+            JToken c = Py.Get(payload, "confidence");
+            if (c != null && (c.Type == JTokenType.Float || c.Type == JTokenType.Integer)) confidence = Math.Max(0, Math.Min(1, c.Value<double>()));
+            return new JObject
+            {
+                ["kind"] = kind, ["defect"] = defect, ["confidence"] = Math.Round(confidence, 3),
+                ["reason"] = Py.Cut(Py.StrOr(Py.Get(payload, "reason")), 240)
+            };
+        }
+
         public static int CountNumbers(string output) => Regex.Matches(output ?? "", @"-?\d+(?:\.\d+)?").Count;
     }
 }

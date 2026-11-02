@@ -15,7 +15,7 @@ namespace RoboFactory.MetaServer
     /// Meta server built into the game: replaces Tools/MetaProxy/meta_proxy.py, same routes and same
     /// answers on http://127.0.0.1:8765, so no Unity client changes. No Unity dependency:
     /// started by MetaServerHost. The API key never leaves this process.
-    /// Routes : GET /health ; POST /order /vision /sam /supervise /warehouse /urgent /capacity
+    /// Routes : GET /health ; POST /order /vision /sam /inspect /supervise /warehouse /urgent /capacity
     /// /asr/start /asr/audio /asr/finish /asr/cancel.
     /// </summary>
     public sealed class MetaLocalServer
@@ -175,6 +175,7 @@ namespace RoboFactory.MetaServer
                     case "/order": HandleOrder(ctx, body, key, started); break;
                     case "/vision": HandleVision(ctx, body, key, started); break;
                     case "/sam": HandleSam(ctx, body, key, started); break;
+                    case "/inspect": HandleInspect(ctx, body, key, started); break;
                     case "/supervise": HandleSupervise(ctx, body, key, started); break;
                     case "/warehouse": HandleWarehouse(ctx, body, key, started); break;
                     case "/urgent": HandleUrgent(ctx, body, key, started); break;
@@ -393,6 +394,42 @@ namespace RoboFactory.MetaServer
                 ["parse_error"] = parsed.Error,
                 // no mask payload in the answer: only the start of the text, for diagnosis
                 ["raw"] = Py.Cut(output, 240), ["number_count"] = objects.Count
+            });
+        }
+
+        /// <summary>Packing line: Muse Spark inspects one product (kind + visible defect) from the scan camera image.</summary>
+        private void HandleInspect(HttpListenerContext ctx, JObject body, string key, Stopwatch started)
+        {
+            JToken image = Py.Get(body, "image_b64");
+            string observationId = Py.StrOr(Py.Get(body, "observation_id"));
+            string trigger = Py.StrOr(Py.Get(body, "trigger"));
+            if (image == null || image.Type != JTokenType.String || image.Value<string>().Length < 100)
+            {
+                Fail(ctx, 400, "/inspect", started, "image_b64 is required");
+                return;
+            }
+            if (key == null) { Fail(ctx, 503, "/inspect", started, NoKey); return; }
+            string img = image.Value<string>();
+            JObject payload = MetaApi.UserMessage(MetaApi.VisionModel, MetaApi.Text(MetaPrompts.INSPECT_PROMPT), MetaApi.Image("data:image/png;base64," + img));
+            MetaApi.Result r = MetaApi.CallWithRetry(MetaApi.BaseUrl + "/responses", payload, key, 60);
+            if (r.Status != 200) { Fail(ctx, 502, "/inspect", started, "upstream status " + r.Status, new JObject { ["upstream"] = Py.Cut(r.Raw, 400) }); return; }
+            string output = MetaLogic.ExtractOutputText(r.Raw);
+            JObject parsed = MetaLogic.FirstJsonObject(output);
+            string error = "model did not return json";
+            JObject result = MetaLogic.HasJson(parsed) ? MetaLogic.ValidateInspection(parsed, out error) : null;
+            if (result == null) { Fail(ctx, 422, "/inspect", started, error, new JObject { ["raw_text"] = Py.Cut(output, 600) }); return; }
+            int latency = Ms(started);
+            MetaApi.Log(new JObject
+            {
+                ["endpoint"] = "/inspect", ["ok"] = true, ["status"] = 200, ["model"] = MetaApi.VisionModel, ["latency_ms"] = latency,
+                ["trigger"] = trigger, ["kind"] = result["kind"], ["defect"] = result["defect"], ["confidence"] = result["confidence"],
+                ["image_bytes"] = img.Length, ["observation_id"] = observationId
+            });
+            SendJson(ctx, 200, new JObject
+            {
+                ["ok"] = true, ["mode"] = "live", ["model"] = MetaApi.VisionModel, ["latency_ms"] = latency, ["trigger"] = trigger,
+                ["observation_id"] = observationId, ["kind"] = result["kind"], ["defect"] = result["defect"],
+                ["confidence"] = result["confidence"], ["reason"] = result["reason"]
             });
         }
 
