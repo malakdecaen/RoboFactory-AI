@@ -8,6 +8,7 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
+using RoboFactory.Sim.EditorTools;
 
 namespace RoboFactory.Sim.EditorTools
 {
@@ -25,6 +26,10 @@ namespace RoboFactory.Sim.EditorTools
 
         private static readonly Dictionary<string, Transform> built = new Dictionary<string, Transform>();
         private static readonly Dictionary<string, Material> materials = new Dictionary<string, Material>();
+        private static readonly Dictionary<string, Material[]> boxMaterials = new Dictionary<string, Material[]>();
+        private static Mesh cargoMesh;
+        private const string TextureDir = MaterialDir + "/Textures";
+        private const string CargoMeshPath = MaterialDir + "/sim_cargo_box_mesh.asset";
 
         [MenuItem("RoboFactory/Public/Build simplified scene")]
         public static void Build()
@@ -38,6 +43,8 @@ namespace RoboFactory.Sim.EditorTools
             JObject layout = JObject.Parse(File.ReadAllText(LayoutPath));
             built.Clear();
             materials.Clear();
+            boxMaterials.Clear();
+            cargoMesh = null;
 
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             BuildLighting(layout);
@@ -88,6 +95,111 @@ namespace RoboFactory.Sim.EditorTools
             EditorUtility.SetDirty(mat);
             materials[name] = mat;
             return mat;
+        }
+
+        // ------------------------------------------------------------------ textured boxes
+
+        /// <summary>
+        /// Materials of a box type, in the submesh order of CargoMesh: 0 = front/back (±Z), 1 = left/right (±X),
+        /// 2 = top/bottom. Cardboard (B, C): tape coming down on ±Z, label + hand hole on ±X, taped top.
+        /// Wooden crate (A): stencilled sides, plain top.
+        /// </summary>
+        private static Material[] BoxMaterials(string type, Color color)
+        {
+            if (boxMaterials.TryGetValue(type, out Material[] cached)) return cached;
+            char letter = type.Length > 0 ? type[0] : 'C';
+            int seed = 7 + letter;
+            Material[] mats;
+            if (type == "A")
+            {
+                Material side = TexMat("sim_box_A_side", BoxTextures.Crate(color.r, color.g, color.b, false, letter, seed), .12f);
+                Material top = TexMat("sim_box_A_top", BoxTextures.Crate(color.r, color.g, color.b, true, letter, seed), .12f);
+                mats = new[] { side, side, top };
+            }
+            else
+            {
+                mats = new[]
+                {
+                    TexMat("sim_box_" + type + "_tape", BoxTextures.Cardboard(color.r, color.g, color.b, BoxTextures.CardboardFace.SideTape, letter, seed), .1f),
+                    TexMat("sim_box_" + type + "_label", BoxTextures.Cardboard(color.r, color.g, color.b, BoxTextures.CardboardFace.SideLabel, letter, seed), .1f),
+                    TexMat("sim_box_" + type + "_top", BoxTextures.Cardboard(color.r, color.g, color.b, BoxTextures.CardboardFace.Top, letter, seed), .1f),
+                };
+            }
+            boxMaterials[type] = mats;
+            return mats;
+        }
+
+        /// <summary>White-tinted material whose base map is a generated texture (saved as a PNG next to the materials).</summary>
+        private static Material TexMat(string name, BoxTextures.Image image, float smoothness)
+        {
+            Directory.CreateDirectory(TextureDir);
+            string path = TextureDir + "/" + name + ".png";
+            var tex = new Texture2D(image.W, image.H, TextureFormat.RGBA32, false);
+            tex.LoadRawTextureData(image.Rgba);
+            tex.Apply(false);
+            File.WriteAllBytes(path, tex.EncodeToPNG());
+            UnityEngine.Object.DestroyImmediate(tex);
+            AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+            if (AssetImporter.GetAtPath(path) is TextureImporter importer)
+            {
+                importer.textureType = TextureImporterType.Default;
+                importer.sRGBTexture = true;
+                importer.mipmapEnabled = true;
+                importer.wrapMode = TextureWrapMode.Clamp;
+                importer.anisoLevel = 4;
+                importer.maxTextureSize = BoxTextures.Size;
+                importer.SaveAndReimport();
+            }
+            Texture2D asset = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            Material mat = Mat(name, Color.white, smoothness);
+            if (mat.HasProperty("_BaseMap")) mat.SetTexture("_BaseMap", asset);
+            if (mat.HasProperty("_MainTex")) mat.SetTexture("_MainTex", asset);
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
+        /// <summary>Unit cube (−0.5…0.5) with one UV square per face and three submeshes (±Z, ±X, ±Y).</summary>
+        private static Mesh CargoMesh()
+        {
+            if (cargoMesh != null) return cargoMesh;
+            Directory.CreateDirectory(MaterialDir);
+            Mesh mesh = AssetDatabase.LoadAssetAtPath<Mesh>(CargoMeshPath);
+            bool create = mesh == null;
+            if (create) mesh = new Mesh();
+            mesh.Clear();
+            mesh.name = "sim_cargo_box_mesh";
+            var vertices = new List<Vector3>();
+            var uvs = new List<Vector2>();
+            var tris = new[] { new List<int>(), new List<int>(), new List<int>() };
+            void Face(Vector3 n, Vector3 up, int sub)
+            {
+                // seen from outside: u = right, v = up (Unity front faces are clockwise)
+                Vector3 right = Vector3.Cross(up, -n);
+                Vector3 c = n * .5f;
+                int i = vertices.Count;
+                vertices.Add(c + (-right - up) * .5f); uvs.Add(new Vector2(0f, 0f));
+                vertices.Add(c + (-right + up) * .5f); uvs.Add(new Vector2(0f, 1f));
+                vertices.Add(c + (right + up) * .5f); uvs.Add(new Vector2(1f, 1f));
+                vertices.Add(c + (right - up) * .5f); uvs.Add(new Vector2(1f, 0f));
+                tris[sub].AddRange(new[] { i, i + 1, i + 2, i, i + 2, i + 3 });
+            }
+            Face(Vector3.forward, Vector3.up, 0);
+            Face(Vector3.back, Vector3.up, 0);
+            Face(Vector3.right, Vector3.up, 1);
+            Face(Vector3.left, Vector3.up, 1);
+            Face(Vector3.up, Vector3.forward, 2);
+            Face(Vector3.down, Vector3.forward, 2);
+            mesh.SetVertices(vertices);
+            mesh.SetUVs(0, uvs);
+            mesh.subMeshCount = 3;
+            for (int s = 0; s < 3; s++) mesh.SetTriangles(tris[s], s);
+            mesh.RecalculateNormals();
+            mesh.RecalculateTangents();
+            mesh.RecalculateBounds();
+            if (create) AssetDatabase.CreateAsset(mesh, CargoMeshPath);
+            else EditorUtility.SetDirty(mesh);
+            cargoMesh = mesh;
+            return mesh;
         }
 
         /// <summary>Empty object placed in world space (scale 1), stored under parent.</summary>
@@ -357,16 +469,15 @@ namespace RoboFactory.Sim.EditorTools
                 // local size: the bounds are world-aligned, the box may be rotated by 90°
                 Vector3 local = root.InverseTransformVector(size);
                 local = new Vector3(Mathf.Abs(local.x), Mathf.Abs(local.y), Mathf.Abs(local.z)) * .96f;
-                GameObject v = Box("box_" + type, root, V(b["center"]), root.rotation, Vector3.one, Mat("sim_box_" + type, color, .15f));
+                // textured cardboard box / wooden crate (procedural textures, see BoxTextures)
+                var v = new GameObject("box_" + type);
+                v.transform.SetPositionAndRotation(V(b["center"]), root.rotation);
+                v.transform.SetParent(root, true);
                 v.transform.localScale = local;
-                // identification stripes: A one stripe, B two, C none
-                Material tape = Mat("sim_box_tape", new Color(.12f, .12f, .12f), .1f);
-                int stripes = type == "A" ? 1 : type == "B" ? 2 : 0;
-                for (int i = 0; i < stripes; i++)
-                {
-                    GameObject st = Box("tape", v.transform, v.transform.position + root.up * (i == 0 ? .1f : -.1f) * local.y, root.rotation, Vector3.one, tape);
-                    st.transform.localScale = new Vector3(1.01f, .08f, 1.01f);
-                }
+                v.AddComponent<MeshFilter>().sharedMesh = CargoMesh();
+                var renderer = v.AddComponent<MeshRenderer>();
+                renderer.sharedMaterials = BoxMaterials(type, color);
+                renderer.shadowCastingMode = ShadowCastingMode.On;
             }
         }
 
