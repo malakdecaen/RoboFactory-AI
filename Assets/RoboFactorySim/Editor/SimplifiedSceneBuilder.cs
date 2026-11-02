@@ -321,7 +321,8 @@ namespace RoboFactory.Sim.EditorTools
                     }
                     else if (role == "Bench")
                     {
-                        foreach (float y in levelHeights)
+                        // only the bottom plate is drawn: the upper levels stay free (boxes still sit on their level points)
+                        foreach (float y in levelHeights.Take(1))
                             Box("shelf_plate", root, new Vector3(c.x, y - .27f, c.z), Quaternion.identity, new Vector3(size.x, .04f, size.z), plate);
                         foreach (float dx in new[] { -.5f, .5f })
                         foreach (float dz in new[] { -.5f, .5f })
@@ -406,6 +407,7 @@ namespace RoboFactory.Sim.EditorTools
         {
             Material env = Mat("sim_env", new Color(.58f, .6f, .63f), .3f);
             Material person = Mat("sim_person", new Color(.95f, .55f, .1f), .3f);
+            // (the "i" index below still counts every obstacle of the layout, built or not)
             int i = 0;
             foreach (JObject o in (JArray)layout["obstacles"])
             {
@@ -419,6 +421,9 @@ namespace RoboFactory.Sim.EditorTools
                 if (parent == null) parent = Group("Environment");
                 bool worker = path.StartsWith("Worker");
                 bool onStation = owner.StartsWith("storage:") || owner.StartsWith("truck:");
+                // Scenery obstacles of the original environment (walls, roof spacers, big shelf, worker...) are not
+                // built: only the invisible colliders that belong to the benches, pallets and trucks are kept.
+                if (!onStation) continue;
                 GameObject go = Box("obstacle_" + (i++) + "_" + path.Substring(path.LastIndexOf('/') + 1), parent,
                                     V(o["center"]), Q(o["rot"]), V(o["size"]), worker ? person : env, true, false);
                 // The stations' colliders stay invisible: their visual is already built.
