@@ -10,6 +10,7 @@
 - **Muse Spark fallback**: if Wonder does not answer in time (or returns 404 / 408 / 429 / 5xx), the same request is sent to Spark. The model actually used is always displayed.
 - **Urgent voice orders** (Muse Voice, real-time transcription): "urgent order, two B boxes" safely pauses the orders in progress (no box is lost or dropped on the floor), runs the urgent order, then resumes the others in order.
 - **FINISH TO FREE**: when all 3 benches and all 3 trucks are busy, Muse chooses which order to finish first to free a bay as fast as possible (ETA computed from real travel distances).
+- **SAM 3.1 on the robot cameras**: R1 and R2 send what their on-board camera sees to Meta SAM 3.1 when R1 takes a box from a pallet or puts one on a bench, when R2 reaches a bench and after it drops a box in a truck ("box"), and when an employee is in front of a moving robot ("person"). The boxes SAM returns are drawn in the ROBOT VISION windows with their confidence, next to what the simulation knows at that place ("scene"). SAM never drives the robots: the emergency stop stays local, because a ~2 s answer is too slow for safety.
 - **Real-time HUD**: Muse decisions, orders, robot and resource states, orbit camera, and a flow log that flags wasted steps.
 - **Meta gateway built into the game** (C#): no Python, no external executable; the API key never leaves the process.
 
@@ -63,7 +64,7 @@ The GitHub Release contains the Windows build with the original art. To rebuild 
 | `Assets/RoboFactory/Scripts` | Orchestration contracts (plan validation, resume after an urgent order), Meta client |
 | `Assets/RoboFactorySim` | Public version: replacement components for the store assets + the simplified scene builder |
 
-Meta models used: `muse-wonder-1.0` (orchestration), `muse-spark-1.3` (fallback, vision), `muse-voice-transcribe-1.0` (voice), `sam-3.1` (segmentation).
+Meta models used: `muse-wonder-1.0` (orchestration), `muse-spark-1.3` (fallback, vision), `muse-voice-transcribe-1.0` (voice), `sam-3.1` (segmentation of the robot cameras: boxes and confidence; the masks are requested in the compact encoding but not decoded).
 
 ## License
 

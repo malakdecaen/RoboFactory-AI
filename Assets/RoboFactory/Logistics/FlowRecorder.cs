@@ -85,6 +85,7 @@ namespace RoboFactory.Logistics
         private readonly Dictionary<string, float> doorLoadingTotal = new Dictionary<string, float>();
 
         private int routeChanges, suspensions, incidentsCount, cartonMoves;
+        private int samCalls, samWithObjects, samFailed;
         private readonly List<string> incidentLines = new List<string>();
         private string lastStage = "", lastVoiceState = "", lastFinal = "", lastFailure = "";
         private float idleSince = -1f;
@@ -131,7 +132,7 @@ namespace RoboFactory.Logistics
                 writer.WriteLine("# RoboFactory — flow journal " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") +
                                  "  scene=" + UnityEngine.SceneManagement.SceneManager.GetActiveScene().name);
                 writer.WriteLine("# columns: real time | game time | gap since the previous line | actor | action");
-                writer.WriteLine("# actors: ORDER, MUSE, R1, R2, DOOR, BOX, URGENT, VOICE, INCIDENT; a SUMMARY follows each end of activity");
+                writer.WriteLine("# actors: ORDER, MUSE, SAM, R1, R2, DOOR, BOX, URGENT, VOICE, INCIDENT; a SUMMARY follows each end of activity");
                 writer.WriteLine();
                 Debug.Log("[FlowRecorder] flow journal: " + FilePath);
             }
@@ -164,6 +165,15 @@ namespace RoboFactory.Logistics
             if (type == LogType.Exception || type == LogType.Error)
             {
                 Line("ERROR", message.Split('\n')[0]);
+                return;
+            }
+            if (message.StartsWith("[SAM] "))
+            {
+                // SAM 3.1 on a robot camera (SamVisionService): "R1 pallet P02 'box': 3 segmented (scene 4) · sam-3.1 1.8 s"
+                string text = message.Substring("[SAM] ".Length);
+                if (text.Contains(" segmented")) { samCalls++; if (!text.Contains(": 0 segmented")) samWithObjects++; }
+                else if (text.Contains("failed") || text.Contains("no recorded")) { samCalls++; samFailed++; }
+                Line("SAM", text);
                 return;
             }
             if (message.StartsWith("[Muse] incident: "))
@@ -598,6 +608,10 @@ namespace RoboFactory.Logistics
             foreach (KeyValuePair<string, int> kv in byTrigger) trig.Add(kv.Key + "×" + kv.Value);
             sb.AppendLine("MUSE — " + museCalls.Count + " call(s): " + useful + " useful, " + noEffect + " without effect (wait/no_plan…), " +
                           rejected + " refused/failed; total wait " + latency.ToString("F0") + " s  [" + string.Join(", ", trig) + "]");
+
+            // ---- SAM 3.1 (robot cameras)
+            sb.AppendLine("SAM 3.1 — " + samCalls + " segmentation(s) of the robot cameras: " + samWithObjects + " with objects, " +
+                          (samCalls - samWithObjects - samFailed) + " empty, " + samFailed + " without answer");
 
             // ---- doors
             foreach (KeyValuePair<string, float> kv in doorOpenTotal)

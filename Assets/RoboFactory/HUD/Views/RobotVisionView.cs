@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -7,9 +8,10 @@ namespace RoboFactory.HUD
     /// <summary>
     /// ROBOT VISION window (V2) in the style of a surveillance feed: crisp 320×180 video (render
     /// supersampled according to the real screen resolution), high-contrast frame, navigation
-    /// target KNOWN TO THE CONTROLLER clearly distinguished from a visual detection
-    /// (no detector connected → « DETECTION: NOT CONNECTED », no box drawn).
-    /// Enlarges on click.
+    /// target KNOWN TO THE CONTROLLER clearly distinguished from a visual detection.
+    /// Visual detections come from Meta SAM 3.1 (SamVisionService): the boxes SAM returned for the last analysed
+    /// frame are drawn over the video and fade out as the robot moves on; the chip tells the concept, the count,
+    /// the latency and what the simulation knows at that place ("scene"). Enlarges on click.
     /// </summary>
     public sealed class RobotVisionView
     {
@@ -27,6 +29,12 @@ namespace RoboFactory.HUD
         private TextMeshProUGUI title, fpsText, targetLabel, targetText, routeText;
         private Image liveDot, stroke, scanLine;
         private BracketsGraphic brackets;
+        private Chip detect;
+        private RectTransform overlay;
+        private readonly List<BracketsGraphic> samBoxes = new List<BracketsGraphic>();
+        private readonly List<TextMeshProUGUI> samLabels = new List<TextMeshProUGUI>();
+        /// <summary>Seconds the SAM boxes stay fully visible, then fade-out duration.</summary>
+        public float SamHold = 2.5f, SamFade = 3.5f;
         private float time;
         private float size, sizeTarget;
 
@@ -83,8 +91,11 @@ namespace RoboFactory.HUD
             scanLine.rectTransform.anchorMax = new Vector2(1f, 0f);
             scanLine.rectTransform.sizeDelta = new Vector2(0f, 1.5f);
 
-            Chip detect = HudFactory.Chip(frame, "Detection", "DETECTION NOT CONNECTED", HudTheme.Amber, 232f, 22f);
-            HudFactory.Place(detect.Root, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(10f, -10f), new Vector2(232f, 22f));
+            overlay = HudFactory.Rect("SAM Overlay", frame);
+            HudFactory.Stretch(overlay);
+
+            detect = HudFactory.Chip(frame, "Detection", "SAM 3.1 · STANDBY", HudTheme.TextMid, 300f, 22f);
+            HudFactory.Place(detect.Root, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(10f, -10f), new Vector2(300f, 22f));
             detect.Label.characterSpacing = .5f;
             detect.Fill.color = new Color(.02f, .03f, .05f, .85f);
 
@@ -112,8 +123,9 @@ namespace RoboFactory.HUD
             Feed.SetResolution(rw, rh);
         }
 
-        public void Tick(float dt, RobotVM r, bool visible, int cullingMask)
+        public void Tick(float dt, RobotVM r, bool visible, int cullingMask, SamVisionService.RobotSam sam = null)
         {
+            TickSam(sam);
             time += dt;
             if (r.Transform != null && Feed.Robot != r.Transform) Feed.Attach(r.Transform, cullingMask);
             UpdateResolution();
@@ -152,6 +164,94 @@ namespace RoboFactory.HUD
             float y = Mathf.Repeat(time * .3f, 1f);
             scanLine.rectTransform.anchorMin = new Vector2(0f, y);
             scanLine.rectTransform.anchorMax = new Vector2(1f, y);
+        }
+
+        // ------------------------------------------------------------------ SAM 3.1
+
+        private void TickSam(SamVisionService.RobotSam sam)
+        {
+            if (detect == null) return;
+            if (sam == null)
+            {
+                SetChip("SAM 3.1 · NOT CONNECTED", HudTheme.Amber);
+                ShowBoxes(null, 0f);
+                return;
+            }
+            string where = sam.PlaceKind == "path" ? "PATH" : (sam.Place ?? "").Length > 0 ? sam.Place : sam.PlaceKind.ToUpperInvariant();
+            string concept = (sam.Concept ?? "").ToUpperInvariant();
+            switch (sam.Status)
+            {
+                case "SEGMENTING":
+                    SetChip("SAM 3.1 · SEGMENTING " + concept + " · " + where + Dots(), HudTheme.Cyan);
+                    break;
+                case "OK":
+                    string scene = sam.Scene >= 0 ? " · SCENE " + sam.Scene : "";
+                    string lat = (sam.LatencyMs / 1000f).ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + " s";
+                    SetChip("SAM 3.1 · " + sam.Seen + " " + concept + (sam.Seen == 1 ? "" : "S") + " · " + where + scene + " · " + lat +
+                            (sam.Recorded ? " · REC" : ""), sam.Seen > 0 ? HudTheme.Green : HudTheme.TextMid);
+                    break;
+                case "FAILED":
+                    SetChip("SAM 3.1 · NO ANSWER (" + where + ")", HudTheme.Red);
+                    break;
+                case "NOT RECORDED":
+                    SetChip("SAM 3.1 · NOT RECORDED FOR THIS VIEW", HudTheme.Amber);
+                    break;
+                default:
+                    SetChip("SAM 3.1 · STANDBY", HudTheme.TextMid);
+                    break;
+            }
+            float age = Time.unscaledTime - sam.At;
+            float alpha = sam.Status == "OK" ? 1f - Mathf.Clamp01((age - SamHold) / Mathf.Max(.01f, SamFade)) : 0f;
+            ShowBoxes(sam.Status == "OK" ? sam.Detections : null, alpha);
+        }
+
+        private string Dots() => new string('.', 1 + (int)(time * 3f) % 3);
+
+        private void SetChip(string text, Color color)
+        {
+            HudFactory.Set(detect.Label, text);
+            detect.SetColor(color);
+        }
+
+        private void ShowBoxes(List<SamVisionService.Detection> detections, float alpha)
+        {
+            int n = detections != null && alpha > .01f ? detections.Count : 0;
+            while (samBoxes.Count < n)
+            {
+                int i = samBoxes.Count;
+                BracketsGraphic b = HudFactory.Add<BracketsGraphic>(overlay, "SAM Box " + i);
+                b.Length = 10f;
+                b.Width = 2f;
+                b.Inset = 0f;
+                b.raycastTarget = false;
+                samBoxes.Add(b);
+                TextMeshProUGUI t = HudFactory.Text(b.rectTransform, "Label", "", HudTheme.FontMicro, HudTheme.Green, true, TextAlignmentOptions.BottomLeft, .5f);
+                t.rectTransform.anchorMin = new Vector2(0f, 1f);
+                t.rectTransform.anchorMax = new Vector2(0f, 1f);
+                t.rectTransform.pivot = new Vector2(0f, 0f);
+                t.rectTransform.anchoredPosition = new Vector2(0f, 2f);
+                t.rectTransform.sizeDelta = new Vector2(120f, 16f);
+                t.raycastTarget = false;
+                samLabels.Add(t);
+            }
+            for (int i = 0; i < samBoxes.Count; i++)
+            {
+                bool on = i < n;
+                if (samBoxes[i].gameObject.activeSelf != on) samBoxes[i].gameObject.SetActive(on);
+                if (!on) continue;
+                SamVisionService.Detection d = detections[i];
+                RectTransform rt = samBoxes[i].rectTransform;
+                // SAM boxes: origin top-left of the image; UI anchors: origin bottom-left
+                rt.anchorMin = new Vector2(d.Box.xMin, 1f - d.Box.yMax);
+                rt.anchorMax = new Vector2(d.Box.xMax, 1f - d.Box.yMin);
+                rt.offsetMin = rt.offsetMax = Vector2.zero;
+                Color c = HudTheme.Green;
+                HudFactory.SetColor(samBoxes[i], HudTheme.A(c, .95f * alpha));
+                HudFactory.SetColor(samLabels[i], HudTheme.A(Color.Lerp(c, Color.white, .3f), alpha));
+                HudFactory.Set(samLabels[i], d.Confidence >= 0f
+                    ? d.Confidence.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)
+                    : "#" + d.Id);
+            }
         }
 
         public void Dispose() { Feed.Release(); }

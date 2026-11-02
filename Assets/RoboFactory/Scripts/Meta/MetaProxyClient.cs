@@ -96,6 +96,24 @@ namespace RoboFactory.Hackathon.Meta
         public string raw;
         public int number_count;
         public string observation_id;
+        public string concept;
+        public string trigger;
+        public bool recorded;
+        /// <summary>Size of the analysed image (pixels): the boxes are expressed in this frame.</summary>
+        public int width;
+        public int height;
+        public int count;
+        public SamObjectDto[] objects;
+    }
+
+    /// <summary>One object segmented by SAM 3.1: box in source pixels (top-left x1,y1 / bottom-right x2,y2), confidence c (−1 = none).</summary>
+    [Serializable]
+    public sealed class SamObjectDto
+    {
+        public int id;
+        public float x1, y1, x2, y2;
+        public float c;
+        public bool mask;
     }
 
     [Serializable]
@@ -105,6 +123,9 @@ namespace RoboFactory.Hackathon.Meta
         public string concept;
         public string observation_id;
         public string mode;
+        public string mime;
+        public string trigger;
+        public float min_confidence;
     }
 
     [Serializable]
@@ -324,7 +345,22 @@ namespace RoboFactory.Hackathon.Meta
 
         public IEnumerator AskSam(string imageBase64, string concept, string observationId, string mode, Action<SamResponse> done)
         {
-            var body = new SamRequest { image_b64 = imageBase64, concept = concept, observation_id = observationId, mode = mode };
+            var body = new SamRequest { image_b64 = imageBase64, concept = concept, observation_id = observationId, mode = mode, mime = "image/png", min_confidence = .3f };
+            yield return Post("/sam", JsonUtility.ToJson(body), 150, done);
+        }
+
+        /// <summary>
+        /// SAM 3.1 on a robot camera frame. <paramref name="trigger"/> identifies robot + place + concept
+        /// ("R1|pallet|P02|cardboard box"): it is what the RECORDED DEMO matches to serve the right recorded answer.
+        /// </summary>
+        public IEnumerator AskSamFrame(string imageBase64, string mime, string concept, string trigger, string observationId,
+                                       float minConfidence, Action<SamResponse> done)
+        {
+            var body = new SamRequest
+            {
+                image_b64 = imageBase64, concept = concept, observation_id = observationId, mode = "live",
+                mime = string.IsNullOrEmpty(mime) ? "image/png" : mime, trigger = trigger, min_confidence = minConfidence
+            };
             yield return Post("/sam", JsonUtility.ToJson(body), 150, done);
         }
 
