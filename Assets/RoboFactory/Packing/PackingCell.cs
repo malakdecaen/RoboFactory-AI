@@ -55,7 +55,7 @@ namespace RoboFactory.Packing
         [Header("Scan camera")]
         public float ScanHeight = .55f;
         public float ScanFov = 34f;
-        public int ScanResolution = 384;
+        public int ScanResolution = 256;
 
         public string ProxyUrl = "http://127.0.0.1:8765";
         public bool BuildScanStation = true;
@@ -232,7 +232,9 @@ namespace RoboFactory.Packing
             string why;
             if (item.ScanFailed) { item.Decision = "pass"; item.Scanned = false; why = "no scan answer, rescan next lap"; }
             else if (item.ScanDefect != "none" && item.ScanConfidence >= MinRejectConfidence) { item.Decision = "reject"; why = "defect " + item.ScanDefect; }
-            else if (item.ScanKind == "unknown") { item.Decision = "reject"; why = "unknown product"; }
+            else if ((item.ScanKind == "unknown" || item.ScanConfidence < MinRejectConfidence) && item.Laps < 1)
+            { item.Decision = "pass"; item.Scanned = false; why = "uncertain (" + item.ScanKind + ", " + item.ScanConfidence.ToString("F2", CultureInfo.InvariantCulture) + "), rescan next lap"; }
+            else if (item.ScanKind == "unknown") { item.Decision = "reject"; why = "still unknown after a second scan"; }
             else if (item.ScanDefect != "none") { item.Decision = "pass"; item.Scanned = false; why = "uncertain defect, rescan next lap"; }
             else if (PackingItem.TryParseKind(item.ScanKind, out ItemKind kind) && ActiveCarton() != null && ActiveCarton().Needs(kind))
             { item.Decision = "take"; why = "needed in carton #" + ActiveCarton().Number; }
