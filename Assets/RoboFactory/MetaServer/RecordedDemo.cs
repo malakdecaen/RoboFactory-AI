@@ -205,6 +205,35 @@ namespace RoboFactory.MetaServer
             }
         }
 
+        private static JObject FindRecordedUrgent(string transcript)
+        {
+            lock (gate)
+            {
+                string t = Normalize(transcript);
+                foreach (JObject c in replayCalls)
+                    if ((string)c["route"] == "/urgent" && Normalize((string)c["transcript"]) == t) return c;
+                return null;
+            }
+        }
+
+        /// <summary>True if the recorded Meta answer to this urgent sentence was "wait" / "no_plan" / "defer_order".</summary>
+        public static bool RecordedUrgentWaits(string transcript)
+        {
+            JObject c = FindRecordedUrgent(transcript);
+            string action = (string)c?["response"]?["result"]?["action"] ?? "";
+            return action == "wait" || action == "no_plan" || action == "defer_order";
+        }
+
+        /// <summary>The A/B/C quantities Meta understood for this recorded urgent sentence.</summary>
+        public static bool TryRecordedUrgentOrder(string transcript, out int a, out int b, out int c)
+        {
+            a = b = c = 0;
+            JToken o = FindRecordedUrgent(transcript)?["response"]?["result"]?["order"];
+            if (o == null || o.Type != JTokenType.Object) return false;
+            a = (int?)o["A"] ?? 0; b = (int?)o["B"] ?? 0; c = (int?)o["C"] ?? 0;
+            return a + b + c > 0;
+        }
+
         private static string Normalize(string s)
         {
             return (s ?? "").Trim().ToLowerInvariant();

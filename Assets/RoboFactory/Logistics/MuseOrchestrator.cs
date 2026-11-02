@@ -919,6 +919,12 @@ namespace RoboFactory.Logistics
         /// free levels; unreserved truck, physically EMPTY (no box from another
         /// order, never a trailer that is still loaded), enough slots, door at rest.
         /// </summary>
+        /// <summary>Read-only: is there a free bench AND truck for an urgent order of this size right now?</summary>
+        public bool UrgentCapacityFree(int need)
+        {
+            return HasUrgentCapacity(need, out _, out _);
+        }
+
         private bool HasUrgentCapacity(int need, out string bench, out string truck)
         {
             bench = null;
