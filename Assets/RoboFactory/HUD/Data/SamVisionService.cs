@@ -24,9 +24,12 @@ namespace RoboFactory.HUD
     ///     the whole order is declared VERIFIED if SAM sees as many boxes as the truck really holds;
     ///   - an employee is in front of a moving robot ("person", every few seconds at most).
     ///
-    /// Only the objects inside the work zone are counted: the bench / truck / pallet slots are projected into the
-    /// image and the boxes SAM finds elsewhere in the hall (racks in the background…) are ignored. The word sent to
-    /// SAM follows the boxes really expected there ("cardboard box", "wooden crate"; one call per word).
+    /// Slot-by-slot check: every slot of the bench / truck / pallet is projected into the image; each object SAM
+    /// returns is attached to the slot it overlaps best (a box found twice, or found by two words, lands on the same
+    /// slot; objects elsewhere in the hall overlap no slot and are ignored). A slot hidden behind a nearer box is
+    /// not judged. The word sent to SAM follows the boxes really expected there ("cardboard box", "wooden crate").
+    /// In a truck, the box R2 has just dropped must be seen at its slot; an order is VERIFIED when each of its
+    /// boxes has been confirmed by SAM at the moment it was loaded.
     /// The SAM count is compared with what the simulation knows at that place ("scene"), never mixed with it:
     /// SAM never drives the robots and the emergency stop stays local (a ~2 s answer is far too slow for safety).
     /// Every check is logged ("[SAM] …" → flow journal) and, in LIVE AI recording, recorded; the RECORDED DEMO
@@ -55,7 +58,8 @@ namespace RoboFactory.HUD
             public string Place = "";                 // P02, B03, T01, "path"
             public string PlaceKind = "";             // pallet, bench, truck, path
             public int Seen = -1;                     // objects SAM found inside the work zone
-            public int Ignored;                       // objects SAM found outside the work zone (not counted)
+            public int Ignored;                       // objects SAM found on no slot (decor, background: not counted)
+            public int Hidden;                        // occupied slots hidden behind a nearer box or out of the image
             public int Scene = -1;                    // objects the simulation knows at that place (−1 = unknown)
             public int LatencyMs;
             public string Model = "";
@@ -83,15 +87,25 @@ namespace RoboFactory.HUD
             public int Scene;
         }
 
+        internal sealed class Slot
+        {
+            public Rect Rect;                         // normalized, origin top-left
+            public bool InImage, Hidden, Occupied, IsNew, Seen;
+            public float Depth;
+            public CargoBox Box;
+        }
+
         internal sealed class Request
         {
             public string Place, PlaceKind;
             public readonly List<Part> Parts = new List<Part>();
+            public readonly List<Slot> Slots = new List<Slot>();
             public int Scene;
             public string Png;
             public Rect Zone;
             public bool HasZone;
             public bool Verify;                       // bench / truck: a verdict is given
+            public CargoBox NewBox;                   // box just put there (must be seen)
             public int OrderId = -1, OrderTotal, OrderInTruck;
             public float At;
         }
@@ -104,7 +118,10 @@ namespace RoboFactory.HUD
         public float PersonRange = 8f;
         public float PersonHalfAngle = 33f;        // roughly the camera's half field of view
         public float FailureBackoff = 20f;
-        public float ZoneMargin = .04f;
+        public float ZoneMargin = .02f;
+        public float SlotMatchIoU = .2f;
+        public float HiddenOverlap = .6f;
+        public float DefaultBoxSize = .6f;
         public bool Enabled = true;
 
         public readonly RobotSam R1 = new RobotSam { RobotId = "R1" };
@@ -118,6 +135,9 @@ namespace RoboFactory.HUD
         private TruckLoaderAgent.R2State lastR2State = TruckLoaderAgent.R2State.Stopped;
         private string lastR1Bench = "", lastR2Truck = "", lastR2Bench = "";
         private int lastR2Order = -1;
+        private CargoBox lastR2Box;
+        /// <summary>Boxes confirmed by SAM at the moment they were loaded, per order.</summary>
+        private readonly Dictionary<int, HashSet<CargoBox>> verifiedLoads = new Dictionary<int, HashSet<CargoBox>>();
         private Texture2D readback;
         private int seq;
 
@@ -156,13 +176,14 @@ namespace RoboFactory.HUD
                 {
                     lastR2Truck = Clean(m.R2.Destination);
                     if (r2.DirectedOrderId >= 0) lastR2Order = r2.DirectedOrderId;
+                    if (r2.Carried != null) lastR2Box = r2.Carried;
                 }
                 if (s != lastR2State)
                 {
                     if (s == TruckLoaderAgent.R2State.Picking && lastR2Bench.Length > 0 && world != null)
-                        CheckStorage(R2, feedR2, "bench", lastR2Bench, world.Bench(lastR2Bench), true);
+                        CheckStorage(R2, feedR2, "bench", lastR2Bench, world.Bench(lastR2Bench), true, null);
                     if (lastR2State == TruckLoaderAgent.R2State.Dropping && lastR2Truck.Length > 0 && world != null)
-                        CheckTruck(world.Truck(lastR2Truck), lastR2Truck, lastR2Order);
+                        CheckTruck(world.Truck(lastR2Truck), lastR2Truck, lastR2Order, lastR2Box);
                     lastR2State = s;
                 }
             }
@@ -207,7 +228,7 @@ namespace RoboFactory.HUD
         private void OnR1Picked(CargoBox box, WarehouseRobotAutopilot.PickLeg leg)
         {
             if (leg == null) return;
-            CheckStorage(R1, feedR1, "pallet", leg.PalletId ?? "", leg.Pallet, false);
+            CheckStorage(R1, feedR1, "pallet", leg.PalletId ?? "", leg.Pallet, false, null);
         }
 
         private void OnR1Staged(CargoBox box)
@@ -215,24 +236,25 @@ namespace RoboFactory.HUD
             WarehouseWorld world = WarehouseWorld.Instance;
             string bench = lastR1Bench;
             if (world == null || bench.Length == 0) return;
-            CheckStorage(R1, feedR1, "bench", bench, world.Bench(bench), true);
+            CheckStorage(R1, feedR1, "bench", bench, world.Bench(bench), true, box);
         }
 
-        /// <summary>Pallet or bench in front of the robot: boxes counted inside its slots.</summary>
-        private void CheckStorage(RobotSam r, RobotVisionFeed feed, string kind, string place, ShelfStorage storage, bool verify)
+        /// <summary>Pallet or bench in front of the robot: slot-by-slot check.</summary>
+        private void CheckStorage(RobotSam r, RobotVisionFeed feed, string kind, string place, ShelfStorage storage, bool verify, CargoBox newBox)
         {
             if (storage == null) return;
-            var q = new Request { Place = place, PlaceKind = kind, Verify = verify };
-            AddParts(q, storage.GetComponentsInChildren<CargoBox>(false));
-            if (!TryZone(feed, SlotBounds(storage, null), out q.Zone)) q.HasZone = false; else q.HasZone = true;
+            var q = new Request { Place = place, PlaceKind = kind, Verify = verify, NewBox = newBox };
+            CargoBox[] boxes = storage.GetComponentsInChildren<CargoBox>(false);
+            AddParts(q, boxes);
+            BuildSlots(feed, q, storage, boxes);
             Submit(r, feed, q);
         }
 
         /// <summary>R2 has just dropped a box in a truck: the load (and the order when complete) is checked.</summary>
-        private void CheckTruck(TruckBay truck, string truckId, int orderId)
+        private void CheckTruck(TruckBay truck, string truckId, int orderId, CargoBox newBox)
         {
             if (truck == null) return;
-            var q = new Request { Place = truckId, PlaceKind = "truck", Verify = true, OrderId = orderId };
+            var q = new Request { Place = truckId, PlaceKind = "truck", Verify = true, OrderId = orderId, NewBox = newBox };
             CargoBox[] boxes = truck.GetComponentsInChildren<CargoBox>(false);
             AddParts(q, boxes);
             if (orderId >= 0)
@@ -241,7 +263,7 @@ namespace RoboFactory.HUD
                 OrderVM o = model != null ? model.FindOrder(orderId) : null;
                 q.OrderTotal = o != null ? o.Total : 0;
             }
-            q.HasZone = TryZone(feedR2, SlotBounds(truck.Storage, boxes), out q.Zone);
+            BuildSlots(feedR2, q, truck.Storage, boxes);
             Submit(R2, feedR2, q);
         }
 
@@ -327,11 +349,10 @@ namespace RoboFactory.HUD
 
         private IEnumerator Call(RobotSam r, Request q)
         {
-            var found = new List<Detection>();
-            int ignored = 0, latency = 0;
+            var raw = new List<Detection>();
+            int latency = 0;
             string modelName = "", error = "";
             bool recorded = false, failed = false;
-            var conf = new StringBuilder();
             foreach (Part part in q.Parts)
             {
                 SamResponse response = null;
@@ -356,10 +377,7 @@ namespace RoboFactory.HUD
                     float x1 = Mathf.Clamp01(o.x1 / w), y1 = Mathf.Clamp01(o.y1 / h);
                     float x2 = Mathf.Clamp01((o.x2 + 1f) / w), y2 = Mathf.Clamp01((o.y2 + 1f) / h);
                     if (x2 <= x1 || y2 <= y1) continue;
-                    var d = new Detection { Box = Rect.MinMaxRect(x1, y1, x2, y2), Confidence = o.c, Id = o.id, Concept = part.Concept };
-                    if (q.HasZone && !q.Zone.Contains(d.Box.center)) { ignored++; continue; }
-                    found.Add(d);
-                    if (o.c >= 0f) conf.Append(conf.Length > 0 ? "/" : "").Append(o.c.ToString("F2", CultureInfo.InvariantCulture));
+                    raw.Add(new Detection { Box = Rect.MinMaxRect(x1, y1, x2, y2), Confidence = o.c, Id = o.id, Concept = part.Concept });
                 }
             }
 
@@ -370,6 +388,7 @@ namespace RoboFactory.HUD
             r.HasZone = q.HasZone;
             r.Verdict = r.VerdictText = "";
             r.OrderVerified = false;
+            r.Hidden = 0;
             bool replay = RunMode.Kind == RunKind.Recorded;
             if (failed)
             {
@@ -383,48 +402,129 @@ namespace RoboFactory.HUD
                           (replay ? "no recorded SAM answer for this view" : "failed" + (error.Length > 0 ? " (" + error + ")" : "")));
                 yield break;
             }
-            r.Detections.AddRange(found);
-            r.Seen = found.Count;
-            r.Ignored = ignored;
             r.Model = modelName;
             r.LatencyMs = latency;
             r.Recorded = recorded;
             r.Status = "OK";
 
-            // ---- verdict: SAM count in the work zone vs what the simulation holds there
-            if (q.Verify && q.Scene >= 0)
+            var conf = new StringBuilder();
+            int ignored = 0;
+            if (q.Slots.Count == 0)
             {
-                bool ok = r.Seen == q.Scene && q.Scene > 0;
-                r.Verdict = ok ? "VERIFIED" : "MISMATCH";
-                if (ok) r.Verified++; else r.Mismatches++;
-                string unit = q.Scene == 1 ? "BOX" : "BOXES";
-                if (q.PlaceKind == "truck")
+                // no slot to check against (employees on the path): every object counts
+                foreach (Detection d in raw) { r.Detections.Add(d); AppendConf(conf, d); }
+                r.Seen = r.Detections.Count;
+                r.Ignored = 0;
+                r.Scene = q.Scene;
+                LogResult(r, q, conf, 0, 0, 0, 0, false);
+                yield break;
+            }
+
+            // ---- each SAM object goes to the visible slot it overlaps best (one slot = one box at most)
+            foreach (Detection d in raw)
+            {
+                Slot best = null;
+                float bestIoU = SlotMatchIoU;
+                foreach (Slot sl in q.Slots)
                 {
-                    bool orderComplete = q.OrderId >= 0 && q.OrderTotal > 0 && q.OrderInTruck >= q.OrderTotal;
-                    r.OrderVerified = ok && orderComplete;
-                    if (r.OrderVerified) r.OrdersVerified++;
-                    if (r.OrderVerified)
-                        r.VerdictText = "ORDER #" + q.OrderId + " VERIFIED · " + q.OrderInTruck + "/" + q.OrderTotal + " BOXES IN " + q.Place;
-                    else if (ok)
-                        r.VerdictText = "LOAD VERIFIED · " + q.Scene + " " + unit + " IN " + q.Place +
-                                        (q.OrderId >= 0 && q.OrderTotal > 0 ? " · ORDER #" + q.OrderId + " " + q.OrderInTruck + "/" + q.OrderTotal : "");
-                    else
-                        r.VerdictText = "CHECK · SAM SEES " + r.Seen + ", TRUCK HOLDS " + q.Scene;
+                    if (!sl.InImage || sl.Hidden) continue;
+                    float iou = IoU(d.Box, sl.Rect);
+                    if (iou >= bestIoU) { bestIoU = iou; best = sl; }
+                }
+                if (best == null) { ignored++; continue; }
+                if (best.Seen) continue;            // same box found again (other word, part of the box)
+                best.Seen = true;
+                r.Detections.Add(d);
+                AppendConf(conf, d);
+            }
+
+            int visible = 0, seenOk = 0, onEmpty = 0, hidden = 0;
+            bool newVisible = false, newSeen = false;
+            foreach (Slot sl in q.Slots)
+            {
+                bool judged = sl.InImage && !sl.Hidden;
+                if (sl.Occupied && !judged) hidden++;
+                if (!judged) continue;
+                if (sl.Occupied) { visible++; if (sl.Seen) seenOk++; }
+                else if (sl.Seen) onEmpty++;
+                if (sl.IsNew) { newVisible = true; newSeen = sl.Seen; }
+            }
+            r.Seen = seenOk + onEmpty;
+            r.Ignored = ignored;
+            r.Hidden = hidden;
+            r.Scene = visible;
+
+            // ---- verdict
+            if (q.Verify)
+            {
+                string place = q.PlaceKind == "truck" ? q.Place : q.PlaceKind.ToUpperInvariant() + " " + q.Place;
+                bool allVisibleSeen = seenOk == visible && onEmpty == 0;
+                if (q.NewBox != null && !newVisible)
+                {
+                    r.Verdict = "UNSEEN";
+                    r.VerdictText = "NEW BOX NOT VISIBLE FROM HERE · " + place;
+                }
+                else if (visible == 0)
+                {
+                    r.Verdict = "UNSEEN";
+                    r.VerdictText = "NO BOX VISIBLE FROM HERE · " + place;
                 }
                 else
                 {
-                    r.VerdictText = ok ? q.PlaceKind.ToUpperInvariant() + " " + q.Place + " VERIFIED · " + q.Scene + " " + unit
-                                       : "CHECK · SAM SEES " + r.Seen + ", " + q.PlaceKind.ToUpperInvariant() + " HOLDS " + q.Scene;
+                    bool ok = allVisibleSeen && (q.NewBox == null || newSeen);
+                    r.Verdict = ok ? "VERIFIED" : "MISMATCH";
+                    if (ok) r.Verified++; else r.Mismatches++;
+                    string hiddenText = hidden > 0 ? " (+" + hidden + " HIDDEN)" : "";
+                    if (q.PlaceKind == "truck")
+                    {
+                        string order = q.OrderId >= 0 && q.OrderTotal > 0 ? " · ORDER #" + q.OrderId + " " + q.OrderInTruck + "/" + q.OrderTotal : "";
+                        if (ok && q.OrderId >= 0 && q.NewBox != null)
+                        {
+                            if (!verifiedLoads.TryGetValue(q.OrderId, out HashSet<CargoBox> set))
+                                verifiedLoads[q.OrderId] = set = new HashSet<CargoBox>();
+                            set.Add(q.NewBox);
+                            bool complete = q.OrderTotal > 0 && q.OrderInTruck >= q.OrderTotal;
+                            r.OrderVerified = complete && set.Count >= q.OrderTotal;
+                        }
+                        if (r.OrderVerified)
+                        {
+                            r.OrdersVerified++;
+                            r.VerdictText = "ORDER #" + q.OrderId + " VERIFIED · " + q.OrderTotal + "/" + q.OrderTotal + " BOXES CHECKED IN " + q.Place;
+                        }
+                        else if (ok)
+                            r.VerdictText = "BOX VERIFIED IN " + q.Place + " · " + seenOk + "/" + visible + " VISIBLE" + hiddenText + order;
+                        else
+                            r.VerdictText = "CHECK · SAM SEES " + seenOk + " OF " + visible + " VISIBLE BOXES" +
+                                            (onEmpty > 0 ? " + " + onEmpty + " ON EMPTY SLOTS" : "") +
+                                            (q.NewBox != null && !newSeen ? " · NEW BOX NOT SEEN" : "");
+                    }
+                    else
+                    {
+                        r.VerdictText = ok ? place + " VERIFIED · " + seenOk + "/" + visible + " VISIBLE" + hiddenText
+                                           : "CHECK · SAM SEES " + seenOk + " OF " + visible + " VISIBLE BOXES" +
+                                             (onEmpty > 0 ? " + " + onEmpty + " ON EMPTY SLOTS" : "");
+                    }
                 }
             }
+            LogResult(r, q, conf, visible, hidden, onEmpty, ignored, true);
+        }
 
+        private static void AppendConf(StringBuilder conf, Detection d)
+        {
+            if (d.Confidence >= 0f) conf.Append(conf.Length > 0 ? "/" : "").Append(d.Confidence.ToString("F2", CultureInfo.InvariantCulture));
+        }
+
+        private static void LogResult(RobotSam r, Request q, StringBuilder conf, int visible, int hidden, int onEmpty, int ignored, bool slots)
+        {
             Debug.Log("[SAM] " + r.RobotId + " " + Where(q) + " '" + Words(q) + "': " + r.Seen + " segmented" +
-                      (q.HasZone ? " in zone" + (ignored > 0 ? ", " + ignored + " outside ignored" : "") : "") +
-                      (q.Scene >= 0 ? " (scene " + q.Scene + ")" : "") + " · " + (modelName.Length > 0 ? modelName : "sam") + " " +
-                      (latency / 1000f).ToString("F1", CultureInfo.InvariantCulture) + " s" +
-                      (recorded ? " · recorded" : "") + (conf.Length > 0 ? " · conf " + conf : "") +
+                      (slots ? " on slots (" + visible + " occupied visible" + (hidden > 0 ? ", " + hidden + " hidden" : "") +
+                               (onEmpty > 0 ? ", " + onEmpty + " on empty slots" : "") + (ignored > 0 ? ", " + ignored + " off-slot ignored" : "") + ")"
+                             : (q.Scene >= 0 ? " (scene " + q.Scene + ")" : "")) +
+                      " · " + (r.Model.Length > 0 ? r.Model : "sam") + " " +
+                      (r.LatencyMs / 1000f).ToString("F1", CultureInfo.InvariantCulture) + " s" +
+                      (r.Recorded ? " · recorded" : "") + (conf.Length > 0 ? " · conf " + conf : "") +
                       (r.Verdict.Length > 0 ? " · " + r.Verdict : "") +
-                      (r.OrderVerified ? " · ORDER #" + q.OrderId + " VERIFIED (" + q.OrderInTruck + "/" + q.OrderTotal + ")" : ""));
+                      (r.OrderVerified ? " · ORDER #" + q.OrderId + " VERIFIED (" + q.OrderTotal + "/" + q.OrderTotal + ")" : ""));
         }
 
         private static string Where(Request q)
@@ -457,56 +557,122 @@ namespace RoboFactory.HUD
             return label.EndsWith("X") || label.EndsWith("S") ? label + "ES" : label + "S";
         }
 
-        // ------------------------------------------------------------------ work zone
+        // ------------------------------------------------------------------ slots
 
-        /// <summary>World bounds of the slots of a storage (pallet, bench, truck), room for one box on each slot.</summary>
-        private static Bounds? SlotBounds(ShelfStorage storage, CargoBox[] fallback)
+        /// <summary>
+        /// Every slot of the storage (pallet, bench, truck) projected into the robot camera image: rectangle,
+        /// depth, box present or not; slots covered by a nearer box are marked hidden (not judged).
+        /// </summary>
+        private void BuildSlots(RobotVisionFeed feed, Request q, ShelfStorage storage, CargoBox[] boxes)
         {
-            bool any = false;
-            var b = new Bounds();
-            void Add(Vector3 p)
-            {
-                var slot = new Bounds(p + Vector3.up * .4f, new Vector3(.9f, 1f, .9f));
-                if (!any) { b = slot; any = true; } else b.Encapsulate(slot);
-            }
+            q.Slots.Clear();
+            q.HasZone = false;
+            if (feed == null || feed.Camera == null) return;
+            Camera cam = feed.Camera;
+            Vector3 typical = Vector3.one * DefaultBoxSize;
+            if (boxes != null)
+                foreach (CargoBox b in boxes)
+                    if (b != null && !b.isCarried && TryBounds(b, out Bounds bb)) { typical = bb.size; break; }
+
+            var points = new List<Transform>();
             if (storage != null && storage.columns != null)
                 foreach (ShelfStorage.StorageColumn column in storage.columns)
                 {
                     if (column == null || column.levels == null) continue;
                     foreach (Transform level in column.levels)
-                        if (level != null) Add(level.position);
+                        if (level != null) points.Add(level);
                 }
-            if (!any && fallback != null)
-                foreach (CargoBox box in fallback)
-                    if (box != null && !box.isCarried) Add(box.transform.position);
-            return any ? b : (Bounds?)null;
+            if (points.Count > 0)
+                foreach (Transform point in points)
+                {
+                    CargoBox box = null;
+                    foreach (CargoBox b in point.GetComponentsInChildren<CargoBox>(false))
+                        if (b != null && !b.isCarried) { box = b; break; }
+                    Bounds bounds = box != null && TryBounds(box, out Bounds bb) ? bb
+                                  : new Bounds(point.position + Vector3.up * typical.y * .5f, typical);
+                    AddSlot(cam, q, bounds, box);
+                }
+            else if (boxes != null)
+                foreach (CargoBox b in boxes)
+                    if (b != null && !b.isCarried && TryBounds(b, out Bounds bb)) AddSlot(cam, q, bb, b);
+
+            // a slot more than HiddenOverlap covered by a nearer occupied slot cannot be judged
+            foreach (Slot s in q.Slots)
+            {
+                if (!s.InImage) continue;
+                float area = s.Rect.width * s.Rect.height;
+                foreach (Slot o in q.Slots)
+                {
+                    if (o == s || !o.Occupied || !o.InImage || o.Depth >= s.Depth - .1f) continue;
+                    if (Intersection(s.Rect, o.Rect) > HiddenOverlap * area) { s.Hidden = true; break; }
+                }
+            }
+
+            // zone shown in the HUD: union of the judged slots
+            foreach (Slot s in q.Slots)
+            {
+                if (!s.InImage || s.Hidden) continue;
+                q.Zone = q.HasZone ? Rect.MinMaxRect(Mathf.Min(q.Zone.xMin, s.Rect.xMin), Mathf.Min(q.Zone.yMin, s.Rect.yMin),
+                                                     Mathf.Max(q.Zone.xMax, s.Rect.xMax), Mathf.Max(q.Zone.yMax, s.Rect.yMax))
+                                   : s.Rect;
+                q.HasZone = true;
+            }
         }
 
-        /// <summary>Projects the world zone into the robot camera image (normalized, origin top-left).</summary>
-        private bool TryZone(RobotVisionFeed feed, Bounds? bounds, out Rect zone)
+        private void AddSlot(Camera cam, Request q, Bounds bounds, CargoBox box)
         {
-            zone = new Rect(0f, 0f, 1f, 1f);
-            if (feed == null || feed.Camera == null || !bounds.HasValue) return false;
-            Camera cam = feed.Camera;
-            Bounds b = bounds.Value;
-            float minX = 1f, minY = 1f, maxX = 0f, maxY = 0f;
-            int inFront = 0;
+            var slot = new Slot { Box = box, Occupied = box != null, IsNew = box != null && box == q.NewBox };
+            slot.InImage = Project(cam, bounds, out slot.Rect, out slot.Depth);
+            q.Slots.Add(slot);
+        }
+
+        private static bool TryBounds(CargoBox box, out Bounds bounds)
+        {
+            bounds = new Bounds();
+            bool any = false;
+            foreach (Renderer rd in box.GetComponentsInChildren<Renderer>(false))
+            {
+                if (rd == null || !rd.enabled) continue;
+                if (!any) { bounds = rd.bounds; any = true; } else bounds.Encapsulate(rd.bounds);
+            }
+            return any;
+        }
+
+        /// <summary>World box → normalized image rectangle (origin top-left). False if behind or mostly off-screen.</summary>
+        private bool Project(Camera cam, Bounds b, out Rect rect, out float depth)
+        {
+            rect = new Rect();
+            depth = cam.WorldToViewportPoint(b.center).z;
+            float minX = float.MaxValue, minY = float.MaxValue, maxX = float.MinValue, maxY = float.MinValue;
             for (int i = 0; i < 8; i++)
             {
                 Vector3 corner = new Vector3(i % 2 == 0 ? b.min.x : b.max.x, (i / 2) % 2 == 0 ? b.min.y : b.max.y, i / 4 == 0 ? b.min.z : b.max.z);
                 Vector3 v = cam.WorldToViewportPoint(corner);
-                if (v.z <= .05f) continue;
-                inFront++;
+                if (v.z <= .05f) return false;
                 float x = v.x, y = 1f - v.y;
                 minX = Mathf.Min(minX, x); maxX = Mathf.Max(maxX, x);
                 minY = Mathf.Min(minY, y); maxY = Mathf.Max(maxY, y);
             }
-            if (inFront == 0) return false;
-            minX = Mathf.Clamp01(minX - ZoneMargin); minY = Mathf.Clamp01(minY - ZoneMargin);
-            maxX = Mathf.Clamp01(maxX + ZoneMargin); maxY = Mathf.Clamp01(maxY + ZoneMargin);
-            if (maxX - minX < .02f || maxY - minY < .02f) return false;
-            zone = Rect.MinMaxRect(minX, minY, maxX, maxY);
-            return true;
+            Rect full = Rect.MinMaxRect(minX - ZoneMargin, minY - ZoneMargin, maxX + ZoneMargin, maxY + ZoneMargin);
+            Rect clipped = Rect.MinMaxRect(Mathf.Clamp01(full.xMin), Mathf.Clamp01(full.yMin), Mathf.Clamp01(full.xMax), Mathf.Clamp01(full.yMax));
+            float fullArea = full.width * full.height, clippedArea = clipped.width * clipped.height;
+            rect = clipped;
+            // at least half of the slot must be in the image to be judged
+            return fullArea > 1e-5f && clippedArea >= .5f * fullArea;
+        }
+
+        private static float Intersection(Rect a, Rect b)
+        {
+            float w = Mathf.Min(a.xMax, b.xMax) - Mathf.Max(a.xMin, b.xMin);
+            float h = Mathf.Min(a.yMax, b.yMax) - Mathf.Max(a.yMin, b.yMin);
+            return w > 0f && h > 0f ? w * h : 0f;
+        }
+
+        private static float IoU(Rect a, Rect b)
+        {
+            float i = Intersection(a, b);
+            float u = a.width * a.height + b.width * b.height - i;
+            return u > 1e-6f ? i / u : 0f;
         }
 
         // ------------------------------------------------------------------ capture

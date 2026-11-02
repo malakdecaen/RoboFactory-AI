@@ -391,8 +391,8 @@ namespace RoboFactory.Launcher
                 if (j["models"] is JArray models)
                     foreach (JToken m in models)
                         lines += ((bool?)m["ok"] ?? false
-                            ? "✔ " + (string)m["model"] + "  ·  " + (int?)m["latency_ms"] + " ms"
-                            : "✖ " + (string)m["model"] + "  ·  " + (string)m["error"]) + "\n";
+                            ? "OK  " + (string)m["model"] + "  ·  " + (int?)m["latency_ms"] + " ms"
+                            : "FAILED  " + (string)m["model"] + "  ·  " + (string)m["error"]) + "\n";
                 if (!ok)
                 {
                     if (typedKey) MetaServerHost.SetApiKey("");   // a refused key is forgotten at once

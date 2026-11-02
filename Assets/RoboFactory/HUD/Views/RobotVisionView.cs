@@ -215,7 +215,7 @@ namespace RoboFactory.HUD
                     SetChip("SAM 3.1 · " + where + " · LOOKING FOR " + SamVisionService.Plural(sam.Label, 2) + Dots(), HudTheme.Cyan);
                     break;
                 case "OK":
-                    string scene = sam.Scene >= 0 ? " · SCENE " + sam.Scene : "";
+                    string scene = sam.Scene >= 0 ? " · SCENE " + sam.Scene + (sam.Hidden > 0 ? " (+" + sam.Hidden + " HIDDEN)" : "") : "";
                     string lat = (sam.LatencyMs / 1000f).ToString("F1", System.Globalization.CultureInfo.InvariantCulture) + " s";
                     SetChip("SAM 3.1 · " + where + " · " + sam.Seen + " " + SamVisionService.Plural(sam.Label, sam.Seen) + scene + " · " + lat +
                             (sam.Recorded ? " · REC" : ""), sam.Seen > 0 ? HudTheme.Green : HudTheme.TextMid);
@@ -252,7 +252,7 @@ namespace RoboFactory.HUD
             bool on = sam != null && !string.IsNullOrEmpty(sam.Verdict) && alpha > .01f;
             if (verdict.Root.gameObject.activeSelf != on) verdict.Root.gameObject.SetActive(on);
             if (!on) return;
-            Color c = sam.Verdict == "VERIFIED" ? HudTheme.Green : HudTheme.Amber;
+            Color c = sam.Verdict == "VERIFIED" ? HudTheme.Green : sam.Verdict == "MISMATCH" ? HudTheme.Amber : HudTheme.TextMid;
             HudFactory.Set(verdict.Label, sam.VerdictText);
             verdict.SetColor(HudTheme.A(c, alpha));
             verdict.Fill.color = new Color(.02f, .03f, .05f, .9f * alpha);
