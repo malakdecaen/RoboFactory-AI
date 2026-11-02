@@ -46,10 +46,11 @@ namespace RoboFactory.Sim
         {
             if (gridController == null) gridController = GetComponent<GridRobotController>();
             if (cargoAttachPoint == null) cargoAttachPoint = transform.Find("cargo_attach");
+            // The carried box rests ON the robot: the carry root is at the centre of the robot's top surface
+            // (the cube robot has no arms, so the original attach point would put the box inside the body).
             var root = new GameObject("StableCargoRoot").transform;
             root.SetParent(transform, false);
-            root.localPosition = cargoAttachPoint != null ? transform.InverseTransformPoint(cargoAttachPoint.position)
-                                                          : new Vector3(0f, .75f, 0f);
+            root.localPosition = new Vector3(0f, RobotTopHeight(), 0f);
             root.localRotation = Quaternion.identity;
             activeCarryRoot = root;
         }
@@ -114,8 +115,9 @@ namespace RoboFactory.Sim
             {
                 shelf.RemoveBox(column, level);
                 Quaternion rotation = box.transform.rotation;
+                float lift = BoxBottomOffset(box);
                 box.transform.SetParent(activeCarryRoot, true);
-                box.transform.SetPositionAndRotation(activeCarryRoot.position, rotation);
+                box.transform.SetPositionAndRotation(activeCarryRoot.position + activeCarryRoot.up * lift, rotation);
                 box.isCarried = true;
                 carriedBox = box;
             }
@@ -139,6 +141,27 @@ namespace RoboFactory.Sim
             yield return new WaitForSeconds(duration * (1f - at));
             isBusy = false;
             Lock(false);
+        }
+
+        /// <summary>Height of the robot's top surface above its origin (its own visuals only).</summary>
+        private float RobotTopHeight()
+        {
+            float top = float.NegativeInfinity;
+            foreach (Renderer r in GetComponentsInChildren<Renderer>())
+            {
+                if (r.GetComponentInParent<CargoBox>() != null) continue;
+                top = Mathf.Max(top, r.bounds.max.y);
+            }
+            return float.IsInfinity(top) ? .75f : top - transform.position.y;
+        }
+
+        /// <summary>Distance from the box's origin down to its lowest visible point.</summary>
+        private static float BoxBottomOffset(CargoBox box)
+        {
+            float bottom = float.PositiveInfinity;
+            foreach (Renderer r in box.GetComponentsInChildren<Renderer>())
+                bottom = Mathf.Min(bottom, r.bounds.min.y);
+            return float.IsInfinity(bottom) ? 0f : Mathf.Max(0f, box.transform.position.y - bottom);
         }
 
         private static float Pick(float[] values, int level, float fallback)
