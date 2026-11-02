@@ -172,14 +172,24 @@ namespace RoboFactory.MetaServer
                                : true;
                     if (match) { exact = i; break; }
                 }
-                int pick = exact >= 0 ? exact : firstSameRoute;
+                // An urgent order is only ever served for the very sentence that was recorded (never another one).
+                int pick = route == "/urgent" ? exact : (exact >= 0 ? exact : firstSameRoute);
+                bool reused = false;
+                if (pick < 0 && route == "/urgent")
+                {
+                    // The orchestrator asks Meta again with the same sentence while it waits (e.g. after "wait"):
+                    // the real recorded answer for that sentence is served again, so the demo never fails.
+                    for (int i = replayCalls.Count - 1; i >= 0; i--)
+                        if ((string)replayCalls[i]["route"] == route && Normalize((string)replayCalls[i]["transcript"]) == transcript)
+                        { pick = i; reused = true; break; }
+                }
                 if (pick < 0)
                 {
                     error = "RECORDED DEMO: no recorded Meta answer left for " + route +
                             " (the scenario diverged from its recording)";
                     return false;
                 }
-                consumed[pick] = true;
+                if (!reused) consumed[pick] = true;
                 replayServed++;
                 JObject call = replayCalls[pick];
                 response = (JObject)call["response"].DeepClone();
