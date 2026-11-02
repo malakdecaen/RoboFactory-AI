@@ -121,10 +121,12 @@ namespace RoboFactory.Packing
                     size = .14f;
                     break;
                 case ItemKind.Bottle:
-                    Part(root, PrimitiveType.Cylinder, new Vector3(0f, .07f, 0f), new Vector3(.07f, .07f, .07f), c, .7f);
-                    removable = Part(root, PrimitiveType.Cylinder, new Vector3(0f, .17f, 0f), new Vector3(.03f, .03f, .03f), c, .7f);
+                    // matte (a glossy top under the scan light reads as a white blob), dark shoulder, coloured cap
+                    Part(root, PrimitiveType.Cylinder, new Vector3(0f, .07f, 0f), new Vector3(.07f, .07f, .07f), c, .3f);
+                    Part(root, PrimitiveType.Cylinder, new Vector3(0f, .141f, 0f), new Vector3(.072f, .003f, .072f), Color.Lerp(c, Color.black, .55f), .2f);
+                    removable = Part(root, PrimitiveType.Cylinder, new Vector3(0f, .17f, 0f), new Vector3(.03f, .03f, .03f), Color.Lerp(c, Color.black, .25f), .3f);
                     Part(removable, PrimitiveType.Cylinder, new Vector3(0f, 1.2f, 0f), new Vector3(1.25f, .35f, 1.25f), a);
-                    Part(root, PrimitiveType.Cube, new Vector3(0f, .07f, 0f), new Vector3(.072f, .05f, .072f), Color.white, .1f);
+                    Part(root, PrimitiveType.Cube, new Vector3(0f, .07f, 0f), new Vector3(.072f, .05f, .072f), new Color(.93f, .9f, .82f), .1f);
                     size = .12f;
                     break;
                 case ItemKind.Can:

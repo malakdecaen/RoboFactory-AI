@@ -8,12 +8,13 @@ namespace RoboFactory.Packing
     /// </summary>
     public sealed class ProceduralArm : IPackingArm
     {
-        public float ShoulderHeight = 1.1f;
+        // sized like the scaled arm of the full project: reaches the four trays (2 m to 2.4 m) above 0.6 m cartons
+        public float ShoulderHeight = 1.2f;
         public float ShoulderOffset = .3f;   // shoulder ahead of the turret axis
-        public float Upper = .85f;
-        public float Fore = .85f;
+        public float Upper = 1.15f;
+        public float Fore = 1.15f;
         public float Tool = .3f;
-        public float Speed = 1.1f;
+        public float Speed { get; set; } = 1.6f;
 
         private readonly Transform root, yawT, shoulderT, elbowT, wristT;
         private Vector3 tip, goal;

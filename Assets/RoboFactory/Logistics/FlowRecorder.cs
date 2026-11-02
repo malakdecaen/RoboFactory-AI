@@ -86,7 +86,7 @@ namespace RoboFactory.Logistics
 
         private int routeChanges, suspensions, incidentsCount, cartonMoves;
         private int samCalls, samWithObjects, samFailed, samVerified, samMismatches, samOrdersVerified;
-        private int packScans, packScanWrong, packScanFailed, packTaken, packRejected, packCartons;
+        private int packScans, packScanWrong, packScanFailed, packTaken, packRejected, packCartons, packMissed, packDelivered;
         private readonly List<string> incidentLines = new List<string>();
         private string lastStage = "", lastVoiceState = "", lastFinal = "", lastFailure = "";
         private float idleSince = -1f;
@@ -192,6 +192,8 @@ namespace RoboFactory.Logistics
                 else if (text.Contains(" packed in carton")) packTaken++;
                 else if (text.Contains("dropped in the reject bin")) packRejected++;
                 else if (text.Contains(" complete and closed")) packCartons++;
+                else if (text.Contains(" missed by the arm")) packMissed++;
+                else if (text.StartsWith("R3 ") && text.Contains(" put carton ")) packDelivered++;
                 Line("PACK", text);
                 return;
             }
@@ -635,7 +637,8 @@ namespace RoboFactory.Logistics
 
             // ---- packing cell (Muse Spark inspection)
             sb.AppendLine("PACKING — " + packScans + " scan(s) by Muse Spark (" + packScanFailed + " without answer, " + packScanWrong +
-                          " disagreeing with the simulation), " + packTaken + " product(s) packed, " + packRejected + " rejected, " + packCartons + " carton(s) closed");
+                          " disagreeing with the simulation), " + packTaken + " product(s) packed, " + packRejected + " rejected, " + packMissed + " missed on the moving belt, " + packCartons + " carton(s) closed, " +
+                          packDelivered + " carried to the pallets by R3");
 
             // ---- doors
             foreach (KeyValuePair<string, float> kv in doorOpenTotal)

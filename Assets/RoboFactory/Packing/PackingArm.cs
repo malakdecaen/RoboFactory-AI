@@ -15,6 +15,8 @@ namespace RoboFactory.Packing
         /// <summary>Commanded tool-tip position (world). The arm moves there at its own speed.</summary>
         Vector3 Goal { get; set; }
         bool AtGoal { get; }
+        /// <summary>Tool-tip speed (m/s).</summary>
+        float Speed { get; set; }
         bool CanReach(Vector3 tip);
         void Tick(float dt);
         void LateTick();
@@ -26,15 +28,20 @@ namespace RoboFactory.Packing
     /// reflection, so the code does not depend on the store asset: the public version uses ProceduralArm instead.
     /// The tool is a cylinder (suction gripper): its end is the gripping point and, after the IK has placed the
     /// wrist, the wrist is re-oriented every frame so the cylinder points straight down onto the product.
+    /// The arm can be scaled up at start (scale): the trays in front of the cell are 2 m to 2.4 m away and the
+    /// shipping cartons are 0.27 m to 0.6 m tall, beyond the reach of the arm at its original size. The IK
+    /// component of the asset compares lengths measured in world space (editor: every frame; build: in Awake,
+    /// before the scaling) with the target in the shoulder's local space, so the target is stretched by the
+    /// matching factor to land the wrist exactly where it is wanted in both cases.
     /// </summary>
     public sealed class IkTargetArm : IPackingArm
     {
-        public float Speed = 1.1f;          // m/s of the tool tip
-        public float Tolerance = .01f;
+        public float Speed { get; set; } = 1.6f;   // m/s of the wrist
+        public float Tolerance = .012f;
 
         private Transform stand, arm1, arm2, wrist, arm1Base, target;
-        private Vector3 axisLocal, hingeLocal, tipLocal;
-        private float upper, fore;
+        private Vector3 axisLocal, hingeLocal, tipLocal, tipOffset;
+        private float upper, fore, stretch = 1f;
         private Vector3 arm1BaseInStand;
         private Vector3 goal, wristPos;
 
@@ -49,21 +56,23 @@ namespace RoboFactory.Packing
             set => goal = value;
         }
 
-        public Vector3 ToolTip => wrist != null ? wrist.position + wrist.rotation * tipLocal : goal;
-        public bool AtGoal => Vector3.Distance(ToolTip, goal) <= Tolerance + .002f;
+        public Vector3 ToolTip => wrist != null ? wrist.position + wrist.rotation * tipOffset : goal;
+        /// <summary>The wrist has reached its command and the tool tip is on the goal (a few mm of IK error allowed).</summary>
+        public bool AtGoal => Ready && Vector3.Distance(wristPos, WristFor(goal)) < .003f && Vector3.Distance(ToolTip, goal) <= Tolerance + .02f;
+        public float ArmScale { get; private set; } = 1f;
 
         /// <summary>
         /// Finds the first component of type <paramref name="typeName"/> exposing the IK fields.
         /// <paramref name="toolTip"/> / <paramref name="toolAxis"/>: end of the gripping cylinder and its outward axis,
         /// in the wrist's local space (measured on the model); null = estimated from the tool meshes.
         /// </summary>
-        public static IkTargetArm Find(string typeName = "ArmIK", Vector3? toolTip = null, Vector3? toolAxis = null)
+        public static IkTargetArm Find(string typeName = "ArmIK", Vector3? toolTip = null, Vector3? toolAxis = null, float scale = 1f)
         {
             foreach (MonoBehaviour mb in UnityEngine.Object.FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
             {
                 if (mb == null || mb.GetType().Name != typeName) continue;
                 var arm = new IkTargetArm();
-                if (arm.Bind(mb, toolTip, toolAxis)) return arm;
+                if (arm.Bind(mb, toolTip, toolAxis, scale)) return arm;
             }
             return null;
         }
@@ -74,7 +83,7 @@ namespace RoboFactory.Packing
             return f != null ? f.GetValue(o) as Transform : null;
         }
 
-        private bool Bind(MonoBehaviour ik, Vector3? toolTip, Vector3? toolAxis)
+        private bool Bind(MonoBehaviour ik, Vector3? toolTip, Vector3? toolAxis, float scale)
         {
             stand = Field(ik, "_stand");
             arm1 = Field(ik, "_arm1");
@@ -83,6 +92,15 @@ namespace RoboFactory.Packing
             arm1Base = Field(ik, "_arm1Base");
             target = Field(ik, "_target");
             if (stand == null || arm1 == null || arm2 == null || wrist == null || arm1Base == null || target == null) return false;
+
+            // bigger arm: scale the whole arm (base, joints, tool, IK target) about its root
+            float before = arm1Base.lossyScale.x;
+            Transform root = stand.parent != null ? stand.parent : stand;
+            if (scale > 0f && Mathf.Abs(scale - 1f) > 1e-3f) root.localScale *= scale;
+            ArmScale = scale > 0f ? scale : 1f;
+            float after = arm1Base.lossyScale.x;
+            // editor: the IK re-measures its lengths in world space every frame; build: lengths measured in Awake
+            stretch = Application.isEditor ? after : before;
 
             upper = Vector3.Distance(arm1.position, arm2.position);
             fore = Vector3.Distance(arm2.position, wrist.position);
@@ -106,6 +124,7 @@ namespace RoboFactory.Packing
                 axisLocal = tipLocal.sqrMagnitude > 1e-6f ? tipLocal.normalized : Vector3.down;
             }
 
+            tipOffset = Vector3.Scale(tipLocal, wrist.lossyScale);
             var grip = new GameObject("Packing Grip").transform;
             grip.SetParent(wrist, false);
             grip.localPosition = tipLocal;
@@ -115,9 +134,9 @@ namespace RoboFactory.Packing
             fwd = fwd.sqrMagnitude > 1e-4f ? fwd.normalized : Vector3.forward;
             Home = arm1Base.position + fwd * (.55f * (upper + fore)) + Vector3.down * .15f;
             goal = Home;
-            wristPos = target.position;
+            wristPos = wrist.position;
             Ready = true;
-            Description = "IK arm (" + ik.GetType().Name + ") upper " + upper.ToString("F2") + " m, fore " + fore.ToString("F2") +
+            Description = "IK arm (" + ik.GetType().Name + ") x" + ArmScale.ToString("F2") + ", upper " + upper.ToString("F2") + " m, fore " + fore.ToString("F2") +
                           " m, gripping cylinder end at " + tipLocal.ToString("F3") + " (wrist frame), " +
                           (toolTip.HasValue ? "measured" : "estimated");
             return true;
@@ -142,8 +161,8 @@ namespace RoboFactory.Packing
         /// <summary>Wrist position that puts the cylinder end on <paramref name="tip"/> (the yaw depends on the wrist: iterate).</summary>
         private Vector3 WristFor(Vector3 tip)
         {
-            Vector3 w = tip - Vector3.down * tipLocal.magnitude;
-            for (int i = 0; i < 4; i++) w = tip - WristRotation(StandFor(w)) * tipLocal;
+            Vector3 w = tip - Vector3.down * tipOffset.magnitude;
+            for (int i = 0; i < 4; i++) w = tip - WristRotation(StandFor(w)) * tipOffset;
             return w;
         }
 
@@ -160,7 +179,15 @@ namespace RoboFactory.Packing
             if (!Ready) return;
             Vector3 want = WristFor(goal);
             wristPos = Vector3.MoveTowards(wristPos, want, Speed * dt);
-            target.position = wristPos;
+            target.position = IkTarget(wristPos);
+        }
+
+        /// <summary>IK target that puts the wrist on <paramref name="w"/> (see the class comment for the stretch).</summary>
+        private Vector3 IkTarget(Vector3 w)
+        {
+            if (Mathf.Abs(stretch - 1f) < 1e-4f) return w;
+            Vector3 shoulder = stand.position + StandFor(w) * arm1BaseInStand;
+            return shoulder + (w - shoulder) * stretch;
         }
 
         /// <summary>After the IK has run: cylinder straight down.</summary>
