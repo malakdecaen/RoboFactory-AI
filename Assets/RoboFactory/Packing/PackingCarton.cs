@@ -41,6 +41,8 @@ namespace RoboFactory.Packing
         public string LabelModel = "";
         /// <summary>Closed carton = a copy of the same box robot R1 handles (CargoBox), shown once the carton is closed.</summary>
         public GameObject RealBox;
+        /// <summary>Closed (and labelled, when a labeller is connected): the transport robot can take it.</summary>
+        public bool ReadyToShip;
         private readonly List<GameObject> openVisuals = new List<GameObject>();
 
         private readonly Transform[] flaps = new Transform[4];

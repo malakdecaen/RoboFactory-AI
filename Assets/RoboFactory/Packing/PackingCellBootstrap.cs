@@ -33,6 +33,7 @@ namespace RoboFactory.Packing
         };
         private static readonly Vector3 BinCentre = new Vector3(-8.345f, 0f, -5.871f);
         private static readonly Vector3 ArmBase = new Vector3(-6.3885f, 0f, -6.2903f);
+        private const float ArmScale = 1.25f;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Init()
@@ -60,14 +61,18 @@ namespace RoboFactory.Packing
             cell.BinFloorY = .18f;
             if (full)
             {
-                // gripping cylinder of the factory arm, measured on the model (wrist frame): end + outward axis
-                cell.ArmFactory = c => IkTargetArm.Find("ArmIK", new Vector3(.278f, -.5615f, -.027f), Vector3.down);
+                // gripping cylinder of the factory arm, measured on the model (wrist frame): end + outward axis.
+                // Scaled x1.25: at its original size the arm cannot lift a product over the 0.5-0.6 m cartons on the
+                // trays 2 m away (only the nearest tray, with the lowest carton, was in reach).
+                cell.ArmFactory = c => IkTargetArm.Find("ArmIK", new Vector3(.278f, -.5615f, -.027f), Vector3.down, ArmScale);
             }
             else
             {
                 Dressing.Build(go.transform);
                 cell.ArmFactory = c => new ProceduralArm(c.transform, ArmBase, 0f);
             }
+            // transport robot R3: closed cartons from the trays to the empty pallets on the left (stock for R1)
+            go.AddComponent<PackingTransport>().Cell = cell;
         }
 
         /// <summary>Conveyor loop, black box, trays and reject bin built by code (public version).</summary>

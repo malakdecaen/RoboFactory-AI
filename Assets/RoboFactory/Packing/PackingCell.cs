@@ -17,8 +17,9 @@ namespace RoboFactory.Packing
     ///   - defect          → the arm drops it in the grey reject bin;
     ///   - good and needed → the arm puts it in the carton being filled on a tray;
     ///   - good, not needed (or no answer) → it rides another lap (after a few laps it goes back into the black box).
-    /// The belt stops at the pick point while the arm takes a product (indexing conveyor). A full carton is
-    /// closed, given a destination and a label, and waits on its tray for the transport robot.
+    /// The belt never stops: the arm catches the product on the fly (it follows it while it comes down on it),
+    /// and a product it misses rides another lap. A full carton is closed, given a destination and a label,
+    /// and the transport robot R3 carries it to the pallets.
     /// The simulation's own truth (TrueKind / TrueDefect) is only logged afterwards to measure the scan, never
     /// used to decide.
     /// </summary>
@@ -46,9 +47,19 @@ namespace RoboFactory.Packing
             CartonRecipe.Of("B", 4, "4 mugs", ItemKind.Mug),
             CartonRecipe.Of("C", 4, "4 balls", ItemKind.Ball),
         };
-        [Tooltip("Until the transport robot takes the closed cartons: a closed carton leaves its tray after a few seconds.")]
+        [Tooltip("Without the transport robot: a closed carton leaves its tray after a few seconds.")]
         public bool AutoClearClosedCartons = true;
         public float AutoClearDelay = 6f;
+        /// <summary>Set by the transport robot R3 when it is working: it takes the closed cartons.</summary>
+        public bool TransportConnected { get; set; }
+
+        [Header("Picking on the moving belt")]
+        [Tooltip("The arm starts following a product this far before the pick point (m).")]
+        public float PickLead = 1.4f;
+        [Tooltip("It can still grab it this far after the pick point (m).")]
+        public float PickWindow = .8f;
+        public float HoverHeight = .15f;
+        public float DescentSpeed = .7f;
 
         [Header("Reject bin")]
         public Vector3 BinDrop;
@@ -64,7 +75,10 @@ namespace RoboFactory.Packing
         public float MinRejectConfidence = .5f;
 
         [Header("Scan camera")]
-        public float ScanHeight = .55f;
+        public float ScanHeight = .5f;
+        [Tooltip("The camera looks at the product from upstream at this angle from the vertical (shape of the neck / handle visible).")]
+        public float ScanTilt = 35f;
+        public float ScanLight = 1.1f;
         public float ScanFov = 34f;
         public int ScanResolution = 256;
 
@@ -86,11 +100,11 @@ namespace RoboFactory.Packing
         private MetaProxyClient proxy;
         private float spawnS, scanS, pickS, nextSpawn;
         private readonly List<int> reachableTrays = new List<int>();
+        private Vector3 readyPose;
         private Camera scanCam;
         private RenderTexture scanTarget;
         private Transform itemsRoot, binRoot;
         private int cartonNumber;
-        private ConveyorTrack.Rider waiting;
 
         /// <summary>Arm provided by the scene (IK arm of the full project) or built by code (public version).</summary>
         public Func<PackingCell, IPackingArm> ArmFactory;
@@ -114,11 +128,18 @@ namespace RoboFactory.Packing
             Arm = ArmFactory != null ? ArmFactory(this) : IkTargetArm.Find();
             if (Arm == null) { Debug.LogWarning("[PACK] no arm found: packing cell disabled"); enabled = false; yield break; }
             if (Arm is IkTargetArm ik) Debug.Log("[PACK] " + ik.Description);
-            for (int i = 0; i < TraySlots.Length && i < Trays.Length; i++)
-                if (Arm.CanReach(TraySlots[i] + Vector3.up * (CartonSize.y + .25f))) reachableTrays.Add(i);
-            if (reachableTrays.Count == 0) for (int i = 0; i < Mathf.Min(TraySlots.Length, Trays.Length); i++) reachableTrays.Add(i);
             BuildScanCamera();
             FindBoxTemplates();
+            var unreachable = new List<string>();
+            for (int i = 0; i < TraySlots.Length && i < Trays.Length && i < TrayRecipes.Length; i++)
+            {
+                if (CanServe(i)) reachableTrays.Add(i);
+                else unreachable.Add((i + 1) + " (" + TrayRecipes[i].Type + ")");
+            }
+            if (unreachable.Count > 0) Debug.Log("[PACK] the arm cannot reach over the carton on tray " + string.Join(", ", unreachable) + ": tray not used");
+            if (reachableTrays.Count == 0) for (int i = 0; i < Mathf.Min(TraySlots.Length, Trays.Length); i++) reachableTrays.Add(i);
+            readyPose = Track.Evaluate(Track.Wrap(pickS - .35f), out Vector3 _) + Vector3.up * .32f;
+            Arm.Goal = readyPose;
             foreach (int i in reachableTrays) if (i < TrayRecipes.Length) NewCarton(i);
             Debug.Log("[PACK] cell ready: loop " + Track.Length.ToString("F1", CultureInfo.InvariantCulture) + " m, scan at " +
                       Track.Ahead(spawnS, scanS).ToString("F1", CultureInfo.InvariantCulture) + " m, pick at " +
@@ -137,8 +158,7 @@ namespace RoboFactory.Packing
 
             var before = new Dictionary<PackingItem, float>();
             foreach (ConveyorTrack.Rider r in Track.Riders) before[r.Item] = r.S;
-            ConveyorTrack.Rider stopped = Track.Step(dt, pickS, r => r.Item != null && r.Item.Decision != "pass");
-            if (stopped != null) waiting = stopped;
+            Track.Step(dt, -1f, null);   // the belt never stops
 
             // crossings: scan point (scan / re-decide) and spawn point (lap counter, recycling)
             var recycle = new List<ConveyorTrack.Rider>();
@@ -163,21 +183,62 @@ namespace RoboFactory.Packing
                 Destroy(r.Item.gameObject);
             }
 
-            // product waiting at the pick point
-            if (waiting != null && !ArmBusy)
+            if (!ArmBusy)
             {
-                PackingItem it = waiting.Item;
-                // the carton chosen at the scan may have been filled meanwhile: choose again, or let it pass
-                if (it != null && it.Decision == "take" && Choose(it) == null)
+                ConveyorTrack.Rider next = NextPick();
+                if (next != null) StartCoroutine(PickCycle(next));
+                else Arm.Goal = readyPose;
+            }
+        }
+
+        /// <summary>
+        /// Next product for the arm: decided TAKE or REJECT, coming to the pick point (or just past it, still
+        /// within reach); the one that arrives first.
+        /// </summary>
+        private ConveyorTrack.Rider NextPick()
+        {
+            ConveyorTrack.Rider best = null;
+            float bestD = float.MaxValue;
+            foreach (ConveyorTrack.Rider r in Track.Riders)
+            {
+                PackingItem it = r.Item;
+                if (it == null || it.Scanning || (it.Decision != "take" && it.Decision != "reject")) continue;
+                float toPick = Track.Ahead(r.S, pickS), past = Track.Ahead(pickS, r.S);
+                float d;
+                if (toPick <= PickLead) d = toPick;
+                else if (past <= PickWindow * .5f) d = -past;
+                else continue;
+                if (it.Decision == "take" && Choose(it) == null)
                 {
                     it.Decision = "pass";
                     Debug.Log("[PACK] product #" + it.Serial + " (" + it.ScanKind + ") → PASS · no carton needs it any more");
+                    continue;
                 }
-                if (it == null) { waiting = null; Track.Running = true; }
-                else if (it.Decision == "take" || it.Decision == "reject") StartCoroutine(PickCycle(waiting));
-                else if (it.Decision == "pass") { waiting = null; Track.Running = true; }
-                // "" = the scan answer has not arrived yet: the belt waits
+                if (d < bestD) { bestD = d; best = r; }
             }
+            return best;
+        }
+
+        /// <summary>The product is past the pick zone: the arm can no longer catch it.</summary>
+        private bool Gone(ConveyorTrack.Rider r)
+        {
+            if (r.Item == null || !Track.Riders.Contains(r)) return true;
+            float past = Track.Ahead(pickS, r.S);
+            return past > PickWindow && past < Track.Length * .5f;
+        }
+
+        /// <summary>The product is close enough to the pick point for the arm to come down on it.</summary>
+        private bool InZone(ConveyorTrack.Rider r)
+        {
+            float toPick = Track.Ahead(r.S, pickS), past = Track.Ahead(pickS, r.S);
+            return toPick <= .6f || past <= PickWindow;
+        }
+
+        /// <summary>Position of the product a moment ahead (the belt moves while the arm reacts).</summary>
+        private Vector3 Ahead(ConveyorTrack.Rider r, float seconds)
+        {
+            Vector3 p = Track.Evaluate(Track.Wrap(r.S + Track.Speed * seconds), out Vector3 _);
+            return new Vector3(p.x, r.Item.transform.position.y, p.z);
         }
 
         private void LateUpdate() { Arm?.LateTick(); }
@@ -269,54 +330,103 @@ namespace RoboFactory.Packing
             PackingItem it = rider.Item;
             string decision = it.Decision;
             float h = Height(it);
-            Vector3 p = it.transform.position;
-            ArmActivity = decision == "take" ? "picking #" + it.Serial : "removing #" + it.Serial;
-            yield return Move(p + Vector3.up * (h + .22f));
-            yield return Move(p + Vector3.up * (h + .004f));
+            ArmActivity = (decision == "take" ? "catching #" : "catching (reject) #") + it.Serial;
+
+            // 1. come above the product and follow it (the belt keeps running)
+            bool above = false;
+            float limit = Time.time + 6f;
+            while (Time.time < limit && !Gone(rider))
+            {
+                Arm.Goal = Ahead(rider, Time.deltaTime) + Vector3.up * (h + HoverHeight);
+                Vector3 e = Arm.ToolTip - Arm.Goal;
+                if (InZone(rider) && new Vector2(e.x, e.z).magnitude < .03f && Mathf.Abs(e.y) < .05f) { above = true; break; }
+                yield return null;
+            }
+            // 2. come down on it while following it, grab it by the top
+            bool caught = false;
+            if (above)
+            {
+                float y = HoverHeight;
+                limit = Time.time + 2f;
+                while (Time.time < limit && !Gone(rider))
+                {
+                    y = Mathf.MoveTowards(y, .004f, DescentSpeed * Time.deltaTime);
+                    Arm.Goal = Ahead(rider, Time.deltaTime) + Vector3.up * (h + y);
+                    if (y <= .0045f && Vector3.Distance(Arm.ToolTip, Arm.Goal) < .03f) { caught = true; break; }
+                    yield return null;
+                }
+            }
+            if (!caught || it == null || !Track.Riders.Contains(rider))
+            {
+                if (it != null)
+                    Debug.Log("[PACK] product #" + it.Serial + " (" + Seen(it) + ") missed by the arm on the moving belt · next lap");
+                ArmActivity = "idle";
+                ArmBusy = false;
+                yield break;
+            }
             it.transform.SetParent(Arm.Grip, true);
             Track.Remove(it);
-            waiting = null;
-            yield return Move(p + Vector3.up * (h + .28f));
-            Track.Running = true;
+            Vector3 tip = Arm.ToolTip;
 
             PackingCarton carton = decision == "take" ? Choose(it) : null;
-            bool take = carton != null;
-            if (take)
+            if (carton != null)
             {
                 carton.Incoming++;
                 ArmActivity = "packing #" + it.Serial + " in carton " + carton.Type + "#" + carton.Number;
                 Vector3 slot = carton.SlotWorld(carton.Contents.Count + carton.Incoming - 1);
-                yield return Move(slot + Vector3.up * (h + carton.Size.y + .12f));
-                yield return Move(slot + Vector3.up * (h + .015f));
+                // above the carton's rim with the product hanging under the gripper, in one move each way
+                float safe = Mathf.Max(tip.y + .1f, carton.transform.position.y + carton.Size.y + h + .05f);
+                yield return Move(new Vector3(tip.x, safe, tip.z), "lift");
+                yield return Move(new Vector3(slot.x, safe, slot.z), "over carton " + carton.Type);
+                yield return Move(slot + Vector3.up * (h + .015f), "into carton " + carton.Type);
                 carton.Incoming--;
                 carton.Put(it);
                 Taken++;
                 Debug.Log("[PACK] product #" + it.Serial + " (" + it.ScanKind + ") packed in carton " + carton.Type + "#" + carton.Number +
                           " on tray " + (carton.TraySlot + 1) + " (" + carton.Contents.Count + "/" + carton.Capacity + ")");
-                yield return Move(slot + Vector3.up * (h + carton.Size.y + .12f));
                 if (carton.Full) StartCoroutine(CompleteCarton(carton));
+                yield return Move(new Vector3(slot.x, safe, slot.z), "out of carton " + carton.Type);
             }
             else
             {
                 ArmActivity = "rejecting #" + it.Serial;
-                yield return Move(BinDrop + Vector3.up * (h + .05f));
+                yield return Move(new Vector3(tip.x, Mathf.Max(tip.y + .1f, BinDrop.y + h + .05f), tip.z), "lift");
+                yield return Move(BinDrop + Vector3.up * (h + .05f), "over the reject bin");
                 it.transform.SetParent(binRoot, true);
                 Rejected++;
                 Debug.Log("[PACK] product #" + it.Serial + " (" + Seen(it) + ") dropped in the reject bin" +
                           (decision == "take" ? " (carton no longer needs it)" : ""));
                 StartCoroutine(Fall(it.transform));
             }
-            ArmActivity = "returning";
-            yield return Move(Arm.Home);
+            // straight to the next product (or the ready pose above the belt)
             ArmActivity = "idle";
             ArmBusy = false;
         }
 
-        private IEnumerator Move(Vector3 tip)
+        private IEnumerator Move(Vector3 tip, string what)
         {
             Arm.Goal = tip;
-            float timeout = Time.time + 6f;
+            float timeout = Time.time + 3f;
             while (!Arm.AtGoal && Time.time < timeout) yield return null;
+            if (!Arm.AtGoal)
+                Debug.Log("[PACK] arm: " + what + " not reached in 3 s (tool tip " + Vector3.Distance(Arm.ToolTip, tip).ToString("F2", CultureInfo.InvariantCulture) + " m away)");
+        }
+
+        /// <summary>True if the arm can bring a product over the rim of this tray's carton and down to its bottom, at every place inside.</summary>
+        private bool CanServe(int tray)
+        {
+            CartonRecipe recipe = TrayRecipes[tray];
+            Vector3 size = CartonSize;
+            if (templateSize.TryGetValue(recipe.Type, out Vector3 s))
+                size = new Vector3(Mathf.Min(s.x, s.z), s.y, Mathf.Max(s.x, s.z));
+            const float item = .22f;   // tallest product (bottle)
+            foreach (float dx in new[] { -.23f, .23f })
+                foreach (float dz in new[] { -.3f, .3f })
+                {
+                    Vector3 p = TraySlots[tray] + Quaternion.Euler(0f, TrayYaw, 0f) * new Vector3(size.x * dx, 0f, size.z * dz);
+                    if (!Arm.CanReach(p + Vector3.up * (size.y + item + .05f)) || !Arm.CanReach(p + Vector3.up * (item + .03f))) return false;
+                }
+            return true;
         }
 
         private IEnumerator Fall(Transform t)
@@ -464,7 +574,8 @@ namespace RoboFactory.Packing
             CartonsClosed++;
             Debug.Log("[PACK] carton " + c.Type + "#" + c.Number + " complete and closed (" + c.Recipe.Description + ")");
             if (Labeller != null) yield return Labeller(c);
-            if (AutoClearClosedCartons)
+            c.ReadyToShip = true;
+            if (AutoClearClosedCartons && !TransportConnected)
             {
                 yield return new WaitForSeconds(AutoClearDelay);
                 Debug.Log("[PACK] carton " + c.Type + "#" + c.Number + " leaves tray " + (c.TraySlot + 1) + " (transport robot not connected yet)");
@@ -482,8 +593,11 @@ namespace RoboFactory.Packing
             Vector3 p = Track.Evaluate(scanS, out f);
             var go = new GameObject("Scan Camera");
             go.transform.SetParent(transform, false);
-            go.transform.position = p + Vector3.up * ScanHeight;
-            go.transform.rotation = Quaternion.LookRotation(Vector3.down, f);
+            // from upstream, tilted: a top-down view only shows discs, the tilt shows the neck of a bottle and the handle of a mug
+            float tilt = ScanTilt * Mathf.Deg2Rad;
+            Vector3 aim = p + Vector3.up * .08f;
+            go.transform.position = aim - f * (Mathf.Sin(tilt) * ScanHeight) + Vector3.up * (Mathf.Cos(tilt) * ScanHeight);
+            go.transform.rotation = Quaternion.LookRotation(aim - go.transform.position, f);
             scanCam = go.AddComponent<Camera>();
             scanCam.fieldOfView = ScanFov;
             scanCam.nearClipPlane = .05f;
@@ -496,13 +610,17 @@ namespace RoboFactory.Packing
             scanTarget.Create();
             scanCam.targetTexture = scanTarget;
             scanCam.enabled = false;
+            // light from the side, not along the camera axis: no mirror reflection that whitens the top of the products
             var light = new GameObject("Scan Light").AddComponent<Light>();
-            light.transform.SetParent(go.transform, false);
+            light.transform.SetParent(transform, false);
+            Vector3 side = Vector3.Cross(Vector3.up, f).normalized;
+            light.transform.position = aim + side * .35f + Vector3.up * .45f;
+            light.transform.rotation = Quaternion.LookRotation(aim - light.transform.position, Vector3.up);
             light.type = LightType.Spot;
-            light.spotAngle = 50f;
-            light.range = 2f;
-            light.intensity = 3f;
-            if (BuildScanStation) ScanStation.Build(transform, p, f, ScanHeight);
+            light.spotAngle = 55f;
+            light.range = 1.6f;
+            light.intensity = ScanLight;
+            if (BuildScanStation) ScanStation.Build(transform, go.transform.position - Vector3.up * go.transform.position.y + Vector3.up * p.y, f, go.transform.position.y - p.y);
         }
 
         private string ReadScan()
