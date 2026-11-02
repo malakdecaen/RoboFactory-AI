@@ -31,6 +31,10 @@ namespace RoboFactory.Packing
         {
             new Vector3(-6.17f, Belt, -4.29f), new Vector3(-6.91f, Belt, -4.29f), new Vector3(-5.43f, Belt, -4.29f), new Vector3(-7.66f, Belt, -4.29f)
         };
+        // Trays lowered so that a closed box (0.5 m, origin at its centre like every warehouse box) has its centre at
+        // the height of a storage level 1 point (0.926 m): R3's load animation then grabs it exactly like R1 / R2
+        // grab a box on a pallet. Tray top 0.85 m → 0.676 m.
+        private const float TrayTop = .676f;
         private static readonly Vector3 BinCentre = new Vector3(-8.345f, 0f, -5.871f);
         private static readonly Vector3 ArmBase = new Vector3(-6.3885f, 0f, -6.2903f);
         private const float ArmScale = 1.25f;
@@ -48,6 +52,8 @@ namespace RoboFactory.Packing
             if (scene.name != FullScene && scene.name != PublicScene) return;
             if (Object.FindFirstObjectByType<PackingCell>() != null) return;
             bool full = GameObject.Find("Line_07") != null;
+            // pallets (7) and (8) become stock pallets for R1 (before R1 and the warehouse model start)
+            PalletStock.Ensure();
             var go = new GameObject("Packing Cell");
             SceneManager.MoveGameObjectToScene(go, scene);
             var cell = go.AddComponent<PackingCell>();
@@ -55,7 +61,12 @@ namespace RoboFactory.Packing
             cell.SpawnPoint = Spawn;
             cell.ScanPoint = Scan;
             cell.PickPoint = Pick;
-            cell.TraySlots = Trays;
+            int lowered = full ? LowerTrays(Belt - TrayTop) : 0;
+            float trayTop = full && lowered == 0 ? Belt : TrayTop;
+            var slots = new Vector3[Trays.Length];
+            for (int i = 0; i < Trays.Length; i++) slots[i] = new Vector3(Trays[i].x, trayTop, Trays[i].z);
+            cell.TraySlots = slots;
+            if (full) Debug.Log("[PACK] " + (lowered > 0 ? lowered + " tray modules lowered to " + trayTop.ToString("F3", System.Globalization.CultureInfo.InvariantCulture) + " m (closed box at the height of a storage level)" : "tray modules not found: trays left at " + Belt + " m"));
             cell.TrayYaw = 0f;
             cell.BinDrop = BinCentre + new Vector3(.4f, 1.55f, 0f);
             cell.BinFloorY = .18f;
@@ -73,6 +84,23 @@ namespace RoboFactory.Packing
             }
             // transport robot R3: closed cartons from the trays to the empty pallets on the left (stock for R1)
             go.AddComponent<PackingTransport>().Cell = cell;
+        }
+
+        /// <summary>Lowers the roller modules in front of the arm (the "Line_02" units of the arm's line) by <paramref name="drop"/>.</summary>
+        private static int LowerTrays(float drop)
+        {
+            int n = 0;
+            foreach (Transform t in Object.FindObjectsByType<Transform>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
+            {
+                if (t.name != "Line_02" || t.parent == null || t.parent.name != "Line_07") continue;
+                bool atTray = false;
+                foreach (Vector3 tray in Trays)
+                    if (new Vector2(t.position.x - tray.x, t.position.z - tray.z).magnitude < .45f) { atTray = true; break; }
+                if (!atTray) continue;
+                t.position += Vector3.down * drop;
+                n++;
+            }
+            return n;
         }
 
         /// <summary>Conveyor loop, black box, trays and reject bin built by code (public version).</summary>
@@ -101,10 +129,11 @@ namespace RoboFactory.Packing
                 Box(root, new Vector3(-8.75f, 1.48f, -9.3f), Quaternion.identity, new Vector3(2.4f, 2.95f, 3.05f), black, .2f);
                 Box(root, new Vector3(-8.75f, 2.97f, -9.3f), Quaternion.identity, new Vector3(2.42f, .04f, 3.07f), new Color(.9f, .9f, .9f), .5f);
                 // trays (small roller modules on white stands)
-                foreach (Vector3 t in Trays)
+                foreach (Vector3 tray in Trays)
                 {
+                    Vector3 t = new Vector3(tray.x, TrayTop, tray.z);
                     Box(root, t + Vector3.down * .03f, Quaternion.identity, new Vector3(.36f, .06f, .64f), black, .4f);
-                    Box(root, new Vector3(t.x, (Belt - .06f) / 2f, t.z), Quaternion.identity, new Vector3(.3f, Belt - .06f, .5f), new Color(.92f, .88f, .82f), .3f);
+                    Box(root, new Vector3(t.x, (TrayTop - .06f) / 2f, t.z), Quaternion.identity, new Vector3(.3f, TrayTop - .06f, .5f), new Color(.92f, .88f, .82f), .3f);
                 }
                 // reject bin (open grey container)
                 Color grey = new Color(.42f, .43f, .45f);
