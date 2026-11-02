@@ -24,7 +24,8 @@ namespace RoboFactory.Packing
     /// Adapter for an articulated arm driven by an IK target (yaw + shoulder + elbow), such as the arm of the
     /// factory environment of the full project. It is found by its component type name and read through
     /// reflection, so the code does not depend on the store asset: the public version uses ProceduralArm instead.
-    /// The wrist is re-oriented every frame after the IK so the gripper points straight down (pick from above).
+    /// The tool is a cylinder (suction gripper): its end is the gripping point and, after the IK has placed the
+    /// wrist, the wrist is re-oriented every frame so the cylinder points straight down onto the product.
     /// </summary>
     public sealed class IkTargetArm : IPackingArm
     {
@@ -32,8 +33,8 @@ namespace RoboFactory.Packing
         public float Tolerance = .01f;
 
         private Transform stand, arm1, arm2, wrist, arm1Base, target;
-        private Vector3 gripAxisLocal, hingeAxisLocal;
-        private float tipLength, upper, fore;
+        private Vector3 axisLocal, hingeLocal, tipLocal;
+        private float upper, fore;
         private Vector3 arm1BaseInStand;
         private Vector3 goal, wristPos;
 
@@ -48,17 +49,21 @@ namespace RoboFactory.Packing
             set => goal = value;
         }
 
-        public Vector3 ToolTip => wrist != null ? wrist.position + Vector3.down * tipLength : goal;
+        public Vector3 ToolTip => wrist != null ? wrist.position + wrist.rotation * tipLocal : goal;
         public bool AtGoal => Vector3.Distance(ToolTip, goal) <= Tolerance + .002f;
 
-        /// <summary>Finds the first component of type <paramref name="typeName"/> exposing the IK fields.</summary>
-        public static IkTargetArm Find(string typeName = "ArmIK")
+        /// <summary>
+        /// Finds the first component of type <paramref name="typeName"/> exposing the IK fields.
+        /// <paramref name="toolTip"/> / <paramref name="toolAxis"/>: end of the gripping cylinder and its outward axis,
+        /// in the wrist's local space (measured on the model); null = estimated from the tool meshes.
+        /// </summary>
+        public static IkTargetArm Find(string typeName = "ArmIK", Vector3? toolTip = null, Vector3? toolAxis = null)
         {
             foreach (MonoBehaviour mb in UnityEngine.Object.FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Exclude, FindObjectsSortMode.None))
             {
                 if (mb == null || mb.GetType().Name != typeName) continue;
                 var arm = new IkTargetArm();
-                if (arm.Bind(mb)) return arm;
+                if (arm.Bind(mb, toolTip, toolAxis)) return arm;
             }
             return null;
         }
@@ -69,7 +74,7 @@ namespace RoboFactory.Packing
             return f != null ? f.GetValue(o) as Transform : null;
         }
 
-        private bool Bind(MonoBehaviour ik)
+        private bool Bind(MonoBehaviour ik, Vector3? toolTip, Vector3? toolAxis)
         {
             stand = Field(ik, "_stand");
             arm1 = Field(ik, "_arm1");
@@ -82,59 +87,71 @@ namespace RoboFactory.Packing
             upper = Vector3.Distance(arm1.position, arm2.position);
             fore = Vector3.Distance(arm2.position, wrist.position);
             arm1BaseInStand = Quaternion.Inverse(stand.rotation) * (arm1Base.position - stand.position);
+            // the joints turn about the stand's local Z: that axis is constant in the wrist frame
+            hingeLocal = Quaternion.Inverse(wrist.rotation) * (stand.rotation * Vector3.forward);
 
-            // gripper axis = from the wrist towards the centre of the tool meshes (children of the wrist)
-            Bounds tool = new Bounds(wrist.position, Vector3.zero);
-            bool any = false;
-            foreach (Renderer r in wrist.GetComponentsInChildren<Renderer>())
+            if (toolTip.HasValue && toolAxis.HasValue && toolAxis.Value.sqrMagnitude > 1e-6f)
             {
-                if (!any) { tool = r.bounds; any = true; } else tool.Encapsulate(r.bounds);
+                tipLocal = toolTip.Value;
+                axisLocal = toolAxis.Value.normalized;
             }
-            Vector3 axis = any ? tool.center - wrist.position : stand.rotation * Vector3.right;
-            if (axis.sqrMagnitude < 1e-6f) axis = stand.rotation * Vector3.right;
-            axis.Normalize();
-            gripAxisLocal = Quaternion.Inverse(wrist.rotation) * axis;
-            hingeAxisLocal = Quaternion.Inverse(wrist.rotation) * (stand.rotation * Vector3.forward);
-            // tip = farthest point of the tool along its axis
-            tipLength = .25f;
-            if (any)
+            else
             {
-                float best = 0f;
-                for (int i = 0; i < 8; i++)
-                {
-                    Vector3 c = new Vector3(i % 2 == 0 ? tool.min.x : tool.max.x, (i / 2) % 2 == 0 ? tool.min.y : tool.max.y, i / 4 == 0 ? tool.min.z : tool.max.z);
-                    best = Mathf.Max(best, Vector3.Dot(c - wrist.position, axis));
-                }
-                tipLength = Mathf.Clamp(best * .85f, .1f, .8f);
+                // estimate: lowest point of the tool meshes, axis from the wrist to it
+                Vector3 low = wrist.position + Vector3.down * .3f;
+                float best = float.MaxValue;
+                foreach (Renderer r in wrist.GetComponentsInChildren<Renderer>())
+                    if (r.bounds.min.y < best) { best = r.bounds.min.y; low = new Vector3(r.bounds.center.x, r.bounds.min.y, r.bounds.center.z); }
+                tipLocal = Quaternion.Inverse(wrist.rotation) * (low - wrist.position);
+                axisLocal = tipLocal.sqrMagnitude > 1e-6f ? tipLocal.normalized : Vector3.down;
             }
 
             var grip = new GameObject("Packing Grip").transform;
             grip.SetParent(wrist, false);
+            grip.localPosition = tipLocal;
             Grip = grip;
-            // home: above the base, tool down, half extended forward
             Vector3 fwd = stand.rotation * Vector3.right;
             fwd.y = 0f;
             fwd = fwd.sqrMagnitude > 1e-4f ? fwd.normalized : Vector3.forward;
-            Home = arm1Base.position + fwd * (.6f * (upper + fore)) + Vector3.up * (.2f - tipLength);
+            Home = arm1Base.position + fwd * (.55f * (upper + fore)) + Vector3.down * .15f;
             goal = Home;
             wristPos = target.position;
             Ready = true;
             Description = "IK arm (" + ik.GetType().Name + ") upper " + upper.ToString("F2") + " m, fore " + fore.ToString("F2") +
-                          " m, tool " + tipLength.ToString("F2") + " m";
+                          " m, gripping cylinder end at " + tipLocal.ToString("F3") + " (wrist frame), " +
+                          (toolTip.HasValue ? "measured" : "estimated");
             return true;
         }
 
-        /// <summary>Wrist position for a tool tip pointing down at <paramref name="tip"/>.</summary>
-        private Vector3 WristFor(Vector3 tip) => tip + Vector3.up * tipLength;
+        /// <summary>Stand rotation the IK gives for a wrist target (same convention as the IK component).</summary>
+        private Quaternion StandFor(Vector3 wristTarget)
+        {
+            Vector3 d = wristTarget - stand.position;
+            float yaw = Mathf.Atan2(d.x, d.z) * Mathf.Rad2Deg - 90f;
+            return Quaternion.Euler(0f, yaw, 0f);
+        }
+
+        /// <summary>Wrist orientation with the cylinder pointing straight down, for a given stand rotation.</summary>
+        private Quaternion WristRotation(Quaternion standRot)
+        {
+            Quaternion local = Quaternion.LookRotation(axisLocal, hingeLocal);
+            Quaternion world = Quaternion.LookRotation(Vector3.down, standRot * Vector3.forward);
+            return world * Quaternion.Inverse(local);
+        }
+
+        /// <summary>Wrist position that puts the cylinder end on <paramref name="tip"/> (the yaw depends on the wrist: iterate).</summary>
+        private Vector3 WristFor(Vector3 tip)
+        {
+            Vector3 w = tip - Vector3.down * tipLocal.magnitude;
+            for (int i = 0; i < 4; i++) w = tip - WristRotation(StandFor(w)) * tipLocal;
+            return w;
+        }
 
         public bool CanReach(Vector3 tip)
         {
             if (!Ready) return false;
             Vector3 w = WristFor(tip);
-            Vector3 flat = w - stand.position;
-            flat.y = 0f;
-            float yaw = Mathf.Atan2(flat.x, flat.z) * Mathf.Rad2Deg - 90f;
-            Vector3 shoulder = stand.position + Quaternion.Euler(0f, yaw, 0f) * arm1BaseInStand;
+            Vector3 shoulder = stand.position + StandFor(w) * arm1BaseInStand;
             return Vector3.Distance(w, shoulder) <= (upper + fore) * .985f;
         }
 
@@ -146,14 +163,11 @@ namespace RoboFactory.Packing
             target.position = wristPos;
         }
 
-        /// <summary>After the IK has run: gripper straight down, hinge kept horizontal.</summary>
+        /// <summary>After the IK has run: cylinder straight down.</summary>
         public void LateTick()
         {
             if (!Ready) return;
-            Quaternion local = Quaternion.LookRotation(gripAxisLocal, hingeAxisLocal);
-            Vector3 hinge = stand.rotation * Vector3.forward;
-            Quaternion world = Quaternion.LookRotation(Vector3.down, hinge);
-            wrist.rotation = world * Quaternion.Inverse(local);
+            wrist.rotation = WristRotation(stand.rotation);
         }
     }
 }

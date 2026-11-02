@@ -39,6 +39,9 @@ namespace RoboFactory.Packing
         public int TraySlot = -1;
         public string Destination = "";
         public string LabelModel = "";
+        /// <summary>Closed carton = a copy of the same box robot R1 handles (CargoBox), shown once the carton is closed.</summary>
+        public GameObject RealBox;
+        private readonly List<GameObject> openVisuals = new List<GameObject>();
 
         private readonly Transform[] flaps = new Transform[4];
         private readonly Quaternion[] flapOpen = new Quaternion[4], flapClosed = new Quaternion[4];
@@ -67,7 +70,9 @@ namespace RoboFactory.Packing
 
         private void Build()
         {
-            Color kraft = new Color(.76f, .6f, .38f), inside = new Color(.62f, .47f, .28f);
+            Color kraft = Recipe.Type == "A" ? new Color(.62f, .43f, .22f) : Recipe.Type == "B" ? new Color(.78f, .62f, .38f) : new Color(.86f, .74f, .52f);
+            Color inside = kraft * .8f;
+            inside.a = 1f;
             float w = Size.x, h = Size.y, d = Size.z, t = .008f;
             Panel("bottom", new Vector3(0f, t / 2f, 0f), new Vector3(w, t, d), inside);
             Panel("wall_x+", new Vector3(w / 2f - t / 2f, h / 2f, 0f), new Vector3(t, h, d), kraft);
@@ -94,6 +99,7 @@ namespace RoboFactory.Packing
             go.transform.SetParent(transform, false);
             go.transform.localPosition = local;
             go.transform.localRotation = rot;
+            openVisuals.Add(go);
             var text = go.AddComponent<TextMeshPro>();
             text.text = Recipe.Type;
             text.fontSize = 2.2f;
@@ -113,6 +119,7 @@ namespace RoboFactory.Packing
             p.transform.localPosition = local;
             p.transform.localScale = size;
             p.GetComponent<Renderer>().sharedMaterial = PackingItemFactory.Mat(color, .1f, 0f);
+            openVisuals.Add(p);
             return p;
         }
 
@@ -167,6 +174,14 @@ namespace RoboFactory.Packing
                 }
             }
             tape.gameObject.SetActive(true);
+            yield return new WaitForSeconds(.3f);
+            // the closed carton is now the real box of the warehouse (same model as R1's boxes)
+            if (RealBox != null)
+            {
+                foreach (GameObject v in openVisuals) if (v != null) v.SetActive(false);
+                foreach (PackingItem i in Contents) if (i != null) i.gameObject.SetActive(false);
+                RealBox.SetActive(true);
+            }
             State = CartonState.Closed;
         }
 

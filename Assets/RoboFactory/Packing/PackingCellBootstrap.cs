@@ -58,7 +58,12 @@ namespace RoboFactory.Packing
             cell.TrayYaw = 0f;
             cell.BinDrop = BinCentre + new Vector3(.4f, 1.55f, 0f);
             cell.BinFloorY = .18f;
-            if (!full)
+            if (full)
+            {
+                // gripping cylinder of the factory arm, measured on the model (wrist frame): end + outward axis
+                cell.ArmFactory = c => IkTargetArm.Find("ArmIK", new Vector3(.278f, -.5615f, -.027f), Vector3.down);
+            }
+            else
             {
                 Dressing.Build(go.transform);
                 cell.ArmFactory = c => new ProceduralArm(c.transform, ArmBase, 0f);
