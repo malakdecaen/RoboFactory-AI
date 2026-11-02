@@ -33,11 +33,20 @@ namespace RoboFactory.Packing
         public Vector3 ScanPoint;
         public Vector3 PickPoint;
 
-        [Header("Cartons on the trays")]
+        [Header("Cartons on the trays (one open carton per tray, each with its recipe)")]
         public Vector3[] TraySlots = new Vector3[0];
         public float TrayYaw;
         public Vector3 CartonSize = new Vector3(.32f, .24f, .42f);
-        public int ItemsPerCarton = 4;
+        public CartonRecipe[] TrayRecipes =
+        {
+            CartonRecipe.Of("A", 4, "4 bottles", ItemKind.Bottle),
+            CartonRecipe.Of("B", 3, "3 mugs", ItemKind.Mug),
+            CartonRecipe.Of("C", 5, "5 other products", ItemKind.Can, ItemKind.Ball, ItemKind.ToyCar, ItemKind.Book, ItemKind.GiftBox),
+            CartonRecipe.Of("C", 5, "5 other products", ItemKind.Can, ItemKind.Ball, ItemKind.ToyCar, ItemKind.Book, ItemKind.GiftBox),
+        };
+        [Tooltip("Until the transport robot takes the closed cartons: a closed carton leaves its tray after a few seconds.")]
+        public bool AutoClearClosedCartons = true;
+        public float AutoClearDelay = 6f;
 
         [Header("Reject bin")]
         public Vector3 BinDrop;
@@ -71,7 +80,7 @@ namespace RoboFactory.Packing
         public int Spawned, Scans, ScanFailures, Taken, Rejected, Recycled, CartonsClosed;
         public int ScanCorrect, ScanWrong;   // checked afterwards against the simulation (logs only)
 
-        private System.Random itemRng, listRng;
+        private System.Random itemRng;
         private MetaProxyClient proxy;
         private float spawnS, scanS, pickS, nextSpawn;
         private readonly List<int> reachableTrays = new List<int>();
@@ -91,7 +100,6 @@ namespace RoboFactory.Packing
         {
             yield return null;   // let the scene finish its own setup (IK arm, robots)
             itemRng = new System.Random(Seed);
-            listRng = new System.Random(Seed * 7 + 1);
             proxy = new MetaProxyClient { BaseUrl = ProxyUrl };
             Track = new ConveyorTrack(Corners, CornerRadius) { Speed = Speed };
             spawnS = Track.Project(SpawnPoint);
@@ -108,7 +116,7 @@ namespace RoboFactory.Packing
                 if (Arm.CanReach(TraySlots[i] + Vector3.up * (CartonSize.y + .25f))) reachableTrays.Add(i);
             if (reachableTrays.Count == 0) for (int i = 0; i < Mathf.Min(TraySlots.Length, Trays.Length); i++) reachableTrays.Add(i);
             BuildScanCamera();
-            NewCarton();
+            foreach (int i in reachableTrays) NewCarton(i);
             Debug.Log("[PACK] cell ready: loop " + Track.Length.ToString("F1", CultureInfo.InvariantCulture) + " m, scan at " +
                       Track.Ahead(spawnS, scanS).ToString("F1", CultureInfo.InvariantCulture) + " m, pick at " +
                       Track.Ahead(spawnS, pickS).ToString("F1", CultureInfo.InvariantCulture) + " m, trays reachable " + string.Join(",", reachableTrays) +
@@ -156,6 +164,12 @@ namespace RoboFactory.Packing
             if (waiting != null && !ArmBusy)
             {
                 PackingItem it = waiting.Item;
+                // the carton chosen at the scan may have been filled meanwhile: choose again, or let it pass
+                if (it != null && it.Decision == "take" && Choose(it) == null)
+                {
+                    it.Decision = "pass";
+                    Debug.Log("[PACK] product #" + it.Serial + " (" + it.ScanKind + ") → PASS · no carton needs it any more");
+                }
                 if (it == null) { waiting = null; Track.Running = true; }
                 else if (it.Decision == "take" || it.Decision == "reject") StartCoroutine(PickCycle(waiting));
                 else if (it.Decision == "pass") { waiting = null; Track.Running = true; }
@@ -236,9 +250,9 @@ namespace RoboFactory.Packing
             { item.Decision = "pass"; item.Scanned = false; why = "uncertain (" + item.ScanKind + ", " + item.ScanConfidence.ToString("F2", CultureInfo.InvariantCulture) + "), rescan next lap"; }
             else if (item.ScanKind == "unknown") { item.Decision = "reject"; why = "still unknown after a second scan"; }
             else if (item.ScanDefect != "none") { item.Decision = "pass"; item.Scanned = false; why = "uncertain defect, rescan next lap"; }
-            else if (PackingItem.TryParseKind(item.ScanKind, out ItemKind kind) && ActiveCarton() != null && ActiveCarton().Needs(kind))
-            { item.Decision = "take"; why = "needed in carton #" + ActiveCarton().Number; }
-            else { item.Decision = "pass"; why = ActiveCarton() == null ? "no open carton" : "not needed now"; }
+            else if (Choose(item) is PackingCarton target)
+            { item.Decision = "take"; why = "for carton " + target.Type + "#" + target.Number + " (" + target.Recipe.Description + ", " + target.Contents.Count + "/" + target.Capacity + ")"; }
+            else { item.Decision = "pass"; why = "no open carton needs a " + item.ScanKind + " now"; }
             Debug.Log("[PACK] product #" + item.Serial + " (" + Seen(item) + ") → " + item.Decision.ToUpperInvariant() + " · " + why);
         }
 
@@ -262,17 +276,20 @@ namespace RoboFactory.Packing
             yield return Move(p + Vector3.up * (h + .28f));
             Track.Running = true;
 
-            PackingCarton carton = ActiveCarton();
-            bool take = decision == "take" && carton != null && PackingItem.TryParseKind(it.ScanKind, out ItemKind k) && carton.Needs(k);
+            PackingCarton carton = decision == "take" ? Choose(it) : null;
+            bool take = carton != null;
             if (take)
             {
-                ArmActivity = "packing #" + it.Serial + " in carton #" + carton.Number;
-                Vector3 slot = carton.SlotWorld(carton.Contents.Count);
+                carton.Incoming++;
+                ArmActivity = "packing #" + it.Serial + " in carton " + carton.Type + "#" + carton.Number;
+                Vector3 slot = carton.SlotWorld(carton.Contents.Count + carton.Incoming - 1);
                 yield return Move(slot + Vector3.up * (h + carton.Size.y + .12f));
                 yield return Move(slot + Vector3.up * (h + .015f));
+                carton.Incoming--;
                 carton.Put(it);
                 Taken++;
-                Debug.Log("[PACK] product #" + it.Serial + " (" + it.ScanKind + ") packed in carton #" + carton.Number + " (" + carton.Contents.Count + "/" + carton.Capacity + ")");
+                Debug.Log("[PACK] product #" + it.Serial + " (" + it.ScanKind + ") packed in carton " + carton.Type + "#" + carton.Number +
+                          " on tray " + (carton.TraySlot + 1) + " (" + carton.Contents.Count + "/" + carton.Capacity + ")");
                 yield return Move(slot + Vector3.up * (h + carton.Size.y + .12f));
                 if (carton.Full) StartCoroutine(CompleteCarton(carton));
             }
@@ -327,46 +344,50 @@ namespace RoboFactory.Packing
 
         // ------------------------------------------------------------------ cartons
 
-        public PackingCarton ActiveCarton()
+        /// <summary>
+        /// The arm's choice for a scanned product: among the open cartons that accept its kind and still have room,
+        /// the one closest to completion (it ships sooner); null = none needs it.
+        /// </summary>
+        public PackingCarton Choose(PackingItem item)
         {
-            foreach (int i in reachableTrays)
-                if (Trays[i] != null && Trays[i].State == PackingCarton.CartonState.Open) return Trays[i];
-            return null;
-        }
-
-        /// <summary>Puts a new empty carton with its packing list on the first free reachable tray.</summary>
-        public PackingCarton NewCarton()
-        {
+            if (item == null || !PackingItem.TryParseKind(item.ScanKind, out ItemKind kind)) return null;
+            PackingCarton best = null;
             foreach (int i in reachableTrays)
             {
-                if (Trays[i] != null && Trays[i].State != PackingCarton.CartonState.Taken) continue;
-                var list = new List<ItemKind>();
-                int kinds = 2 + listRng.Next(0, 2);
-                var pool = new List<ItemKind>();
-                while (pool.Count < kinds)
-                {
-                    var k = (ItemKind)listRng.Next(0, 7);
-                    if (!pool.Contains(k)) pool.Add(k);
-                }
-                for (int n = 0; n < ItemsPerCarton; n++) list.Add(pool[n % pool.Count]);
-                PackingCarton c = PackingCarton.Create(++cartonNumber, TraySlots[i], Quaternion.Euler(0f, TrayYaw, 0f), CartonSize, list, transform);
-                c.TraySlot = i;
-                Trays[i] = c;
-                var names = new List<string>();
-                foreach (ItemKind k in list) names.Add(PackingItem.KindName(k));
-                Debug.Log("[PACK] carton #" + c.Number + " opened on tray " + (i + 1) + ": " + string.Join(" + ", names));
-                return c;
+                PackingCarton c = Trays[i];
+                if (c == null || !c.Needs(kind)) continue;
+                if (best == null || c.Contents.Count + c.Incoming > best.Contents.Count + best.Incoming) best = c;
             }
-            return null;
+            return best;
         }
 
-        /// <summary>Called by the transport robot when it takes a carton away.</summary>
+        public IEnumerable<PackingCarton> OpenCartons()
+        {
+            foreach (int i in reachableTrays)
+                if (Trays[i] != null && Trays[i].State == PackingCarton.CartonState.Open) yield return Trays[i];
+        }
+
+        /// <summary>Puts a new empty carton of the tray's recipe on tray <paramref name="tray"/>.</summary>
+        public PackingCarton NewCarton(int tray)
+        {
+            if (tray < 0 || tray >= TraySlots.Length || tray >= Trays.Length) return null;
+            if (Trays[tray] != null && Trays[tray].State != PackingCarton.CartonState.Taken) return null;
+            CartonRecipe recipe = TrayRecipes[tray % TrayRecipes.Length];
+            PackingCarton c = PackingCarton.Create(++cartonNumber, TraySlots[tray], Quaternion.Euler(0f, TrayYaw, 0f), CartonSize, recipe, transform);
+            c.TraySlot = tray;
+            Trays[tray] = c;
+            Debug.Log("[PACK] carton " + recipe.Type + "#" + c.Number + " opened on tray " + (tray + 1) + ": " + recipe.Description);
+            return c;
+        }
+
+        /// <summary>Called by the transport robot when it takes a carton away: an empty carton of the same recipe replaces it.</summary>
         public void CartonTaken(PackingCarton c)
         {
             if (c == null) return;
             c.State = PackingCarton.CartonState.Taken;
-            if (c.TraySlot >= 0 && Trays[c.TraySlot] == c) Trays[c.TraySlot] = null;
-            if (ActiveCarton() == null) NewCarton();
+            int tray = c.TraySlot;
+            if (tray >= 0 && Trays[tray] == c) Trays[tray] = null;
+            NewCarton(tray);
         }
 
         /// <summary>Hook for the destination + label step (Muse Spark + Muse Image).</summary>
@@ -376,9 +397,16 @@ namespace RoboFactory.Packing
         {
             yield return c.CloseRoutine();
             CartonsClosed++;
-            Debug.Log("[PACK] carton #" + c.Number + " complete and closed (" + c.Contents.Count + " products)");
-            if (ActiveCarton() == null) NewCarton();
+            Debug.Log("[PACK] carton " + c.Type + "#" + c.Number + " complete and closed (" + c.Recipe.Description + ")");
             if (Labeller != null) yield return Labeller(c);
+            if (AutoClearClosedCartons)
+            {
+                yield return new WaitForSeconds(AutoClearDelay);
+                Debug.Log("[PACK] carton " + c.Type + "#" + c.Number + " leaves tray " + (c.TraySlot + 1) + " (transport robot not connected yet)");
+                CartonTaken(c);
+                c.gameObject.SetActive(false);
+                Destroy(c.gameObject, .1f);
+            }
         }
 
         // ------------------------------------------------------------------ scan camera

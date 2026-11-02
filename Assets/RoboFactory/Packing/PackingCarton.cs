@@ -1,12 +1,29 @@
 using System.Collections;
 using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
 
 namespace RoboFactory.Packing
 {
+    /// <summary>What a carton type must contain: a count of products among allowed kinds ("4 bottles", "5 other products").</summary>
+    [System.Serializable]
+    public sealed class CartonRecipe
+    {
+        public string Type = "A";
+        public int Count = 4;
+        public ItemKind[] Allowed = { ItemKind.Bottle };
+        public string Description = "4 bottles";
+
+        public bool Accepts(ItemKind k) => System.Array.IndexOf(Allowed, k) >= 0;
+
+        public static CartonRecipe Of(string type, int count, string description, params ItemKind[] allowed)
+            => new CartonRecipe { Type = type, Count = count, Allowed = allowed, Description = description };
+    }
+
     /// <summary>
-    /// Shipping carton filled by the arm on a tray: open with its flaps up, a packing list of products, four
-    /// places inside; closed (flaps folded, tape) once complete, then labelled and handed over to the transport robot.
+    /// Shipping carton filled by the arm on a tray: open with its flaps up, a recipe (type letter, count, allowed
+    /// products), up to six places inside; closed (flaps folded, tape) once complete, then labelled and handed over
+    /// to the transport robot.
     /// </summary>
     public sealed class PackingCarton : MonoBehaviour
     {
@@ -14,8 +31,10 @@ namespace RoboFactory.Packing
 
         public int Number;
         public CartonState State = CartonState.Open;
-        public readonly List<ItemKind> PackingList = new List<ItemKind>();
+        public CartonRecipe Recipe = new CartonRecipe();
         public readonly List<PackingItem> Contents = new List<PackingItem>();
+        /// <summary>Products the arm is carrying to this carton right now (reserved places).</summary>
+        public int Incoming;
         public Vector3 Size = new Vector3(.34f, .26f, .44f);
         public int TraySlot = -1;
         public string Destination = "";
@@ -25,29 +44,23 @@ namespace RoboFactory.Packing
         private readonly Quaternion[] flapOpen = new Quaternion[4], flapClosed = new Quaternion[4];
         private Transform tape;
 
-        public int Capacity => PackingList.Count;
-        public bool Full => Contents.Count >= PackingList.Count;
+        public int Capacity => Recipe.Count;
+        public bool Full => Contents.Count >= Recipe.Count;
+        public int Free => Recipe.Count - Contents.Count - Incoming;
+        public string Type => Recipe.Type;
 
-        /// <summary>Kinds still missing in the carton.</summary>
-        public List<ItemKind> Missing()
+        /// <summary>True if the carton is open, accepts this kind and still has a free place.</summary>
+        public bool Needs(ItemKind kind) => State == CartonState.Open && Free > 0 && Recipe.Accepts(kind);
+
+        public static PackingCarton Create(int number, Vector3 floorCentre, Quaternion rotation, Vector3 size, CartonRecipe recipe, Transform parent)
         {
-            var need = new List<ItemKind>(PackingList);
-            foreach (PackingItem i in Contents)
-                if (i != null && i.ScanKind.Length > 0 && PackingItem.TryParseKind(i.ScanKind, out ItemKind k)) need.Remove(k);
-            return need;
-        }
-
-        public bool Needs(ItemKind kind) => State == CartonState.Open && Missing().Contains(kind);
-
-        public static PackingCarton Create(int number, Vector3 floorCentre, Quaternion rotation, Vector3 size, IList<ItemKind> list, Transform parent)
-        {
-            var go = new GameObject("carton_" + number.ToString("00"));
+            var go = new GameObject("carton_" + recipe.Type + "_" + number.ToString("00"));
             if (parent != null) go.transform.SetParent(parent, true);
             go.transform.SetPositionAndRotation(floorCentre, rotation);
             var c = go.AddComponent<PackingCarton>();
             c.Number = number;
             c.Size = size;
-            c.PackingList.AddRange(list);
+            c.Recipe = recipe;
             c.Build();
             return c;
         }
@@ -68,6 +81,27 @@ namespace RoboFactory.Packing
             flaps[3] = Flap("flap_z-", new Vector3(0f, h + t, -d / 2f), new Vector3(w, t, d / 2f), Vector3.right, -1f, kraft, 3);
             tape = Panel("tape", new Vector3(0f, h + 2.2f * t, 0f), new Vector3(.06f, .002f, d + .01f), new Color(.55f, .4f, .2f)).transform;
             tape.gameObject.SetActive(false);
+            // type letter printed on the four sides
+            Letter(new Vector3(0f, h * .55f, -d / 2f - .002f), Quaternion.identity, w);
+            Letter(new Vector3(0f, h * .55f, d / 2f + .002f), Quaternion.Euler(0f, 180f, 0f), w);
+            Letter(new Vector3(-w / 2f - .002f, h * .55f, 0f), Quaternion.Euler(0f, 90f, 0f), d);
+            Letter(new Vector3(w / 2f + .002f, h * .55f, 0f), Quaternion.Euler(0f, -90f, 0f), d);
+        }
+
+        private void Letter(Vector3 local, Quaternion rot, float faceWidth)
+        {
+            var go = new GameObject("type_" + Recipe.Type);
+            go.transform.SetParent(transform, false);
+            go.transform.localPosition = local;
+            go.transform.localRotation = rot;
+            var text = go.AddComponent<TextMeshPro>();
+            text.text = Recipe.Type;
+            text.fontSize = 2.2f;
+            text.fontStyle = FontStyles.Bold;
+            text.alignment = TextAlignmentOptions.Center;
+            text.color = new Color(.12f, .08f, .05f);
+            text.rectTransform.sizeDelta = new Vector2(faceWidth, Size.y * .8f);
+            text.textWrappingMode = TextWrappingModes.NoWrap;
         }
 
         private GameObject Panel(string name, Vector3 local, Vector3 size, Color color, Transform parent = null)
@@ -98,12 +132,15 @@ namespace RoboFactory.Packing
             return hinge;
         }
 
-        /// <summary>Place of the n-th product inside (local, on the bottom): 2 × 2 grid.</summary>
+        /// <summary>Place of the n-th product inside (on the bottom): 2 columns × up to 3 rows, then a second layer.</summary>
         public Vector3 SlotWorld(int index)
         {
-            float x = (index % 2 == 0 ? -1f : 1f) * Size.x * .22f;
-            float z = (index / 2 % 2 == 0 ? -1f : 1f) * Size.z * .22f;
-            return transform.TransformPoint(new Vector3(x, .012f, z));
+            int rows = Mathf.Clamp((Recipe.Count + 1) / 2, 1, 3);
+            int perLayer = rows * 2, layer = index / perLayer, i = index % perLayer;
+            float x = (i % 2 == 0 ? -1f : 1f) * Size.x * .23f;
+            int row = i / 2;
+            float z = rows == 1 ? 0f : Mathf.Lerp(-Size.z * .3f, Size.z * .3f, row / (float)(rows - 1));
+            return transform.TransformPoint(new Vector3(x, .012f + layer * .11f, z));
         }
 
         public void Put(PackingItem item)
