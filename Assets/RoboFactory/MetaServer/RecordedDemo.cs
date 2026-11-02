@@ -16,7 +16,7 @@ namespace RoboFactory.MetaServer
     /// Records the real answers of Meta (LIVE AI) and replays them (RECORDED DEMO).
     ///
     /// It sits in the built-in Meta server, in front of the three decision routes
-    /// (/warehouse, /urgent, /capacity): the orchestrator, the plan validator, the robots, the
+    /// (/warehouse, /urgent, /capacity) and of the SAM 3.1 robot-camera segmentations (/sam): the orchestrator, the plan validator, the robots, the
     /// doors and the trucks are the very same in both modes. Nothing is ever invented:
     ///   - a recording only contains answers that Meta really returned ("ok" and mode "live");
     ///   - a replay serves them back unchanged (model, plan, reason and latency as recorded), only
@@ -62,6 +62,15 @@ namespace RoboFactory.MetaServer
         public static bool IsDecisionRoute(string route)
         {
             return route == "/warehouse" || route == "/urgent" || route == "/capacity";
+        }
+
+        /// <summary>
+        /// Routes whose real Meta answers are recorded and replayed: the three decision routes, plus the SAM 3.1
+        /// segmentations of the robot cameras (/sam, matched by their trigger: robot, place and concept).
+        /// </summary>
+        public static bool IsRecordedRoute(string route)
+        {
+            return IsDecisionRoute(route) || route == "/sam";
         }
 
         public static string KindName
@@ -138,7 +147,7 @@ namespace RoboFactory.MetaServer
         private static MetaProxyClient.ReplayAnswer ReplayInProcess(string route, string json)
         {
             if (!Replaying) return null;
-            if (!IsDecisionRoute(route))
+            if (!IsRecordedRoute(route))
             {
                 UnityEngine.Debug.LogWarning("[RecordedDemo] " + route + " is not available offline (choose LIVE AI)");
                 return new MetaProxyClient.ReplayAnswer { Json = null };
@@ -147,7 +156,7 @@ namespace RoboFactory.MetaServer
             try { body = JObject.Parse(json); } catch { body = new JObject(); }
             if (!TryReplay(route, body, out JObject response, out int delayMs, out string error))
             {
-                UnityEngine.Debug.LogWarning("[RecordedDemo] " + error);
+                if (route != "/sam") UnityEngine.Debug.LogWarning("[RecordedDemo] " + error);
                 return new MetaProxyClient.ReplayAnswer { Json = null };
             }
             return new MetaProxyClient.ReplayAnswer { Json = response.ToString(Formatting.None), DelaySeconds = delayMs / 1000f };
@@ -190,14 +199,22 @@ namespace RoboFactory.MetaServer
                     JObject c = replayCalls[i];
                     if ((string)c["route"] != route) continue;
                     if (firstSameRoute < 0) firstSameRoute = i;
-                    bool match = route == "/warehouse" ? (string)c["trigger"] == trigger
+                    bool match = route == "/warehouse" || route == "/sam" ? (string)c["trigger"] == trigger
                                : route == "/urgent" ? Normalize((string)c["transcript"]) == transcript
                                : true;
                     if (match) { exact = i; break; }
                 }
-                // An urgent order is only ever served for the very sentence that was recorded (never another one).
-                int pick = route == "/urgent" ? exact : (exact >= 0 ? exact : firstSameRoute);
+                // An urgent order is only ever served for the very sentence that was recorded (never another one),
+                // and a SAM segmentation only for the same robot, place and concept (never boxes from another view).
+                bool strict = route == "/urgent" || route == "/sam";
+                int pick = strict ? exact : (exact >= 0 ? exact : firstSameRoute);
                 bool reused = false;
+                if (pick < 0 && route == "/sam")
+                {
+                    for (int i = replayCalls.Count - 1; i >= 0; i--)
+                        if ((string)replayCalls[i]["route"] == route && (string)replayCalls[i]["trigger"] == trigger)
+                        { pick = i; reused = true; break; }
+                }
                 if (pick < 0 && route == "/urgent")
                 {
                     // The orchestrator asks Meta again with the same sentence while it waits (e.g. after "wait"):
@@ -266,7 +283,7 @@ namespace RoboFactory.MetaServer
 
         public static void CaptureRequest(object ctx, string route, JObject body)
         {
-            if (ctx == null || !Recording || !IsDecisionRoute(route)) return;
+            if (ctx == null || !Recording || !IsRecordedRoute(route)) return;
             pending.Remove(ctx);
             pending.Add(ctx, new PendingCall { Route = route, Body = body, T = clock.Elapsed.TotalSeconds });
         }

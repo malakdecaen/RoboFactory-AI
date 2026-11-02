@@ -164,11 +164,11 @@ namespace RoboFactory.MetaServer
                 if (RecordedDemoRuntime.Replaying)
                 {
                     // RECORDED DEMO: the real Meta answers recorded earlier are served back; no network, no key.
-                    if (RecordedDemoRuntime.IsDecisionRoute(route)) { ReplayDecision(ctx, route, body, started); return; }
+                    if (RecordedDemoRuntime.IsRecordedRoute(route)) { ReplayDecision(ctx, route, body, started); return; }
                     Fail(ctx, 503, route, started, "RECORDED DEMO: this Meta feature is not available offline (choose LIVE AI)");
                     return;
                 }
-                if (RecordedDemoRuntime.IsDecisionRoute(route)) RecordedDemoRuntime.CaptureRequest(ctx, route, body);
+                if (RecordedDemoRuntime.IsRecordedRoute(route)) RecordedDemoRuntime.CaptureRequest(ctx, route, body);
                 switch (route)
                 {
                     case "/verify": HandleVerify(ctx, key, started); break;
@@ -356,28 +356,43 @@ namespace RoboFactory.MetaServer
                 {
                     ["ok"] = true, ["mode"] = "mock", ["model"] = "mock", ["latency_ms"] = lat,
                     ["raw"] = "mock SAM 3.1 inspection: unknown object segmented", ["number_count"] = 0,
+                    ["count"] = 0, ["objects"] = new JArray(), ["width"] = 0, ["height"] = 0,
+                    ["concept"] = concept, ["trigger"] = Py.StrOr(Py.Get(body, "trigger")),
                     ["observation_id"] = observationId
                 });
                 return;
             }
             if (key == null) { Fail(ctx, 503, "/sam", started, NoKey); return; }
-            JObject payload = MetaApi.UserMessage(MetaApi.SamModel, MetaApi.Text(concept), MetaApi.Image("data:image/png;base64," + img));
+            string mime = Py.StrOr(Py.Get(body, "mime"), "image/png");
+            string trigger = Py.StrOr(Py.Get(body, "trigger"));
+            float minConfidence = 0.3f;
+            JToken mc = Py.Get(body, "min_confidence");
+            if (mc != null && (mc.Type == JTokenType.Float || mc.Type == JTokenType.Integer)) minConfidence = mc.Value<float>();
+            JObject payload = MetaApi.UserMessage(MetaApi.SamModel, MetaApi.Text(concept), MetaApi.Image("data:" + mime + ";base64," + img));
             payload["stream"] = true;
+            // confidence per object + the compact mask encoding (the masks themselves are not decoded by the game)
+            payload["metadata"] = new JObject { ["include_confidence"] = "true", ["mask_encoding"] = "one_bit" };
             MetaApi.Result r = MetaApi.CallWithRetry(MetaApi.BaseUrl + "/responses", payload, key, 120, stream: true);
             int latency = Ms(started);
             if (r.Status != 200) { Fail(ctx, 502, "/sam", started, "upstream status " + r.Status, new JObject { ["upstream"] = Py.Cut(r.Raw, 400) }); return; }
             string output = MetaLogic.ExtractOutputText(r.Raw);
-            int numbers = MetaLogic.CountNumbers(output);
+            SamParser.SamResult parsed = SamParser.Parse(output);
+            JArray objects = SamParser.ToJson(parsed, minConfidence);
             MetaApi.Log(new JObject
             {
                 ["endpoint"] = "/sam", ["ok"] = true, ["status"] = 200, ["model"] = MetaApi.SamModel, ["latency_ms"] = latency,
-                ["image_bytes"] = img.Length, ["output_chars"] = output.Length, ["numbers"] = numbers,
+                ["concept"] = concept, ["trigger"] = trigger, ["image_bytes"] = img.Length, ["output_chars"] = output.Length,
+                ["objects"] = objects.Count, ["objects_raw"] = parsed.Objects.Count, ["parse_error"] = parsed.Error,
                 ["observation_id"] = observationId
             });
             SendJson(ctx, 200, new JObject
             {
                 ["ok"] = true, ["mode"] = "live", ["model"] = MetaApi.SamModel, ["latency_ms"] = latency,
-                ["raw"] = Py.Cut(output, 4000), ["number_count"] = numbers, ["observation_id"] = observationId
+                ["concept"] = concept, ["trigger"] = trigger, ["observation_id"] = observationId,
+                ["width"] = parsed.Width, ["height"] = parsed.Height, ["count"] = objects.Count, ["objects"] = objects,
+                ["parse_error"] = parsed.Error,
+                // no mask payload in the answer: only the start of the text, for diagnosis
+                ["raw"] = Py.Cut(output, 240), ["number_count"] = objects.Count
             });
         }
 

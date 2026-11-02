@@ -60,6 +60,8 @@ namespace RoboFactory.HUD
         private VoiceDockView voice;
         private TruckStripView trucks;
         private RobotVisionView visionR1, visionR2;
+        /// <summary>SAM 3.1 on the robot cameras (see SamVisionService).</summary>
+        private SamVisionService sam;
         private BannerView banner;
         private TopBarView topBar;
         private DebugConsoleView debugConsole;
@@ -94,6 +96,7 @@ namespace RoboFactory.HUD
             BuildUi();
             SetMode(StartMode, true);
             data.Refresh();
+            sam = new SamVisionService(this, data.Orchestrator != null ? data.Orchestrator.ProxyUrl : "http://127.0.0.1:8765");
             StartCoroutine(HealthLoop());
             voiceSearchUntil = Time.unscaledTime + 3f;
             Debug.Log("[HUD] Muse Wonder HUD ready (mode " + Mode + ", F2/F3/F4 to change mode, H to hide).");
@@ -107,6 +110,7 @@ namespace RoboFactory.HUD
             data.UrgentStageChanged -= OnUrgentStage;
             data.Dispose();
             markers.Dispose();
+            sam?.Dispose();
             visionR1?.Dispose();
             visionR2?.Dispose();
             if (built) legacy.RestoreAll();
@@ -301,8 +305,9 @@ namespace RoboFactory.HUD
             debugConsole.Tick(dt);
             bool ops = Mode != HudMode.Cinematic && !hidden;
             visionR1.PixelScale = visionR2.PixelScale = canvas.scaleFactor;
-            visionR1.Tick(dt, model.R1, ops, robotCamMask);
-            visionR2.Tick(dt, model.R2, ops, robotCamMask);
+            visionR1.Tick(dt, model.R1, ops, robotCamMask, sam?.R1);
+            visionR2.Tick(dt, model.R2, ops, robotCamMask, sam?.R2);
+            sam?.Tick(data, visionR1.Feed, visionR2.Feed);
             markers.Tick(dt, model);
             if (Visible(tags.Root))
             {
