@@ -30,12 +30,12 @@ namespace RoboFactory.Packing
 
         [Header("Lanes (world)")]
         [Tooltip("Robot centre line in front of the trays (z).")]
-        public float TrayLaneZ = -3.64f;
+        public float TrayLaneZ = -3.665f;   // 0.625 m from the tray centre, like a shelf access point
         [Tooltip("Robot centre line along the west side of the pallets (x).")]
         public float PalletLaneX = -6.05f;
         public Vector3 Park = new Vector3(-6.05f, 0f, -2.6f);
         [Tooltip("Distance from a pallet column to the robot centre when it docks.")]
-        public float DockOffset = .67f;
+        public float DockOffset = .625f;   // same distance as the access points of the warehouse shelves
         public int LevelsPerColumn = 3;
 
         public float Speed = .9f;
@@ -208,6 +208,7 @@ namespace RoboFactory.Packing
                 Transform point = column.Shelf.GetPoint(column.Index, level);
                 Quaternion rot = box.rotation;
                 yield return Gesture(false, level, () => OffRobot(box, () => point.position - (box.position - BottomCentre(box))));
+                box.SetPositionAndRotation(point.position, rot);
                 column.Shelf.PutBox(column.Index, level, cargo, rot);
                 where = column.Pallet + " column " + (column.Index + 1) + " level " + (level + 1) + " (stock for R1)";
             }
@@ -261,20 +262,38 @@ namespace RoboFactory.Packing
         }
 
         /// <summary>Box from the tray onto the robot (origin on its cargo root, like the warehouse robots).</summary>
+        /// <summary>
+        /// Box from the tray onto the robot. With the animated model it is done exactly like R1 / R2: at the attach
+        /// event the box is put at once on the robot's cargo root (box origin on the root, rotation kept) and
+        /// parented to it, the arms of the animation do the visual work. Without animation, a short slide.
+        /// </summary>
         private IEnumerator OntoRobot(Transform box)
         {
             box.SetParent(null, true);
+            if (anim != null && carryRoot != null)
+            {
+                Quaternion rot = box.rotation;
+                box.SetParent(carryRoot, true);
+                box.SetPositionAndRotation(carryRoot.position, rot);
+                yield break;
+            }
             Func<Vector3> target;
             if (carryRoot != null) target = () => carryRoot.position - (box.position - BottomCentre(box));
             else target = () => robot.position + Vector3.up * carryHeight;
-            yield return Transfer(box, target, anim != null ? .35f : TransferSeconds);
+            yield return Transfer(box, target, TransferSeconds);
             box.SetParent(carryRoot != null ? carryRoot : robot, true);
         }
 
+        /// <summary>Box from the robot to its place on the pallet (at once at the detach event with the animated model).</summary>
         private IEnumerator OffRobot(Transform box, Func<Vector3> bottomTarget)
         {
             box.SetParent(null, true);
-            yield return Transfer(box, bottomTarget, anim != null ? .35f : TransferSeconds);
+            if (anim != null)
+            {
+                box.position = bottomTarget() + (box.position - BottomCentre(box));
+                yield break;
+            }
+            yield return Transfer(box, bottomTarget, TransferSeconds);
         }
 
         private bool HasParam(string name)
