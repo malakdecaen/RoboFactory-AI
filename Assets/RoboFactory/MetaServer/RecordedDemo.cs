@@ -6,6 +6,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using RoboFactory.Hackathon.Meta;
 
 namespace RoboFactory.MetaServer
 {
@@ -80,6 +81,7 @@ namespace RoboFactory.MetaServer
 
         public static void Stop()
         {
+            MetaProxyClient.ReplayHandler = null;
             lock (gate)
             {
                 kind = DemoRunKind.Off;
@@ -129,10 +131,31 @@ namespace RoboFactory.MetaServer
                 capturedInputs.Clear();
                 clock.Restart();
             }
+            // RECORDED DEMO: the game never calls Meta (nor the local server): recorded answers are served in-process.
+            MetaProxyClient.ReplayHandler = ReplayInProcess;
+        }
+
+        private static MetaProxyClient.ReplayAnswer ReplayInProcess(string route, string json)
+        {
+            if (!Replaying) return null;
+            if (!IsDecisionRoute(route))
+            {
+                UnityEngine.Debug.LogWarning("[RecordedDemo] " + route + " is not available offline (choose LIVE AI)");
+                return new MetaProxyClient.ReplayAnswer { Json = null };
+            }
+            JObject body;
+            try { body = JObject.Parse(json); } catch { body = new JObject(); }
+            if (!TryReplay(route, body, out JObject response, out int delayMs, out string error))
+            {
+                UnityEngine.Debug.LogWarning("[RecordedDemo] " + error);
+                return new MetaProxyClient.ReplayAnswer { Json = null };
+            }
+            return new MetaProxyClient.ReplayAnswer { Json = response.ToString(Formatting.None), DelaySeconds = delayMs / 1000f };
         }
 
         public static void StartRecord(string id, string title)
         {
+            MetaProxyClient.ReplayHandler = null;
             lock (gate)
             {
                 kind = DemoRunKind.Record;
