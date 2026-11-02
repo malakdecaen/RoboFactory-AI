@@ -569,8 +569,7 @@ namespace RoboFactory.Sim.EditorTools
                                          new Vector3(size.x * .82f, size.y * .62f, size.z * .9f), Mat("sim_robot_" + role, body, .5f, .2f));
                 Box("top_plate", root, root.position + Vector3.up * (size.y * .86f), root.rotation,
                     new Vector3(size.x * .7f, .03f, size.z * .78f), Mat("sim_robot_top", new Color(.15f, .16f, .18f), .4f, .5f));
-                Box("eyes", root, root.position + Vector3.up * (size.y * .6f) + root.forward * (size.z * .455f), root.rotation,
-                    new Vector3(size.x * .5f, .06f, .01f), Mat("sim_robot_eyes", new Color(.4f, 1f, .95f), .9f));
+                BuildEyes(root, size);
 
                 // 2 wheels per side, axis = robot's local X
                 Material wheelMat = Mat("sim_wheel", new Color(.08f, .08f, .09f), .2f);
@@ -634,6 +633,44 @@ namespace RoboFactory.Sim.EditorTools
                     ApplySettings(c, p.Value);
                 }
             }
+        }
+
+        /// <summary>
+        /// Face of the robot like the warehouse robot of the full project: a dark visor on the front with two round
+        /// glowing eyes (pupils), which blink (SimRobotEyes).
+        /// </summary>
+        private static void BuildEyes(Transform root, Vector3 size)
+        {
+            float front = size.z * .45f, y = size.y * .6f;
+            Box("visor", root, root.position + Vector3.up * y + root.forward * (front + .004f), root.rotation,
+                new Vector3(size.x * .66f, size.y * .26f, .012f), Mat("sim_robot_visor", new Color(.03f, .04f, .06f), .9f, .3f));
+            Material white = Mat("sim_robot_eyes", new Color(.55f, 1f, .97f), .9f);
+            Material pupil = Mat("sim_robot_pupil", new Color(.02f, .05f, .08f), .9f);
+            var eyes = new List<Transform>();
+            foreach (float side in new[] { -1f, 1f })
+            {
+                Transform eye = new GameObject(side < 0 ? "eye_left" : "eye_right").transform;
+                eye.SetParent(root, false);
+                eye.localPosition = new Vector3(side * size.x * .15f, y, front + .012f);
+                Disc("glow", eye, Vector3.zero, size.x * .17f, .008f, white);
+                Disc("pupil", eye, new Vector3(0f, -.004f, .006f), size.x * .07f, .004f, pupil);
+                eyes.Add(eye);
+            }
+            var blink = root.gameObject.AddComponent<SimRobotEyes>();
+            blink.eyes = eyes.ToArray();
+        }
+
+        /// <summary>Flat disc facing the robot's front (cylinder turned on its axis).</summary>
+        private static void Disc(string name, Transform parent, Vector3 local, float diameter, float depth, Material mat)
+        {
+            GameObject d = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            UnityEngine.Object.DestroyImmediate(d.GetComponent<Collider>());
+            d.name = name;
+            d.transform.SetParent(parent, false);
+            d.transform.localPosition = local;
+            d.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+            d.transform.localScale = new Vector3(diameter, depth * .5f, diameter);
+            d.GetComponent<MeshRenderer>().sharedMaterial = mat;
         }
 
         private static void BuildSceneComponents(JObject layout)

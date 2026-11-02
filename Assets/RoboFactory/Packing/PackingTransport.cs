@@ -266,37 +266,32 @@ namespace RoboFactory.Packing
 
         /// <summary>Box from the tray onto the robot (origin on its cargo root, like the warehouse robots).</summary>
         /// <summary>
-        /// Box from the tray onto the robot. With the animated model it is done exactly like R1 / R2: at the attach
-        /// event the box is put at once on the robot's cargo root (box origin on the root, rotation kept) and
-        /// parented to it, the arms of the animation do the visual work. Without animation, a short slide.
+        /// Box from the tray onto the robot, at once at the gesture's attach moment, exactly as the warehouse robots
+        /// do it: animated model of the full project → box origin on the robot's cargo root (rotation kept), the
+        /// arms of the animation do the visual work; robot of the public version → box resting on the robot's top
+        /// (its cargo root), like its own cargo script.
         /// </summary>
         private IEnumerator OntoRobot(Transform box)
         {
-            box.SetParent(null, true);
-            if (anim != null && carryRoot != null)
+            Quaternion rot = box.rotation;
+            Transform root = carryRoot != null ? carryRoot : robot;
+            box.SetParent(root, true);
+            if (anim != null && carryRoot != null) box.SetPositionAndRotation(carryRoot.position, rot);
+            else
             {
-                Quaternion rot = box.rotation;
-                box.SetParent(carryRoot, true);
-                box.SetPositionAndRotation(carryRoot.position, rot);
-                yield break;
+                Vector3 top = carryRoot != null ? carryRoot.position : robot.position + Vector3.up * carryHeight;
+                box.position += top - BottomCentre(box);
+                box.rotation = rot;
             }
-            Func<Vector3> target;
-            if (carryRoot != null) target = () => carryRoot.position - (box.position - BottomCentre(box));
-            else target = () => robot.position + Vector3.up * carryHeight;
-            yield return Transfer(box, target, TransferSeconds);
-            box.SetParent(carryRoot != null ? carryRoot : robot, true);
+            yield break;
         }
 
-        /// <summary>Box from the robot to its place on the pallet (at once at the detach event with the animated model).</summary>
+        /// <summary>Box from the robot to its place on the pallet, at once at the gesture's detach moment.</summary>
         private IEnumerator OffRobot(Transform box, Func<Vector3> bottomTarget)
         {
             box.SetParent(null, true);
-            if (anim != null)
-            {
-                box.position = bottomTarget() + (box.position - BottomCentre(box));
-                yield break;
-            }
-            yield return Transfer(box, bottomTarget, TransferSeconds);
+            box.position = bottomTarget() + (box.position - BottomCentre(box));
+            yield break;
         }
 
         private bool HasParam(string name)
