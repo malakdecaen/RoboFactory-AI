@@ -92,7 +92,10 @@ namespace RoboFactory.Packing
 
         public static PackingItem Create(int serial, System.Random rng, float defectRate, Transform parent)
         {
-            var kind = (ItemKind)rng.Next(0, 7);
+            // bottles and mugs a bit more frequent (cartons A and B ask for them only)
+            double roll = rng.NextDouble();
+            ItemKind kind = roll < .22 ? ItemKind.Bottle : roll < .44 ? ItemKind.Mug
+                          : (ItemKind)new[] { 2, 3, 4, 5, 6 }[Mathf.Min(4, (int)((roll - .44) / .112))];
             ItemDefect defect = rng.NextDouble() < defectRate ? (ItemDefect)rng.Next(1, 5) : ItemDefect.None;
             Color color = Palette[rng.Next(0, Palette.Length)];
             Color accent = Palette[rng.Next(0, Palette.Length)];
