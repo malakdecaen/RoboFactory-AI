@@ -60,6 +60,7 @@ namespace RoboFactory.HUD
         private VoiceDockView voice;
         private TruckStripView trucks;
         private RobotVisionView visionR1, visionR2;
+        private PackingScanView packingScan;
         /// <summary>SAM 3.1 on the robot cameras (see SamVisionService).</summary>
         private SamVisionService sam;
         private BannerView banner;
@@ -185,6 +186,9 @@ namespace RoboFactory.HUD
             visionR2 = new RobotVisionView("R2", true) { CompactFps = VisionCompactFps, ExpandedFps = VisionExpandedFps };
             visionR2.Build(frame);
             Fade(visionR2.Root, false, true, true);
+            // packing cell scan (Muse Spark): above R1's camera, only when the cell exists (shown by its own Tick)
+            packingScan = new PackingScanView();
+            packingScan.Build(frame);
 
             trucks = new TruckStripView();
             trucks.Build(frame);
@@ -307,6 +311,7 @@ namespace RoboFactory.HUD
             visionR1.PixelScale = visionR2.PixelScale = canvas.scaleFactor;
             visionR1.Tick(dt, model.R1, ops, robotCamMask, sam?.R1);
             visionR2.Tick(dt, model.R2, ops, robotCamMask, sam?.R2);
+            packingScan.Tick(dt, ops, HudTheme.BottomRowY + visionR1.Root.sizeDelta.y + HudTheme.Gap);
             sam?.Tick(data, visionR1.Feed, visionR2.Feed);
             markers.Tick(dt, model);
             if (Visible(tags.Root))
@@ -407,6 +412,7 @@ namespace RoboFactory.HUD
         {
             float frameH = frame.rect.height;
             float visionTop = HudTheme.BottomRowY + visionR1.Root.sizeDelta.y;
+            if (packingScan != null && packingScan.Root.gameObject.activeSelf) visionTop += packingScan.Root.sizeDelta.y + HudTheme.Gap;
             return Mathf.Max(160f, frameH - HudTheme.SideTop - visionTop - 16f);
         }
 
