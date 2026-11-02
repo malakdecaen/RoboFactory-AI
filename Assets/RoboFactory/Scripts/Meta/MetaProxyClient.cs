@@ -116,6 +116,32 @@ namespace RoboFactory.Hackathon.Meta
         public bool mask;
     }
 
+    /// <summary>Packing line inspection by Muse Spark: product kind and visible defect.</summary>
+    [Serializable]
+    public sealed class InspectResponse
+    {
+        public bool ok;
+        public string mode;
+        public string model;
+        public int latency_ms;
+        public string error;
+        public string trigger;
+        public string observation_id;
+        public bool recorded;
+        public string kind;
+        public string defect;
+        public float confidence;
+        public string reason;
+    }
+
+    [Serializable]
+    internal sealed class InspectRequest
+    {
+        public string image_b64;
+        public string trigger;
+        public string observation_id;
+    }
+
     [Serializable]
     internal sealed class SamRequest
     {
@@ -362,6 +388,13 @@ namespace RoboFactory.Hackathon.Meta
                 mime = string.IsNullOrEmpty(mime) ? "image/png" : mime, trigger = trigger, min_confidence = minConfidence
             };
             yield return Post("/sam", JsonUtility.ToJson(body), 150, done);
+        }
+
+        /// <summary>Packing line: one product image → kind + defect (Muse Spark). trigger = "item#serial" (RECORDED DEMO key).</summary>
+        public IEnumerator AskInspect(string imageBase64, string trigger, string observationId, Action<InspectResponse> done)
+        {
+            var body = new InspectRequest { image_b64 = imageBase64, trigger = trigger, observation_id = observationId };
+            yield return Post("/inspect", JsonUtility.ToJson(body), 70, done);
         }
 
         public IEnumerator Supervise(SupervisionRequest request, Action<SupervisionResponse> done)
