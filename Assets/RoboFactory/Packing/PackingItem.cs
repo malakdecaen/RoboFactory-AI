@@ -175,6 +175,7 @@ namespace RoboFactory.Packing
         private static void ApplyDefect(Transform root, ItemDefect defect, Transform removable, System.Random rng)
         {
             float top = TopOf(root);
+            float front = FrontOf(root);   // face turned to the scan camera
             switch (defect)
             {
                 case ItemDefect.Cracked:
@@ -185,12 +186,15 @@ namespace RoboFactory.Packing
                                                new Vector3(.035f, .003f, .004f), new Color(.05f, .04f, .04f));
                         crack.localRotation = Quaternion.Euler(0f, 35f + i * 50f * (i % 2 == 0 ? 1 : -1), 0f);
                     }
+                    for (int i = 0; i < 3; i++)
+                        Part(root, PrimitiveType.Cube, new Vector3(-.015f + i * .015f, top * (.35f + .15f * i), front - .001f),
+                             new Vector3(.03f, .003f, .003f), new Color(.05f, .04f, .04f)).localRotation = Quaternion.Euler(0f, 0f, i % 2 == 0 ? 40f : -35f);
                     break;
                 case ItemDefect.Dented:
                     // crushed: flattened and sheared, with a darker dent
                     root.localScale = new Vector3(1.15f, .72f, .9f);
-                    Part(root, PrimitiveType.Sphere, new Vector3(.02f, top * .95f, .01f), new Vector3(.05f, .012f, .04f), new Color(0f, 0f, 0f), .1f)
-                        .GetComponent<Renderer>().sharedMaterial = Mat(new Color(.12f, .1f, .09f), .1f, 0f);
+                    Part(root, PrimitiveType.Sphere, new Vector3(.02f, top * .95f, .01f), new Vector3(.05f, .012f, .04f), new Color(.12f, .1f, .09f), .1f);
+                    Part(root, PrimitiveType.Sphere, new Vector3(0f, top * .5f, front + .004f), new Vector3(.05f, .045f, .014f), new Color(.12f, .1f, .09f), .1f);
                     break;
                 case ItemDefect.Stained:
                     for (int i = 0; i < 3; i++)
@@ -199,15 +203,39 @@ namespace RoboFactory.Packing
                         Part(root, PrimitiveType.Sphere, new Vector3(-.03f + .03f * i, top + .001f, -.015f + .015f * (i % 2)),
                              new Vector3(s, .004f, s * .8f), new Color(.32f, .2f, .08f), .05f);
                     }
+                    Part(root, PrimitiveType.Sphere, new Vector3(.01f, top * .45f, front - .001f), new Vector3(.035f, .028f, .004f), new Color(.32f, .2f, .08f), .05f);
                     break;
                 case ItemDefect.Broken:
                     // a part is missing and the item lies tilted, with a jagged dark break
-                    if (removable != null) UnityEngine.Object.Destroy(removable.gameObject);
-                    Part(root, PrimitiveType.Cube, new Vector3(.03f, top * .7f, 0f), new Vector3(.03f, .02f, .03f), new Color(.08f, .07f, .06f))
-                        .localRotation = Quaternion.Euler(30f, 20f, 45f);
+                    float cut = top;
+                    Vector3 lost = removable != null ? removable.localPosition : Vector3.zero;
+                    if (removable != null)
+                    {
+                        // top of what remains once the part is gone (the bottle loses its neck and cap)
+                        cut = 0f;
+                        foreach (Renderer r in root.GetComponentsInChildren<Renderer>())
+                            if (!r.transform.IsChildOf(removable)) cut = Mathf.Max(cut, root.InverseTransformPoint(r.bounds.max).y);
+                        removable.gameObject.SetActive(false);
+                        UnityEngine.Object.Destroy(removable.gameObject);
+                    }
+                    // jagged dark break where the part was
+                    Color shard = new Color(.08f, .07f, .06f);
+                    // on the wall where a handle / wheel was, else on top (missing neck, band)
+                    Vector3 at = lost.x > .04f ? new Vector3(.05f, lost.y, 0f) : new Vector3(0f, cut + .004f, 0f);
+                    for (int i = 0; i < 3; i++)
+                        Part(root, PrimitiveType.Cube, at + new Vector3(-.012f + .012f * i, 0f, (i - 1) * .008f), new Vector3(.022f, .014f, .012f), shard)
+                            .localRotation = Quaternion.Euler(25f * (i - 1), 30f * i, 35f + 20f * i);
                     root.localRotation = Quaternion.Euler(0f, 0f, 12f);
                     break;
             }
+        }
+
+        private static float FrontOf(Transform root)
+        {
+            float front = 0f;
+            foreach (Renderer r in root.GetComponentsInChildren<Renderer>())
+                front = Mathf.Min(front, root.InverseTransformPoint(r.bounds.min).z);
+            return front;
         }
 
         private static float TopOf(Transform root)
@@ -223,9 +251,10 @@ namespace RoboFactory.Packing
             var h = new GameObject("handle").transform;
             h.SetParent(root, false);
             h.localPosition = at;
-            Part(h, PrimitiveType.Cube, new Vector3(.012f, .03f, 0f), new Vector3(.01f, .012f, .012f), c);
-            Part(h, PrimitiveType.Cube, new Vector3(.012f, -.03f, 0f), new Vector3(.01f, .012f, .012f), c);
-            Part(h, PrimitiveType.Cube, new Vector3(.02f, 0f, 0f), new Vector3(.01f, .07f, .012f), c);
+            // closed loop fixed on the wall of the mug (the body's wall is at x = -.015 here)
+            Part(h, PrimitiveType.Cube, new Vector3(-.002f, .03f, 0f), new Vector3(.034f, .014f, .016f), c);
+            Part(h, PrimitiveType.Cube, new Vector3(-.002f, -.03f, 0f), new Vector3(.034f, .014f, .016f), c);
+            Part(h, PrimitiveType.Cube, new Vector3(.017f, 0f, 0f), new Vector3(.014f, .074f, .016f), c);
             return h;
         }
 

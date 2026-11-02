@@ -30,7 +30,7 @@ namespace RoboFactory.Packing
 
         [Header("Lanes (world)")]
         [Tooltip("Robot centre line in front of the trays (z).")]
-        public float TrayLaneZ = -3.5f;
+        public float TrayLaneZ = -3.64f;
         [Tooltip("Robot centre line along the west side of the pallets (x).")]
         public float PalletLaneX = -6.05f;
         public Vector3 Park = new Vector3(-6.05f, 0f, -2.6f);
@@ -49,6 +49,13 @@ namespace RoboFactory.Packing
 
         private Transform robot;
         private float carryHeight = .5f;
+        private Transform carryRoot;          // "StableCargoRoot" of the robot model (the box origin goes there), if any
+        private Animator anim;
+        private PackingRobotEvents events;
+
+        // gesture timing of the warehouse robot (load / unload per level 0/1/2), same table as the public robot
+        private static readonly float[] LoadSeconds = { 38f / 30f, 65f / 30f, 67f / 30f }, LoadAttachAt = { .466f, .425f, .488f };
+        private static readonly float[] UnloadSeconds = { 38f / 30f, 55f / 30f, 75f / 30f }, UnloadDetachAt = { .565f, .580f, .564f };
         private readonly List<Column> columns = new List<Column>();
         private bool fullLogged;
 
@@ -80,6 +87,16 @@ namespace RoboFactory.Packing
             }
             robot.SetPositionAndRotation(Park, Quaternion.Euler(0f, 180f, 0f));
             carryHeight = TopOf(robot) - robot.position.y;
+            carryRoot = FindChild(robot, "StableCargoRoot");
+            anim = robot.GetComponentInChildren<Animator>();
+            if (anim != null && anim.runtimeAnimatorController == null) anim = null;
+            if (anim != null)
+            {
+                events = anim.GetComponent<PackingRobotEvents>();
+                if (events == null) events = anim.gameObject.AddComponent<PackingRobotEvents>();
+                SetBool("HasBox", false);
+                SetBool("IsMoving", false);
+            }
             Cell.TransportConnected = true;
             Ready = true;
             var names = new List<string>();
@@ -90,7 +107,8 @@ namespace RoboFactory.Packing
                 foreach (Column c in columns) if (c.Pallet == p) { n++; shelf |= c.Shelf != null; }
                 if (n > 0) names.Add(p + " (" + n + " columns, " + (shelf ? "warehouse storage: stock for R1" : "stacked only") + ")");
             }
-            Debug.Log("[PACK] R3 transport robot ready (copy of " + RobotTemplate + "), parked at " + F(Park) + ", carries to " + string.Join(", ", names));
+            Debug.Log("[PACK] R3 transport robot ready (copy of " + RobotTemplate + (anim != null ? ", with its load / unload animations" : "") +
+                      "), parked at " + F(Park) + ", carries to " + string.Join(", ", names));
             StartCoroutine(Run());
         }
 
@@ -161,15 +179,13 @@ namespace RoboFactory.Packing
             yield return Drive(new Vector3(trayPos.x, 0f, TrayLaneZ));
             yield return Face(180f);
 
-            // 2. take the box: it slides from the tray onto the robot
+            // 2. take the box: load gesture of the robot (tray height = level 1), the box comes onto it at the attach moment
             Activity = "taking carton " + name;
             Transform box = carton.RealBox != null ? carton.RealBox.transform : carton.transform;
             CargoBox cargo = box.GetComponent<CargoBox>();
             if (cargo != null) cargo.isCarried = true;
             Debug.Log("[PACK] R3 takes carton " + name + " from tray " + (tray + 1) + (carton.Destination.Length > 0 ? " (to " + carton.Destination + ")" : ""));
-            box.SetParent(null, true);
-            yield return Transfer(box, () => robot.position + Vector3.up * carryHeight, 0f);
-            box.SetParent(robot, true);
+            yield return Gesture(true, 1, () => OntoRobot(box));
             if (box != carton.transform)
             {
                 Cell.CartonTaken(carton);
@@ -184,23 +200,21 @@ namespace RoboFactory.Packing
             yield return Drive(column.Dock);
             yield return Face(column.DockYaw);
 
-            // 4. put it down on the pallet
+            // 4. put it down on the pallet: unload gesture for the level, the box leaves the robot at the detach moment
             Activity = "unloading carton " + name;
-            box.SetParent(null, true);
             string where;
             if (column.Shelf != null && column.Shelf.HasFreePlaceToPut(column.Index, out int level))
             {
                 Transform point = column.Shelf.GetPoint(column.Index, level);
                 Quaternion rot = box.rotation;
-                Vector3 bottomOffset = box.position - BottomCentre(box);
-                yield return Transfer(box, () => point.position - bottomOffset, 0f);
+                yield return Gesture(false, level, () => OffRobot(box, () => point.position - (box.position - BottomCentre(box))));
                 column.Shelf.PutBox(column.Index, level, cargo, rot);
                 where = column.Pallet + " column " + (column.Index + 1) + " level " + (level + 1) + " (stock for R1)";
             }
             else
             {
                 Vector3 at = new Vector3(column.Centre.x, column.Top, column.Centre.z);
-                yield return Transfer(box, () => at, 0f);
+                yield return Gesture(false, Mathf.Min(column.Count, 2), () => OffRobot(box, () => at));
                 box.SetParent(column.PalletRoot, true);
                 column.Top = TopOf(box) + .002f;
                 where = column.Pallet + " stack " + (columns.IndexOf(column) + 1) + " level " + (column.Count + 1) + " (stacked, not in R1's stock)";
@@ -212,6 +226,76 @@ namespace RoboFactory.Packing
             Activity = "idle";
         }
 
+        // ------------------------------------------------------------------ gestures (animations of the robot model)
+
+        /// <summary>
+        /// Load or unload gesture: the robot model's own animation (trigger Load_Level_n / Unload_Level_n, as the
+        /// warehouse robots), the box is moved at the moment the animation says (its AttachBoxToRobot /
+        /// DetachBoxToShelf events), then the gesture finishes (OnCargoAnimationFinished). Without an animated
+        /// model, the same timing as the warehouse robots.
+        /// </summary>
+        private IEnumerator Gesture(bool load, int level, Func<IEnumerator> atMoment)
+        {
+            level = Mathf.Clamp(level, 0, 2);
+            float duration = load ? LoadSeconds[level] : UnloadSeconds[level];
+            float moment = duration * (load ? LoadAttachAt[level] : UnloadDetachAt[level]);
+            string trigger = (load ? "Load_Level_" : "Unload_Level_") + level;
+            float t0 = Time.time;
+            if (anim != null && HasParam(trigger))
+            {
+                events.Clear();
+                anim.SetTrigger(trigger);
+                while (!(load ? events.Attached : events.Detached) && Time.time < t0 + moment + 1.5f) yield return null;
+                yield return atMoment();
+                SetBool("HasBox", load);
+                while (!events.Finished && Time.time < t0 + duration + 2f) yield return null;
+                anim.ResetTrigger(trigger);
+            }
+            else
+            {
+                yield return new WaitForSeconds(moment);
+                yield return atMoment();
+                float rest = t0 + duration - Time.time;
+                if (rest > 0f) yield return new WaitForSeconds(rest);
+            }
+        }
+
+        /// <summary>Box from the tray onto the robot (origin on its cargo root, like the warehouse robots).</summary>
+        private IEnumerator OntoRobot(Transform box)
+        {
+            box.SetParent(null, true);
+            Func<Vector3> target;
+            if (carryRoot != null) target = () => carryRoot.position - (box.position - BottomCentre(box));
+            else target = () => robot.position + Vector3.up * carryHeight;
+            yield return Transfer(box, target, anim != null ? .35f : TransferSeconds);
+            box.SetParent(carryRoot != null ? carryRoot : robot, true);
+        }
+
+        private IEnumerator OffRobot(Transform box, Func<Vector3> bottomTarget)
+        {
+            box.SetParent(null, true);
+            yield return Transfer(box, bottomTarget, anim != null ? .35f : TransferSeconds);
+        }
+
+        private bool HasParam(string name)
+        {
+            foreach (AnimatorControllerParameter p in anim.parameters) if (p.name == name) return true;
+            return false;
+        }
+
+        private void SetBool(string name, bool value)
+        {
+            if (anim == null) return;
+            foreach (AnimatorControllerParameter p in anim.parameters)
+                if (p.name == name && p.type == AnimatorControllerParameterType.Bool) { anim.SetBool(name, value); return; }
+        }
+
+        private static Transform FindChild(Transform t, string name)
+        {
+            foreach (Transform c in t.GetComponentsInChildren<Transform>(true)) if (c.name == name) return c;
+            return null;
+        }
+
         // ------------------------------------------------------------------ motion
 
         private IEnumerator Drive(Vector3 to)
@@ -221,6 +305,7 @@ namespace RoboFactory.Packing
             d.y = 0f;
             if (d.magnitude < .01f) yield break;
             yield return Face(Mathf.Atan2(d.x, d.z) * Mathf.Rad2Deg);
+            SetBool("IsMoving", true);
             while (true)
             {
                 Vector3 p = Vector3.MoveTowards(robot.position, to, Speed * Time.deltaTime);
@@ -228,29 +313,32 @@ namespace RoboFactory.Packing
                 if ((p - to).sqrMagnitude < 1e-6f) break;
                 yield return null;
             }
+            SetBool("IsMoving", false);
         }
 
         private IEnumerator Face(float yaw)
         {
             Quaternion want = Quaternion.Euler(0f, yaw, 0f);
+            if (Quaternion.Angle(robot.rotation, want) > .5f) SetBool("IsMoving", true);
             while (Quaternion.Angle(robot.rotation, want) > .5f)
             {
                 robot.rotation = Quaternion.RotateTowards(robot.rotation, want, TurnSpeed * Time.deltaTime);
                 yield return null;
             }
             robot.rotation = want;
+            SetBool("IsMoving", false);
         }
 
         /// <summary>Moves a box (by the centre of its bottom face) to a point: up, across, down.</summary>
-        private IEnumerator Transfer(Transform box, Func<Vector3> bottomTarget, float extraLift)
+        private IEnumerator Transfer(Transform box, Func<Vector3> bottomTarget, float seconds)
         {
             Vector3 offset = box.position - BottomCentre(box);
             Vector3 from = box.position - offset;
-            float lift = Mathf.Max(from.y, bottomTarget().y) + .08f + extraLift;
+            float lift = Mathf.Max(from.y, bottomTarget().y) + .08f;
             float t = 0f;
             while (t < 1f)
             {
-                t = Mathf.Min(1f, t + Time.deltaTime / TransferSeconds);
+                t = Mathf.Min(1f, t + Time.deltaTime / Mathf.Max(.05f, seconds));
                 Vector3 to = bottomTarget();
                 Vector3 p;
                 if (t < .25f) p = new Vector3(from.x, Mathf.Lerp(from.y, lift, Mathf.SmoothStep(0f, 1f, t / .25f)), from.z);
