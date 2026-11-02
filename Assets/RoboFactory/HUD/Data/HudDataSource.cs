@@ -179,7 +179,9 @@ namespace RoboFactory.HUD
                 decisionCache[r] = v;
             }
             OrderVM order = m.FindOrder(v.OrderId);
-            v.Urgent = (v.Trigger ?? "").Contains("urgent") || (order != null && order.Urgent);
+            // urgent decision = an urgent trigger ("urgent_order", "urgent_voice_order") or an urgent order;
+            // "resume_after_urgent" is a NORMAL order being resumed, not an urgent one.
+            v.Urgent = (v.Trigger ?? "").StartsWith("urgent") || (order != null && order.Urgent);
             return v;
         }
 
@@ -209,8 +211,9 @@ namespace RoboFactory.HUD
                 v.Picks.Add(pick);
                 if (!v.Pallets.Contains(pallet)) v.Pallets.Add(pallet);
             }
-            if (v.Bench == "null" || v.Bench == "") v.Bench = "";
-            if (v.Truck == "null" || v.Truck == "") v.Truck = "";
+            // a decision without plan ("wait": "#3 ->  ->") leaves the arrows behind: no bench, no truck
+            if (v.Bench == "null" || v.Bench.Contains("->")) v.Bench = "";
+            if (v.Truck == "null" || v.Truck.Contains("->")) v.Truck = "";
         }
 
         private void ReadUrgent(HudModel m, MuseOrchestrator o)
