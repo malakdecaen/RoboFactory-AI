@@ -25,16 +25,37 @@ namespace RoboFactory.Sim
         /// <summary>Re-reads the boxes already placed under each level point.</summary>
         public void Rescan()
         {
+            InitializeStorage();
+            AutoFindExistingBoxes();
+        }
+
+        // The two steps below keep these exact names: the RoboFactory scripts (TruckBay when it generates
+        // the truck levels, the autopilot when it starts) call them to rebuild the table after changing
+        // the columns, as they do on the full project's storage.
+
+        /// <summary>Empty table sized on the current columns.</summary>
+        private void InitializeStorage()
+        {
             int count = columns != null ? columns.Length : 0;
             slots = new CargoBox[count][];
             for (int c = 0; c < count; c++)
             {
                 Transform[] levels = columns[c] != null && columns[c].levels != null ? columns[c].levels : new Transform[0];
                 slots[c] = new CargoBox[levels.Length];
-                for (int l = 0; l < levels.Length; l++)
+            }
+        }
+
+        /// <summary>Fills the table with the (active) boxes already placed under each level point.</summary>
+        private void AutoFindExistingBoxes()
+        {
+            if (slots == null) InitializeStorage();
+            for (int c = 0; c < slots.Length; c++)
+            {
+                Transform[] levels = columns[c] != null && columns[c].levels != null ? columns[c].levels : new Transform[0];
+                for (int l = 0; l < levels.Length && l < slots[c].Length; l++)
                 {
                     if (levels[l] == null) continue;
-                    CargoBox found = levels[l].GetComponentInChildren<CargoBox>(true);
+                    CargoBox found = levels[l].GetComponentInChildren<CargoBox>();
                     if (found == null) continue;
                     found.isCarried = false;
                     slots[c][l] = found;
@@ -45,7 +66,9 @@ namespace RoboFactory.Sim
         private bool Valid(int column, int level)
         {
             if (slots == null) Rescan();
-            return column >= 0 && column < slots.Length && level >= 0 && level < slots[column].Length;
+            return column >= 0 && column < slots.Length && level >= 0 && level < slots[column].Length &&
+                   columns != null && column < columns.Length && columns[column] != null &&
+                   columns[column].levels != null && level < columns[column].levels.Length;
         }
 
         public Transform GetPoint(int column, int level)
