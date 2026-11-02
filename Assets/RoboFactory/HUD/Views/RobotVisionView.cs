@@ -95,7 +95,16 @@ namespace RoboFactory.HUD
             HudFactory.Stretch(overlay);
 
             detect = HudFactory.Chip(frame, "Detection", "SAM 3.1 · STANDBY", HudTheme.TextMid, 300f, 22f);
-            HudFactory.Place(detect.Root, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(10f, -10f), new Vector2(300f, 22f));
+            // full width of the video (minus margins), opaque dark background: readable on any scenery
+            detect.Root.anchorMin = new Vector2(0f, 1f);
+            detect.Root.anchorMax = new Vector2(1f, 1f);
+            detect.Root.pivot = new Vector2(0f, 1f);
+            detect.Root.offsetMin = new Vector2(10f, -32f);
+            detect.Root.offsetMax = new Vector2(-10f, -10f);
+            detect.Label.enableAutoSizing = true;
+            detect.Label.fontSizeMin = 9f;
+            detect.Label.fontSizeMax = HudTheme.FontMicro;
+            detect.Label.overflowMode = TextOverflowModes.Ellipsis;
             detect.Label.characterSpacing = .5f;
             detect.Fill.color = new Color(.02f, .03f, .05f, .85f);
 
@@ -194,7 +203,7 @@ namespace RoboFactory.HUD
                     SetChip("SAM 3.1 · NO ANSWER (" + where + ")", HudTheme.Red);
                     break;
                 case "NOT RECORDED":
-                    SetChip("SAM 3.1 · NOT RECORDED FOR THIS VIEW", HudTheme.Amber);
+                    SetChip("SAM 3.1 · NOT IN THIS RECORDING (LIVE AI ONLY)", HudTheme.Amber);
                     break;
                 default:
                     SetChip("SAM 3.1 · STANDBY", HudTheme.TextMid);
@@ -211,6 +220,9 @@ namespace RoboFactory.HUD
         {
             HudFactory.Set(detect.Label, text);
             detect.SetColor(color);
+            // SetColor tints the fill: keep it dark and opaque, only the outline and the text carry the colour
+            detect.Fill.color = new Color(.02f, .03f, .05f, .9f);
+            HudFactory.SetColor(detect.Label, Color.Lerp(color, Color.white, .45f));
         }
 
         private void ShowBoxes(List<SamVisionService.Detection> detections, float alpha)
