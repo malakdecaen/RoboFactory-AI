@@ -87,6 +87,7 @@ namespace RoboFactory.Packing
             }
             robot.SetPositionAndRotation(Park, Quaternion.Euler(0f, 180f, 0f));
             carryHeight = TopOf(robot) - robot.position.y;
+            AddObstacle();
             carryRoot = FindChild(robot, "StableCargoRoot");
             anim = robot.GetComponentInChildren<Animator>();
             if (anim != null && anim.runtimeAnimatorController == null) anim = null;
@@ -185,7 +186,9 @@ namespace RoboFactory.Packing
             CargoBox cargo = box.GetComponent<CargoBox>();
             if (cargo != null) cargo.isCarried = true;
             Debug.Log("[PACK] R3 takes carton " + name + " from tray " + (tray + 1) + (carton.Destination.Length > 0 ? " (to " + carton.Destination + ")" : ""));
-            yield return Gesture(true, 1, () => OntoRobot(box));
+            // gesture of the storage level whose height matches the box (warehouse levels: centre at 0.426 / 0.926 / 1.426 m)
+            int trayLevel = Mathf.Clamp(Mathf.RoundToInt((BoxCentreY(box) - .426f) / .5f), 0, 2);
+            yield return Gesture(true, trayLevel, () => OntoRobot(box));
             if (box != carton.transform)
             {
                 Cell.CartonTaken(carton);
@@ -476,6 +479,29 @@ namespace RoboFactory.Packing
             return copy.transform;
         }
 
+        /// <summary>
+        /// A solid (kinematic) body the size of the robot, so that R1's planner, which looks for colliders, sees R3
+        /// and drives around it like around any obstacle.
+        /// </summary>
+        private void AddObstacle()
+        {
+            bool any = false;
+            Bounds b = new Bounds(robot.position, Vector3.zero);
+            foreach (Renderer r in robot.GetComponentsInChildren<Renderer>())
+            {
+                if (!r.enabled || r.GetComponentInParent<CargoBox>() != null) continue;
+                if (!any) { b = r.bounds; any = true; } else b.Encapsulate(r.bounds);
+            }
+            if (!any) return;
+            var body = robot.gameObject.AddComponent<BoxCollider>();
+            Vector3 s = robot.lossyScale;
+            body.center = robot.InverseTransformPoint(b.center);
+            body.size = new Vector3(b.size.x / Mathf.Max(1e-4f, s.x), b.size.y / Mathf.Max(1e-4f, s.y), b.size.z / Mathf.Max(1e-4f, s.z));
+            var rb = robot.gameObject.AddComponent<Rigidbody>();
+            rb.isKinematic = true;
+            rb.useGravity = false;
+        }
+
         private static void Strip(GameObject go)
         {
             for (int pass = 0; pass < 8; pass++)
@@ -522,6 +548,18 @@ namespace RoboFactory.Packing
                 top = Mathf.Max(top, r.bounds.max.y);
             }
             return float.IsInfinity(top) ? t.position.y : top;
+        }
+
+        private static float BoxCentreY(Transform t)
+        {
+            float lo = float.MaxValue, hi = float.MinValue;
+            foreach (Renderer r in t.GetComponentsInChildren<Renderer>())
+            {
+                if (!r.enabled || !r.gameObject.activeInHierarchy) continue;
+                lo = Mathf.Min(lo, r.bounds.min.y);
+                hi = Mathf.Max(hi, r.bounds.max.y);
+            }
+            return lo <= hi ? (lo + hi) / 2f : t.position.y;
         }
 
         private static Vector3 BottomCentre(Transform t)
