@@ -523,6 +523,8 @@ namespace RoboFactory.HUD
                 yield break;
             }
 
+            // ---- the same box returned twice (other word, part of the box) is merged first
+            raw = Deduplicate(raw);
             // ---- each SAM object goes to the visible slot it overlaps best (one slot = one box at most)
             foreach (Detection d in raw)
             {
@@ -581,13 +583,16 @@ namespace RoboFactory.HUD
                     if (q.PlaceKind == "truck")
                     {
                         string order = q.OrderId >= 0 && q.OrderTotal > 0 ? " · ORDER #" + q.OrderId + " " + q.OrderInTruck + "/" + q.OrderTotal : "";
-                        if (ok && q.OrderId >= 0 && q.NewBox != null)
+                        if (q.OrderId >= 0)
                         {
+                            // every box of the order SAM sees at its slot in the truck is confirmed
                             if (!verifiedLoads.TryGetValue(q.OrderId, out HashSet<CargoBox> set))
                                 verifiedLoads[q.OrderId] = set = new HashSet<CargoBox>();
-                            set.Add(q.NewBox);
+                            foreach (Slot sl in q.Slots)
+                                if (sl.Occupied && sl.Seen && sl.InImage && !sl.Hidden && sl.Box != null && sl.Box.orderId == q.OrderId)
+                                    set.Add(sl.Box);
                             bool complete = q.OrderTotal > 0 && q.OrderInTruck >= q.OrderTotal;
-                            r.OrderVerified = complete && set.Count >= q.OrderTotal;
+                            r.OrderVerified = ok && complete && set.Count >= q.OrderTotal;
                         }
                         if (r.OrderVerified)
                         {
@@ -610,6 +615,29 @@ namespace RoboFactory.HUD
                 }
             }
             LogResult(r, q, conf, visible, hidden, onEmpty, ignored, true);
+        }
+
+        /// <summary>
+        /// Keeps one detection per object: a detection overlapping a more confident one (IoU ≥ 0.5, or mostly
+        /// inside it / containing it) is the same box found again and is dropped.
+        /// </summary>
+        private static List<Detection> Deduplicate(List<Detection> raw)
+        {
+            raw.Sort((a, b) => b.Confidence.CompareTo(a.Confidence));
+            var kept = new List<Detection>();
+            foreach (Detection d in raw)
+            {
+                bool duplicate = false;
+                float area = d.Box.width * d.Box.height;
+                foreach (Detection k in kept)
+                {
+                    float inter = Intersection(d.Box, k.Box);
+                    float smaller = Mathf.Min(area, k.Box.width * k.Box.height);
+                    if (IoU(d.Box, k.Box) >= .5f || (smaller > 1e-6f && inter >= .8f * smaller)) { duplicate = true; break; }
+                }
+                if (!duplicate) kept.Add(d);
+            }
+            return kept;
         }
 
         private static void AppendConf(StringBuilder conf, Detection d)
