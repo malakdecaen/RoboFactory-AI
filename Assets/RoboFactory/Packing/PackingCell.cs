@@ -91,7 +91,11 @@ namespace RoboFactory.Packing
         public readonly PackingCarton[] Trays = new PackingCarton[8];
         public bool ArmBusy { get; private set; }
         public string ArmActivity { get; private set; } = "idle";
+        /// <summary>Last product Muse Spark answered for (its picture and verdict are on the product).</summary>
         public PackingItem LastScanned { get; private set; }
+        /// <summary>Products photographed whose answer has not arrived yet.</summary>
+        public int ScansPending { get; private set; }
+        public PackingItem LastCaptured { get; private set; }
         public Texture LastScanImage => scanTarget;
         public int Spawned, Scans, ScanFailures, Taken, Rejected, Recycled, CartonsClosed;
         public int ScanCorrect, ScanWrong;   // checked afterwards against the simulation (logs only)
@@ -211,6 +215,7 @@ namespace RoboFactory.Packing
                 if (it.Decision == "take" && Choose(it) == null)
                 {
                     it.Decision = "pass";
+                    SetVerdict(it);
                     Debug.Log("[PACK] product #" + it.Serial + " (" + it.ScanKind + ") → PASS · no carton needs it any more");
                     continue;
                 }
@@ -269,12 +274,18 @@ namespace RoboFactory.Packing
             Scans++;
             scanCam.enabled = true;
             yield return new WaitForEndOfFrame();
-            string png = ReadScan();
+            string png = ReadScan(out Texture2D picture);
             scanCam.enabled = false;
+            if (item.ScanImage != null) Destroy(item.ScanImage);
+            item.ScanImage = picture;
+            LastCaptured = item;
             if (png == null) { item.Scanning = false; item.ScanFailed = true; ScanFailures++; Decide(item); yield break; }
             InspectResponse res = null;
+            ScansPending++;
             yield return proxy.AskInspect(png, "item#" + item.Serial, "pack-" + item.Serial + "-" + item.Laps, x => res = x);
+            ScansPending--;
             if (item == null) yield break;
+            item.ScanLatencyMs = res != null ? (int)res.latency_ms : 0;
             item.Scanning = false;
             item.Scanned = true;
             LastScanned = item;
@@ -317,7 +328,31 @@ namespace RoboFactory.Packing
             else if (Choose(item) is PackingCarton target)
             { item.Decision = "take"; why = "for carton " + target.Type + "#" + target.Number + " (" + target.Recipe.Description + ", " + target.Contents.Count + "/" + target.Capacity + ")"; }
             else { item.Decision = "pass"; why = "no open carton needs a " + item.ScanKind + " now"; }
+            SetVerdict(item);
             Debug.Log("[PACK] product #" + item.Serial + " (" + Seen(item) + ") → " + item.Decision.ToUpperInvariant() + " · " + why);
+        }
+
+        /// <summary>Short verdict shown in the HUD next to the picture the scan sent.</summary>
+        private void SetVerdict(PackingItem item)
+        {
+            string defect = (item.ScanDefect ?? "").ToUpperInvariant();
+            switch (item.Decision)
+            {
+                case "take":
+                    PackingCarton c = Choose(item);
+                    item.Verdict = "OK → CARTON " + (c != null ? c.Type : "?");
+                    item.VerdictKind = "ok";
+                    break;
+                case "reject":
+                    item.Verdict = item.ScanKind == "unknown" ? "UNKNOWN → BIN" : "DEFECT: " + defect + " → BIN";
+                    item.VerdictKind = "reject";
+                    break;
+                default:
+                    if (item.ScanFailed) { item.Verdict = "NO ANSWER → RESCAN"; item.VerdictKind = "rescan"; }
+                    else if (!item.Scanned) { item.Verdict = "UNSURE → RESCAN NEXT LAP"; item.VerdictKind = "rescan"; }
+                    else { item.Verdict = "OK · NO CARTON NEEDS IT → NEXT LAP"; item.VerdictKind = "pass"; }
+                    break;
+            }
         }
 
         private static string Seen(PackingItem i) => i.Scanned && !i.ScanFailed ? i.ScanKind + (i.ScanDefect != "none" && i.ScanDefect.Length > 0 ? ", " + i.ScanDefect : "") : "not scanned";
@@ -623,17 +658,24 @@ namespace RoboFactory.Packing
             if (BuildScanStation) ScanStation.Build(transform, go.transform.position - Vector3.up * go.transform.position.y + Vector3.up * p.y, f, go.transform.position.y - p.y);
         }
 
-        private string ReadScan()
+        /// <summary>Captures the scan camera: PNG (base64) for Muse Spark, and the same picture kept for the HUD.</summary>
+        private string ReadScan(out Texture2D picture)
         {
             RenderTexture previous = RenderTexture.active;
             Texture2D tex = null;
+            picture = null;
             try
             {
                 RenderTexture.active = scanTarget;
                 tex = new Texture2D(scanTarget.width, scanTarget.height, TextureFormat.RGB24, false);
                 tex.ReadPixels(new Rect(0, 0, scanTarget.width, scanTarget.height), 0, 0, false);
                 tex.Apply(false);
-                return Convert.ToBase64String(tex.EncodeToPNG());
+                string png = Convert.ToBase64String(tex.EncodeToPNG());
+                tex.wrapMode = TextureWrapMode.Clamp;
+                tex.name = "scan";
+                picture = tex;
+                tex = null;
+                return png;
             }
             catch (Exception e)
             {

@@ -30,10 +30,20 @@ namespace RoboFactory.Packing
         public string ScanModel = "";
         public string ScanReason = "";
         public bool ScanFailed;
+        public int ScanLatencyMs;
+        /// <summary>The picture the scan camera sent to Muse Spark (shown in the HUD with the verdict).</summary>
+        public Texture2D ScanImage;
 
         /// <summary>take (into a carton) / reject (bin) / pass (another lap).</summary>
         public string Decision = "";
+        /// <summary>Short verdict for the HUD ("OK → CARTON A", "DEFECT: CRACKED → BIN"...) and its class: ok / reject / rescan / pass.</summary>
+        public string Verdict = "", VerdictKind = "";
         public int Laps;
+
+        private void OnDestroy()
+        {
+            if (ScanImage != null) Destroy(ScanImage);
+        }
 
         public static string KindName(ItemKind k)
         {
