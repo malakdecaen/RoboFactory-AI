@@ -407,7 +407,7 @@ namespace RoboFactory.Sim.EditorTools
         {
             Material env = Mat("sim_env", new Color(.58f, .6f, .63f), .3f);
             Material person = Mat("sim_person", new Color(.95f, .55f, .1f), .3f);
-            // (the "i" index below still counts every obstacle of the layout, built or not)
+            Material pallet = Mat("sim_pallet", new Color(.55f, .4f, .24f), .2f);
             int i = 0;
             foreach (JObject o in (JArray)layout["obstacles"])
             {
@@ -421,13 +421,22 @@ namespace RoboFactory.Sim.EditorTools
                 if (parent == null) parent = Group("Environment");
                 bool worker = path.StartsWith("Worker");
                 bool onStation = owner.StartsWith("storage:") || owner.StartsWith("truck:");
-                // Scenery obstacles of the original environment (walls, roof spacers, big shelf, worker...) are not
-                // built: only the invisible colliders that belong to the benches, pallets and trucks are kept.
-                if (!onStation) continue;
-                GameObject go = Box("obstacle_" + (i++) + "_" + path.Substring(path.LastIndexOf('/') + 1), parent,
-                                    V(o["center"]), Q(o["rot"]), V(o["size"]), worker ? person : env, true, false);
-                // The stations' colliders stay invisible: their visual is already built.
-                if (onStation) UnityEngine.Object.DestroyImmediate(go.GetComponent<MeshRenderer>());
+                // The robots of the full project drive around every solid collider standing on the floor: the
+                // colliders of the benches / pallets / trucks, the worker in the aisle, the loaded pallet on R2's way
+                // to the trucks, the door frames. They are all kept so the routes (and the timings) stay the same.
+                // Not built: what is above the robots (roof spacers) and the big storage rack, whose real shape is a
+                // mesh: its bounding box would wrongly close the access to the pallets standing next to it.
+                Vector3 c = V(o["center"]), sz = V(o["size"]);
+                bool onFloor = c.y - sz.y * .5f < .5f;
+                bool compact = sz.x * sz.z < 4f;
+                if (!onStation && !(onFloor && compact)) continue;
+                string label = path.Substring(path.LastIndexOf('/') + 1);
+                // no "obstacle_*" objects any more: the worker keeps his name, the others are navigation colliders
+                bool lowPallet = !onStation && !worker && sz.y < .3f;
+                GameObject go = Box(worker ? label : "nav_collider_" + (i++) + "_" + label, parent, c, Q(o["rot"]), sz,
+                                    worker ? person : lowPallet ? pallet : env, true, false);
+                // Visible: the worker and the loaded pallet. The other colliders stay invisible (no useless cubes).
+                if (!worker && !lowPallet) UnityEngine.Object.DestroyImmediate(go.GetComponent<MeshRenderer>());
                 string layer = S(o["layer"]);
                 int index = string.IsNullOrEmpty(layer) ? -1 : LayerMask.NameToLayer(layer);
                 if (index >= 0) go.layer = index;
@@ -491,6 +500,10 @@ namespace RoboFactory.Sim.EditorTools
                 tracks.wheelRadius = radius;
                 tracks.spinAxis = Vector3.up; // cylinder axis
                 var grid = root.gameObject.AddComponent<GridRobotController>();
+                // pick / drop with the same timing as the full project's robot (arm animation per level)
+                var interactor = root.gameObject.AddComponent<RobotCargoInteractor>();
+                interactor.gridController = grid;
+                interactor.cargoAttachPoint = root.Find("cargo_attach");
                 JObject g = (JObject)r["grid"];
                 grid.cellSize = g["cellSize"].Value<float>();
                 grid.gridCellsX = g["gridCellsX"].Value<int>();
