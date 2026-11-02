@@ -150,6 +150,7 @@ namespace RoboFactory.Launcher
             double now = RecordedDemoRuntime.Elapsed;
             while (next < inputs.Count && now >= inputs[next].T)
             {
+                if (Replay && inputs[next].Urgent && HoldUrgent(inputs[next], now)) break;
                 Fire(inputs[next], now);
                 next++;
             }
@@ -164,6 +165,24 @@ namespace RoboFactory.Launcher
             if (!done) { doneSince = -1f; return; }
             if (doneSince < 0f) doneSince = Time.time;
             if (Time.time - doneSince >= 4f) Finish(orders);
+        }
+
+        private const double MaxUrgentHold = 120.0;
+
+        /// <summary>
+        /// The recorded urgent answer was "wait" (every bench and truck was reserved when it was recorded).
+        /// The simulation is not frame-identical from one run to the next, so the urgent order is sent when the
+        /// warehouse is in that same situation (no free bench + truck), not at a fixed second.
+        /// After MaxUrgentHold seconds it is sent anyway.
+        /// </summary>
+        private bool HoldUrgent(ScriptInput input, double now)
+        {
+            if (!RecordedDemoRuntime.RecordedUrgentWaits(input.Transcript)) return false;
+            if (now - input.T >= MaxUrgentHold) return false;
+            int need = 0;
+            if (RecordedDemoRuntime.TryRecordedUrgentOrder(input.Transcript, out int a, out int b, out int c)) need = a + b + c;
+            if (need <= 0) return false;
+            return orch.UrgentCapacityFree(need);
         }
 
         private void Fire(ScriptInput input, double now)
