@@ -137,6 +137,7 @@ namespace RoboFactory.MetaServer
                 foreach (JToken c in (JArray)recording["calls"]) replayCalls.Add((JObject)c);
                 consumed = new bool[replayCalls.Count];
                 replayServed = 0;
+                inspectHints.Clear();
                 capturedCalls.Clear();
                 capturedInputs.Clear();
                 clock.Restart();
@@ -211,6 +212,28 @@ namespace RoboFactory.MetaServer
                 bool strict = route == "/urgent" || route == "/sam" || route == "/inspect" || route == "/destination" || route == "/label";
                 int pick = strict ? exact : (exact >= 0 ? exact : firstSameRoute);
                 bool reused = false;
+                if (route == "/inspect" && inspectHints.TryGetValue(trigger, out string[] hint))
+                {
+                    inspectHints.Remove(trigger);
+                    // The product numbers of the replay can differ from the recording (the line may have started
+                    // before the scenario clock): a recorded answer is only served for the same product (kind and
+                    // defect), otherwise the recorded answer to an identical product is served again.
+                    // (the answer recorded for this very product is kept as it is, even when Meta was wrong on the defect)
+                    if (pick >= 0 && !SameProduct(replayCalls[pick], hint, 0)) pick = -1;
+                    for (int level = 2; pick < 0 && level >= 1; level--)
+                    {
+                        int any = -1;
+                        double now = clock.Elapsed.TotalSeconds, bestGap = double.MaxValue;
+                        for (int i = 0; i < replayCalls.Count; i++)
+                        {
+                            JObject c = replayCalls[i];
+                            if ((string)c["route"] != route || !SameProduct(c, hint, level)) continue;
+                            double gap = Math.Abs(((double?)c["t"] ?? 0) - now) + (consumed[i] ? 1000.0 : 0.0);
+                            if (gap < bestGap) { bestGap = gap; any = i; }
+                        }
+                        if (any >= 0) { pick = any; reused = consumed[any]; }
+                    }
+                }
                 if (pick < 0 && route == "/sam")
                 {
                     for (int i = replayCalls.Count - 1; i >= 0; i--)
@@ -240,9 +263,66 @@ namespace RoboFactory.MetaServer
                     response["request_id"] = requestId;
                 if (response["state_version"] != null && body["state_version"] != null)
                     response["state_version"] = body["state_version"];
+                if (route == "/inspect")
+                {
+                    response["trigger"] = trigger;
+                    if (body["observation_id"] != null) response["observation_id"] = body["observation_id"];
+                }
                 response["mode"] = "recorded";
                 response["recorded"] = true;
                 delayMs = Math.Max(0, Math.Min(120000, (int?)call["latency_ms"] ?? 0));
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// RECORDED DEMO: what the product scanned under this trigger really is (kind, defect), so the replay serves
+        /// the recorded Meta answer to the same product. Never sent anywhere: the replay answers in-process.
+        /// </summary>
+        public static void HintInspect(string trigger, string kindName, string defectName)
+        {
+            lock (gate)
+            {
+                if (kind != DemoRunKind.Replay) return;
+                inspectHints[trigger ?? ""] = new[] { kindName ?? "", defectName ?? "" };
+            }
+        }
+
+        private static readonly Dictionary<string, string[]> inspectHints = new Dictionary<string, string[]>();
+
+        /// <summary>level 0: same kind · 1: same kind, defective or not like the product · 2: same kind and defect.</summary>
+        private static bool SameProduct(JObject call, string[] hint, int level)
+        {
+            JObject r = call["response"] as JObject;
+            if (r == null || !((bool?)r["ok"] ?? false) || (string)r["kind"] != hint[0]) return false;
+            string defect = (string)r["defect"] ?? "";
+            return level == 0 || (level == 2 ? defect == hint[1] : (defect == "none") == (hint[1] == "none"));
+        }
+
+        /// <summary>
+        /// RECORDED DEMO: the next recorded call of this route (time since the scenario start, trigger), so the
+        /// game asks Meta at the recorded moment, with the recorded trigger, and gets the recorded answers in order.
+        /// <paramref name="orderId"/>: the order of the recorded plan (-1 if none).
+        /// </summary>
+        public static bool NextRecorded(string route, out double t, out string trigger, out int orderId)
+        {
+            t = 0; trigger = ""; orderId = -1;
+            lock (gate)
+            {
+                if (kind != DemoRunKind.Replay) return false;
+                int best = -1;
+                double bestT = double.MaxValue;
+                for (int i = 0; i < replayCalls.Count; i++)
+                {
+                    if (consumed[i] || (string)replayCalls[i]["route"] != route) continue;
+                    double ct = (double?)replayCalls[i]["t"] ?? 0;
+                    if (ct < bestT) { bestT = ct; best = i; }
+                }
+                if (best < 0) return false;
+                t = bestT;
+                trigger = (string)replayCalls[best]["trigger"] ?? "";
+                // the order the recorded plan is about (a decision is only replayed once that order exists)
+                if (replayCalls[best]["response"] is JObject r && r["plan"] is JObject plan) orderId = (int?)plan["order_id"] ?? -1;
                 return true;
             }
         }
