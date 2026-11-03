@@ -40,6 +40,8 @@ namespace RoboFactory.Packing
         public float Tolerance = .012f;
 
         private Transform stand, arm1, arm2, wrist, arm1Base, target;
+        private MonoBehaviour ikComponent;
+        private MethodInfo ikSolve;
         private Vector3 axisLocal, hingeLocal, tipLocal, tipOffset;
         private float upper, fore, stretch = 1f;
         private string ikLengths = "IK lengths from its Awake";
@@ -93,6 +95,8 @@ namespace RoboFactory.Packing
             arm1Base = Field(ik, "_arm1Base");
             target = Field(ik, "_target");
             if (stand == null || arm1 == null || arm2 == null || wrist == null || arm1Base == null || target == null) return false;
+            ikComponent = ik;
+            ikSolve = ik.GetType().GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public, null, Type.EmptyTypes, null);
 
             // bigger arm: scale the whole arm (base, joints, tool, IK target) about its root
             float before = arm1Base.lossyScale.x;
@@ -193,6 +197,14 @@ namespace RoboFactory.Packing
             Vector3 want = WristFor(goal);
             wristPos = Vector3.MoveTowards(wristPos, want, Speed * dt);
             target.position = IkTarget(wristPos);
+            // Solve now, in this frame, instead of waiting for the IK component's own Update: the order of the
+            // Updates is not the same in the editor and in a build, and one frame late the gripper trails the moving
+            // product by (belt speed x frame time), too far to catch it at a low frame rate.
+            if (ikSolve != null)
+            {
+                try { ikSolve.Invoke(ikComponent, null); } catch (Exception) { ikSolve = null; }
+            }
+            wrist.rotation = WristRotation(stand.rotation);
         }
 
         /// <summary>IK target that puts the wrist on <paramref name="w"/> (see the class comment for the stretch).</summary>
