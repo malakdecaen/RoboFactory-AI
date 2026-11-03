@@ -138,7 +138,16 @@ namespace RoboFactory.Packing
                 Column column = carton != null ? NextColumn(out eastWait) : null;
                 if (carton != null && column == null && eastWait)
                 {
-                    // only the east half has room and R1 is using that aisle: wait where it is
+                    // only the east half has room and R1 is using that aisle: wait on R3's lane, south of the pallets
+                    Vector3 spot = new Vector3(PalletLaneX, 0f, eastCrossZ);
+                    if (!parked && (robot.position - spot).sqrMagnitude > .01f)
+                    {
+                        Activity = "waiting for the east aisle";
+                        yield return LeaveEastAisle();
+                        if (robot.position.z > eastCrossZ) yield return Drive(spot);
+                        else { yield return Drive(new Vector3(PalletLaneX, 0f, robot.position.z)); yield return Drive(spot); }
+                        yield return Face(0f);
+                    }
                     yield return new WaitForSeconds(.5f);
                     continue;
                 }
@@ -482,30 +491,27 @@ namespace RoboFactory.Packing
         }
 
         /// <summary>
-        /// The east aisle is R1's: R3 only goes in when no order has reserved a pallet along it and neither R1 nor R2
-        /// is in it or on the crossing south of the pallets.
+        /// The east aisle is R1's: R3 only goes in when neither R1 nor R2 is in it (or on the crossing south of the
+        /// pallets) and R1 is not heading for an access point in it. (Pallet reservations are not a reason to wait:
+        /// an order keeps its pallet reserved for minutes while R1 works elsewhere.)
         /// </summary>
         private bool EastAisleClear(out string why)
         {
             why = "";
             WarehouseWorld w = WarehouseWorld.Instance;
             if (w == null) return true;
-            float xMin = PalletLaneX - .6f, xMax = eastAisleX + 1.4f, zMin = eastCrossZ - .7f, zMax = eastNorthZ + 1.2f;
+            float xMin = PalletLaneX - .6f, xMax = eastAisleX + 1.2f, zMin = eastCrossZ - .7f, zMax = eastNorthZ + 1.2f;
             foreach (Component r in new Component[] { w.R1, w.R2 })
             {
                 if (r == null) continue;
                 Vector3 p = r.transform.position;
-                if (p.x > xMin && p.x < xMax && p.z > zMin && p.z < zMax) { why = (r == (Component)w.R1 ? "R1" : "R2") + " is in the aisle"; return false; }
+                if (p.x > xMin && p.x < xMax && p.z > zMin && p.z < zMax) { why = (r == (Component)w.R1 ? "R1" : "R2") + " is there"; return false; }
             }
-            for (int i = 1; i <= w.PalletCount + 2; i++)
+            ShelfInteractionZone target = w.R1 != null ? w.R1.CurrentTarget : null;
+            if (target != null && target.dockPoint != null)
             {
-                string id = "P" + i.ToString("00");
-                ShelfStorage s = w.Pallet(id);
-                if (s == null) continue;
-                Vector3 p = s.transform.position;
-                if (p.x < PalletLaneX || p.x > xMax + 1.5f || p.z < zMin || p.z > zMax) continue;
-                string by = w.ReservedBy(id);
-                if (!string.IsNullOrEmpty(by)) { why = id + " is reserved by order #" + by; return false; }
+                Vector3 d = target.dockPoint.position;
+                if (d.x > eastAisleX - .9f && d.x < xMax && d.z > zMin && d.z < zMax) { why = "R1 is heading for it"; return false; }
             }
             return true;
         }
