@@ -395,7 +395,14 @@ namespace RoboFactory.Packing
             if (!caught || it == null || !Track.Riders.Contains(rider))
             {
                 if (it != null)
-                    Debug.Log("[PACK] product #" + it.Serial + " (" + Seen(it) + ") missed by the arm on the moving belt · next lap");
+                {
+                    Vector3 err = Arm.ToolTip - Arm.Goal;
+                    Debug.Log("[PACK] product #" + it.Serial + " (" + Seen(it) + ") missed by the arm on the moving belt · next lap (" +
+                              (above ? "lost it while coming down" : InZone(rider) ? "never above it" : "left the pick zone") +
+                              ": tool tip " + (new Vector2(err.x, err.z).magnitude * 100f).ToString("F0", CultureInfo.InvariantCulture) + " cm across, " +
+                              (err.y * 100f).ToString("F0", CultureInfo.InvariantCulture) + " cm high from its goal, " +
+                              (1f / Mathf.Max(Time.smoothDeltaTime, 1e-4f)).ToString("F0", CultureInfo.InvariantCulture) + " fps)");
+                }
                 ArmActivity = "idle";
                 ArmBusy = false;
                 yield break;
