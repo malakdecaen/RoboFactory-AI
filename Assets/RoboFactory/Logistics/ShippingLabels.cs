@@ -248,6 +248,8 @@ namespace RoboFactory.Logistics
             bool along = sx >= sz;   // label along the longer side
             float w = Mathf.Min(.42f, (along ? sx : sz) * .86f), h = Mathf.Min(w * .62f, (along ? sz : sx) * .86f);
             w = Mathf.Min(w, h / .62f);
+            w *= .9f;
+            h *= .9f;
 
             var root = new GameObject("shipping_label").transform;
             root.SetParent(box.transform, true);
