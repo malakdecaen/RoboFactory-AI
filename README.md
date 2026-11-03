@@ -6,7 +6,7 @@
 
 ## Download and play (Windows)
 
-**[Download the Windows build (v1.0)](https://github.com/malakdecaen/RoboFactory-AI/releases/tag/v1.0)**: unzip `RoboFactory-MuseAI_Windows_v1.0.zip` and start `RoboFactory-MuseAI/RoboFactory-MuseAI.exe` (Windows 10/11, 64-bit, DirectX 12). This build has the original art of the full project.
+**[Download the Windows build (v1.0)](https://github.com/malakdecaen/RoboFactory-AI/releases/latest)**: unzip `RoboFactory-MuseAI_Windows_v1.0.zip` and start `RoboFactory-MuseAI/RoboFactory-MuseAI.exe` (Windows 10/11, 64-bit, DirectX 12). This build has the original art of the full project.
 
 - **RECORDED DEMO** runs at once, with no key and no Internet: real Meta answers recorded earlier, replayed while the warehouse is really simulated.
 - **LIVE AI** uses your own Meta Model API key (kept in memory only) and lets you give urgent orders by voice.
@@ -74,7 +74,7 @@ Recordings are only made from real Meta answers: in LIVE AI choose *Record a sce
 
 ## Full version (Release build)
 
-The [GitHub Release](https://github.com/malakdecaen/RoboFactory-AI/releases/tag/v1.0) contains the Windows build with the original art. To rebuild the full version yourself, import these assets into the project (they cannot be redistributed in this repository under the Asset Store license):
+The [GitHub Release](https://github.com/malakdecaen/RoboFactory-AI/releases/latest) contains the Windows build with the original art. To rebuild the full version yourself, import these assets into the project (they cannot be redistributed in this repository under the Asset Store license):
 
 - **Warehouse Robot Controller** (robots, pallets, benches, boxes) — https://assetstore.unity.com/packages/3d/characters/robots/warehouse-robot-controller-389700
 - **Unity Factory** (factory environment) — https://assetstore.unity.com/packages/3d/environments/industrial/unity-factory-276400
