@@ -42,6 +42,7 @@ namespace RoboFactory.Packing
         private Transform stand, arm1, arm2, wrist, arm1Base, target;
         private Vector3 axisLocal, hingeLocal, tipLocal, tipOffset;
         private float upper, fore, stretch = 1f;
+        private string ikLengths = "IK lengths from its Awake";
         private Vector3 arm1BaseInStand;
         private Vector3 goal, wristPos;
 
@@ -112,6 +113,7 @@ namespace RoboFactory.Packing
                 upperField.SetValue(ik, upper);
                 foreField.SetValue(ik, fore);
                 stretch = after;
+                ikLengths = "IK lengths set to the scaled arm";
             }
             else stretch = Application.isEditor ? after : before; // unknown IK: lengths measured in Awake, before the scaling
             arm1BaseInStand = Quaternion.Inverse(stand.rotation) * (arm1Base.position - stand.position);
@@ -148,7 +150,8 @@ namespace RoboFactory.Packing
             Ready = true;
             Description = "IK arm (" + ik.GetType().Name + ") x" + ArmScale.ToString("F2") + ", upper " + upper.ToString("F2") + " m, fore " + fore.ToString("F2") +
                           " m, gripping cylinder end at " + tipLocal.ToString("F3") + " (wrist frame), " +
-                          (toolTip.HasValue ? "measured" : "estimated");
+                          (toolTip.HasValue ? "measured" : "estimated") + " · " + ikLengths + ", target x" + stretch.ToString("F2") +
+                          (Application.isEditor ? " (editor)" : " (build)");
             return true;
         }
 
