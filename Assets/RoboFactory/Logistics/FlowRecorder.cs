@@ -87,6 +87,7 @@ namespace RoboFactory.Logistics
         private int routeChanges, suspensions, incidentsCount, cartonMoves;
         private int samCalls, samWithObjects, samFailed, samVerified, samMismatches, samOrdersVerified;
         private int packScans, packScanWrong, packScanFailed, packTaken, packRejected, packCartons, packMissed, packDelivered;
+        private int labelConsignees, labelImages, labelBoxes, labelFallbacks;
         private readonly List<string> incidentLines = new List<string>();
         private string lastStage = "", lastVoiceState = "", lastFinal = "", lastFailure = "";
         private float idleSince = -1f;
@@ -133,7 +134,7 @@ namespace RoboFactory.Logistics
                 writer.WriteLine("# RoboFactory — flow journal " + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") +
                                  "  scene=" + UnityEngine.SceneManagement.SceneManager.GetActiveScene().name);
                 writer.WriteLine("# columns: real time | game time | gap since the previous line | actor | action");
-                writer.WriteLine("# actors: ORDER, MUSE, SAM, PACK, R1, R2, DOOR, BOX, URGENT, VOICE, INCIDENT; a SUMMARY follows each end of activity");
+                writer.WriteLine("# actors: ORDER, MUSE, SAM, PACK, LABEL, R1, R2, DOOR, BOX, URGENT, VOICE, INCIDENT; a SUMMARY follows each end of activity");
                 writer.WriteLine();
                 Debug.Log("[FlowRecorder] flow journal: " + FilePath);
             }
@@ -182,6 +183,17 @@ namespace RoboFactory.Logistics
                 }
                 else if (text.Contains("failed") || text.Contains("no recorded")) { samCalls++; samFailed++; }
                 Line("SAM", text);
+                return;
+            }
+            if (message.StartsWith("[LABEL] "))
+            {
+                // shipping labels: consignee (Muse Spark), vignette (Muse Image), boxes labelled on the benches
+                string text = message.Substring("[LABEL] ".Length);
+                if (text.Contains(": consignee by ")) labelConsignees++;
+                else if (text.Contains(": label vignette by ")) labelImages++;
+                else if (text.Contains(" labelled on bench ")) labelBoxes++;
+                else if (text.Contains("no consignee") || text.Contains("no vignette")) labelFallbacks++;
+                Line("LABEL", text);
                 return;
             }
             if (message.StartsWith("[PACK] "))
@@ -639,6 +651,10 @@ namespace RoboFactory.Logistics
             sb.AppendLine("PACKING — " + packScans + " scan(s) by Muse Spark (" + packScanFailed + " without answer, " + packScanWrong +
                           " disagreeing with the simulation), " + packTaken + " product(s) packed, " + packRejected + " rejected, " + packMissed + " missed on the moving belt, " + packCartons + " carton(s) closed, " +
                           packDelivered + " carried to the pallets by R3");
+
+            // ---- shipping labels (Muse Spark + Muse Image)
+            sb.AppendLine("LABELS — " + labelConsignees + " consignee(s) by Muse Spark, " + labelImages + " vignette(s) by Muse Image, " +
+                          labelFallbacks + " fallback(s), " + labelBoxes + " box(es) labelled before loading");
 
             // ---- doors
             foreach (KeyValuePair<string, float> kv in doorOpenTotal)

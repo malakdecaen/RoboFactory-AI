@@ -135,6 +135,49 @@ namespace RoboFactory.Hackathon.Meta
     }
 
     [Serializable]
+    public sealed class DestinationResponse
+    {
+        public bool ok;
+        public string mode;
+        public string model;
+        public int latency_ms;
+        public string error;
+        public string trigger;
+        public bool recorded;
+        public string name, street, postcode, city, country, scene;
+    }
+
+    [Serializable]
+    internal sealed class DestinationRequest
+    {
+        public string trigger;
+        public string order;
+        public string truck;
+    }
+
+    [Serializable]
+    public sealed class LabelResponse
+    {
+        public bool ok;
+        public string mode;
+        public string model;
+        public int latency_ms;
+        public string error;
+        public string trigger;
+        public bool recorded;
+        public string format;
+        public string image_b64;
+    }
+
+    [Serializable]
+    internal sealed class LabelRequest
+    {
+        public string trigger;
+        public string scene;
+        public string size;
+    }
+
+    [Serializable]
     internal sealed class InspectRequest
     {
         public string image_b64;
@@ -395,6 +438,20 @@ namespace RoboFactory.Hackathon.Meta
         {
             var body = new InspectRequest { image_b64 = imageBase64, trigger = trigger, observation_id = observationId };
             yield return Post("/inspect", JsonUtility.ToJson(body), 70, done);
+        }
+
+        /// <summary>Shipping: fictional consignee of an order (Muse Spark). trigger = "order#id" (RECORDED DEMO key).</summary>
+        public IEnumerator AskDestination(string trigger, string order, string truck, Action<DestinationResponse> done)
+        {
+            var body = new DestinationRequest { trigger = trigger, order = order, truck = truck };
+            yield return Post("/destination", JsonUtility.ToJson(body), 70, done);
+        }
+
+        /// <summary>Shipping: label vignette drawn by Muse Image (JPEG base64). trigger = "order#id".</summary>
+        public IEnumerator AskLabel(string trigger, string scene, Action<LabelResponse> done)
+        {
+            var body = new LabelRequest { trigger = trigger, scene = scene, size = "1024x1024" };
+            yield return Post("/label", JsonUtility.ToJson(body), 130, done);
         }
 
         public IEnumerator Supervise(SupervisionRequest request, Action<SupervisionResponse> done)

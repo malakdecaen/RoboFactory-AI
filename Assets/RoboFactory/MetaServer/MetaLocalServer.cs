@@ -176,6 +176,8 @@ namespace RoboFactory.MetaServer
                     case "/vision": HandleVision(ctx, body, key, started); break;
                     case "/sam": HandleSam(ctx, body, key, started); break;
                     case "/inspect": HandleInspect(ctx, body, key, started); break;
+                    case "/destination": HandleDestination(ctx, body, key, started); break;
+                    case "/label": HandleLabel(ctx, body, key, started); break;
                     case "/supervise": HandleSupervise(ctx, body, key, started); break;
                     case "/warehouse": HandleWarehouse(ctx, body, key, started); break;
                     case "/urgent": HandleUrgent(ctx, body, key, started); break;
@@ -432,6 +434,73 @@ namespace RoboFactory.MetaServer
                 ["ok"] = true, ["mode"] = "live", ["model"] = MetaApi.VisionModel, ["latency_ms"] = latency, ["trigger"] = trigger,
                 ["observation_id"] = observationId, ["kind"] = result["kind"], ["defect"] = result["defect"],
                 ["confidence"] = result["confidence"], ["reason"] = result["reason"]
+            });
+        }
+
+        /// <summary>Shipping: Muse Spark invents the (fictional) consignee of an order before it is loaded.</summary>
+        private void HandleDestination(HttpListenerContext ctx, JObject body, string key, Stopwatch started)
+        {
+            string trigger = Py.StrOr(Py.Get(body, "trigger"));
+            string order = Py.Cut(Py.StrOr(Py.Get(body, "order")), 200);
+            string truck = Py.Cut(Py.StrOr(Py.Get(body, "truck")), 40);
+            if (key == null) { Fail(ctx, 503, "/destination", started, NoKey); return; }
+            string prompt = MetaPrompts.DESTINATION_PROMPT.Replace("{order}", order.Length > 0 ? order : "boxes").Replace("{truck}", truck.Length > 0 ? truck : "T01");
+            JObject payload = MetaApi.UserMessage(MetaApi.VisionModel, MetaApi.Text(prompt));
+            payload["reasoning"] = new JObject { ["effort"] = "low" };
+            MetaApi.Result r = MetaApi.CallWithRetry(MetaApi.BaseUrl + "/responses", payload, key, 60);
+            if (r.Status != 200) { Fail(ctx, 502, "/destination", started, "upstream status " + r.Status, new JObject { ["upstream"] = Py.Cut(r.Raw, 400) }); return; }
+            string output = MetaLogic.ExtractOutputText(r.Raw);
+            JObject parsed = MetaLogic.FirstJsonObject(output);
+            string error = "model did not return json";
+            JObject dest = MetaLogic.HasJson(parsed) ? MetaLogic.ValidateDestination(parsed, out error) : null;
+            if (dest == null) { Fail(ctx, 422, "/destination", started, error, new JObject { ["raw_text"] = Py.Cut(output, 600) }); return; }
+            int latency = Ms(started);
+            MetaApi.Log(new JObject
+            {
+                ["endpoint"] = "/destination", ["ok"] = true, ["status"] = 200, ["model"] = MetaApi.VisionModel, ["latency_ms"] = latency,
+                ["trigger"] = trigger, ["city"] = dest["city"]
+            });
+            var response = new JObject { ["ok"] = true, ["mode"] = "live", ["model"] = MetaApi.VisionModel, ["latency_ms"] = latency, ["trigger"] = trigger };
+            foreach (JProperty p in dest.Properties()) response[p.Name] = p.Value;
+            SendJson(ctx, 200, response);
+        }
+
+        /// <summary>Shipping: Muse Image draws the label's vignette (JPEG, base64) from the destination scene.</summary>
+        private void HandleLabel(HttpListenerContext ctx, JObject body, string key, Stopwatch started)
+        {
+            string trigger = Py.StrOr(Py.Get(body, "trigger"));
+            string scene = Py.Cut(Py.StrOr(Py.Get(body, "scene")).Trim(), 240);
+            if (scene.Length == 0) { Fail(ctx, 400, "/label", started, "scene is required"); return; }
+            if (key == null) { Fail(ctx, 503, "/label", started, NoKey); return; }
+            var payload = new JObject
+            {
+                ["model"] = MetaApi.ImageModel,
+                ["prompt"] = MetaPrompts.LABEL_IMAGE_PROMPT.Replace("{scene}", scene),
+                ["n"] = 1,
+                ["size"] = Py.StrOr(Py.Get(body, "size"), "1024x1024"),
+                ["response_format"] = "b64_json",
+                ["output_format"] = "jpeg"
+            };
+            MetaApi.Result r = MetaApi.CallWithRetry(MetaApi.BaseUrl + "/images/generations", payload, key, 120);
+            if (r.Status != 200) { Fail(ctx, 502, "/label", started, "upstream status " + r.Status, new JObject { ["upstream"] = Py.Cut(r.Raw, 400) }); return; }
+            string b64 = null;
+            try
+            {
+                JObject parsed = JObject.Parse(r.Raw);
+                b64 = (string)parsed.SelectToken("data[0].b64_json");
+            }
+            catch (Exception) { }
+            if (string.IsNullOrEmpty(b64)) { Fail(ctx, 422, "/label", started, "no image in the answer", new JObject { ["upstream"] = Py.Cut(r.Raw, 300) }); return; }
+            int latency = Ms(started);
+            MetaApi.Log(new JObject
+            {
+                ["endpoint"] = "/label", ["ok"] = true, ["status"] = 200, ["model"] = MetaApi.ImageModel, ["latency_ms"] = latency,
+                ["trigger"] = trigger, ["image_bytes"] = b64.Length
+            });
+            SendJson(ctx, 200, new JObject
+            {
+                ["ok"] = true, ["mode"] = "live", ["model"] = MetaApi.ImageModel, ["latency_ms"] = latency, ["trigger"] = trigger,
+                ["format"] = "jpeg", ["image_b64"] = b64
             });
         }
 

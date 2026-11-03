@@ -71,7 +71,7 @@ namespace RoboFactory.MetaServer
         /// </summary>
         public static bool IsRecordedRoute(string route)
         {
-            return IsDecisionRoute(route) || route == "/sam" || route == "/inspect";
+            return IsDecisionRoute(route) || route == "/sam" || route == "/inspect" || route == "/destination" || route == "/label";
         }
 
         public static string KindName
@@ -200,14 +200,15 @@ namespace RoboFactory.MetaServer
                     JObject c = replayCalls[i];
                     if ((string)c["route"] != route) continue;
                     if (firstSameRoute < 0) firstSameRoute = i;
-                    bool match = route == "/warehouse" || route == "/sam" || route == "/inspect" ? (string)c["trigger"] == trigger
+                    bool match = route == "/warehouse" || route == "/sam" || route == "/inspect" || route == "/destination" || route == "/label"
+                               ? (string)c["trigger"] == trigger
                                : route == "/urgent" ? Normalize((string)c["transcript"]) == transcript
                                : true;
                     if (match) { exact = i; break; }
                 }
                 // An urgent order is only ever served for the very sentence that was recorded (never another one),
                 // and a SAM segmentation only for the same robot, place and concept (never boxes from another view).
-                bool strict = route == "/urgent" || route == "/sam" || route == "/inspect";
+                bool strict = route == "/urgent" || route == "/sam" || route == "/inspect" || route == "/destination" || route == "/label";
                 int pick = strict ? exact : (exact >= 0 ? exact : firstSameRoute);
                 bool reused = false;
                 if (pick < 0 && route == "/sam")
