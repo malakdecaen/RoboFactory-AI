@@ -170,8 +170,10 @@ namespace RoboFactory.Packing
         {
             var root = new GameObject(name);
             root.transform.SetPositionAndRotation(at, Quaternion.Euler(0f, yaw, 0f));
-            // same footprint as the warehouse pallets: 2.5 m x 1.48 m, top 0.176 m (long side along world x here)
-            BuildPalletModel(root.transform, at, 2.5f, 1.4766f, .176f, material);
+            // same footprint as a warehouse pallet (its navigation collider): 1.45 m along the stacks, 1.25 m between the
+            // two access aisles, top 0.176 m; separate pallets, with room for the robots on both sides
+            Vector3 foot = Quaternion.Euler(0f, yaw, 0f) * new Vector3(1.45f, 0f, 1.25f);
+            BuildPalletModel(root.transform, at, Mathf.Abs(foot.x), Mathf.Abs(foot.z), .176f, material);
             return root;
         }
 

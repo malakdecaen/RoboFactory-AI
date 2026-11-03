@@ -433,7 +433,12 @@ namespace RoboFactory.Sim.EditorTools
                         float h = Mathf.Max(.06f, first - bottom - .25f);
                         Func<Color, float, float, Material> wood = (col, sm, me) =>
                             Mat("sim_pack_" + ColorUtility.ToHtmlStringRGB(col) + "_" + Mathf.RoundToInt(sm * 100f) + "_" + Mathf.RoundToInt(me * 100f), col, sm, me);
-                        RoboFactory.Packing.PalletStock.BuildPalletModel(root, new Vector3(c.x, bottom, c.z), size.x, size.z, h, wood);
+                        // the pallet itself, not the bounds of its stacks (2.5 m: the neighbouring pallets merged into one
+                        // slab and hid the robots' access aisles): the footprint of its navigation collider, 1.45 m x 1.25 m
+                        Vector3? found = PalletFootprint(layout, S(s["name"]), out Vector3 centre);
+                        Vector3 foot = found ?? new Vector3(1.25f, 0f, 1.45f);
+                        if (found == null) centre = c;
+                        RoboFactory.Packing.PalletStock.BuildPalletModel(root, new Vector3(centre.x, bottom, centre.z), foot.x, foot.z, h, wood);
                     }
                     else if (role == "Bench")
                     {
@@ -466,6 +471,23 @@ namespace RoboFactory.Sim.EditorTools
                 }
                 root.gameObject.SetActive(s["active"] == null || s["active"].Value<bool>());
             }
+        }
+
+        /// <summary>World footprint (x, z) of a storage's navigation collider in the layout, and its centre; null if none.</summary>
+        private static Vector3? PalletFootprint(JObject layout, string storageName, out Vector3 centre)
+        {
+            centre = Vector3.zero;
+            if (!(layout["obstacles"] is JArray obstacles)) return null;
+            foreach (JObject o in obstacles)
+            {
+                if (S(o["owner"]) != "storage:" + storageName) continue;
+                Vector3 size = V(o["size"]);
+                Quaternion rot = Q(o["rot"]);
+                centre = V(o["center"]);
+                Vector3 ax = rot * new Vector3(size.x, 0f, 0f), az = rot * new Vector3(0f, 0f, size.z);
+                return new Vector3(Mathf.Abs(ax.x) + Mathf.Abs(az.x), 0f, Mathf.Abs(ax.z) + Mathf.Abs(az.z));
+            }
+            return null;
         }
 
         private static void BuildBox(JObject box, Transform point)
