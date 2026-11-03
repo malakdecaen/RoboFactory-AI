@@ -52,7 +52,7 @@ At launch a start screen offers two modes; the HUD always shows which one is run
 
 ### Recording the demos yourself
 
-Recordings are only made from real Meta answers: in LIVE AI choose *Record a scenario*, let it run to the end, then use **RoboFactory → Recorded Demo → Promote captured recordings** in the editor. The file goes to `Assets/StreamingAssets/RecordedDemos/saturation.json` and ships with the build. Without it, RECORDED DEMO shows *NOT RECORDED YET*. Press **F5** during a run to return to the start screen.
+Recordings are only made from real Meta answers: in LIVE AI choose *Record a scenario* and let it run to the end. In the editor a complete recording replaces the demo at once (`Assets/StreamingAssets/RecordedDemos/saturation.json`, shipped with the build; the previous one is overwritten). **RoboFactory → Recorded Demo → Promote captured recordings** does the same from the captures folder. Without it, RECORDED DEMO shows *NOT RECORDED YET*. Press **F5** during a run to return to the start screen.
 
 ## Full version (Release build)
 

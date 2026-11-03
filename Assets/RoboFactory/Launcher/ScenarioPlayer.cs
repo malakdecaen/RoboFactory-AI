@@ -231,10 +231,38 @@ namespace RoboFactory.Launcher
                 string path = RecordedDemoRuntime.Save(CaptureDir, true, out string error);
                 SavedPath = path;
                 DetailText += path.Length > 0 ? "\nRecording saved: " + path : "\nRecording NOT saved: " + error;
+                if (path.Length > 0 && Application.isEditor) DetailText += "\n" + ReplaceShippedDemo(path);
             }
             State = PlayerState.Complete;
             Debug.Log("[Scenario] " + Title + " complete. " + ResultText + " — " + DetailText.Replace("\n", " | "));
             WriteAuditLog();
+        }
+
+        /// <summary>
+        /// In the editor, a complete recording replaces the demo shipped with the build at once (the previous one is
+        /// overwritten, no second demo is kept) and the older captures of the same scenario are removed. Partial
+        /// recordings never get here.
+        /// </summary>
+        private string ReplaceShippedDemo(string capture)
+        {
+            try
+            {
+                Directory.CreateDirectory(RecordingsDir);
+                string shipped = Path.Combine(RecordingsDir, ScenarioId + ".json");
+                bool replaced = File.Exists(shipped);
+                File.Copy(capture, shipped, true);
+                int removed = 0;
+                foreach (string old in Directory.GetFiles(CaptureDir, ScenarioId + "_*.json"))
+                {
+                    if (string.Equals(Path.GetFullPath(old), Path.GetFullPath(capture), StringComparison.OrdinalIgnoreCase)) continue;
+                    File.Delete(old);
+                    removed++;
+                }
+                Debug.Log("[Scenario] recording is now the RECORDED DEMO: " + shipped + (replaced ? " (previous one replaced)" : "") +
+                          (removed > 0 ? ", " + removed + " older capture(s) removed" : ""));
+                return "RECORDED DEMO updated with this run" + (replaced ? " (previous recording replaced)" : "") + ".";
+            }
+            catch (Exception e) { return "RECORDED DEMO not updated: " + e.Message; }
         }
 
         private void WriteAuditLog()
