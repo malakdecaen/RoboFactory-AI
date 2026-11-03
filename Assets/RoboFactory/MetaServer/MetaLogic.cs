@@ -673,6 +673,20 @@ namespace RoboFactory.MetaServer
             };
         }
 
+        /// <summary>Consignee invented by Muse Spark for an order: all fields required, trimmed and capped.</summary>
+        public static JObject ValidateDestination(JObject payload, out string error)
+        {
+            error = "";
+            var result = new JObject();
+            foreach (string field in new[] { "name", "street", "postcode", "city", "country", "scene" })
+            {
+                string v = Py.StrOr(Py.Get(payload, field)).Trim();
+                if (v.Length == 0 && field != "postcode") { error = "missing " + field; return null; }
+                result[field] = Py.Cut(v, field == "scene" ? 200 : 60);
+            }
+            return result;
+        }
+
         public static int CountNumbers(string output) => Regex.Matches(output ?? "", @"-?\d+(?:\.\d+)?").Count;
     }
 }

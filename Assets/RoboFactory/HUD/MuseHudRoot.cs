@@ -61,6 +61,7 @@ namespace RoboFactory.HUD
         private TruckStripView trucks;
         private RobotVisionView visionR1, visionR2;
         private PackingScanView packingScan;
+        private ShippingLabelView shippingLabel;
         /// <summary>SAM 3.1 on the robot cameras (see SamVisionService).</summary>
         private SamVisionService sam;
         private BannerView banner;
@@ -189,6 +190,9 @@ namespace RoboFactory.HUD
             // packing cell scan (Muse Spark): above R1's camera, only when the cell exists (shown by its own Tick)
             packingScan = new PackingScanView();
             packingScan.Build(frame);
+            // shipping label of the order going to its truck (Muse Spark + Muse Image): above R2's camera
+            shippingLabel = new ShippingLabelView();
+            shippingLabel.Build(frame);
 
             trucks = new TruckStripView();
             trucks.Build(frame);
@@ -312,6 +316,10 @@ namespace RoboFactory.HUD
             visionR1.Tick(dt, model.R1, ops, robotCamMask, sam?.R1);
             visionR2.Tick(dt, model.R2, ops, robotCamMask, sam?.R2);
             packingScan.Tick(dt, ops, HudTheme.BottomRowY + visionR1.Root.sizeDelta.y + HudTheme.Gap);
+            float decisionsBottom = decisions.Root.gameObject.activeInHierarchy
+                ? frame.rect.height - HudTheme.SideTop - decisions.Root.sizeDelta.y : float.MaxValue;
+            shippingLabel.Tick(dt, ops, HudTheme.BottomRowY + visionR2.Root.sizeDelta.y + HudTheme.Gap, decisionsBottom,
+                               HudTheme.Margin + visionR2.Root.sizeDelta.x + HudTheme.Gap);
             sam?.Tick(data, visionR1.Feed, visionR2.Feed);
             markers.Tick(dt, model);
             if (Visible(tags.Root))

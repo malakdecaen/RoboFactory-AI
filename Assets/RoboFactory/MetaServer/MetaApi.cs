@@ -35,6 +35,7 @@ namespace RoboFactory.MetaServer
         public static readonly double WonderTimeout = EnvF("META_WONDER_TIMEOUT", 45);
         public static readonly double FallbackTimeout = EnvF("META_FALLBACK_TIMEOUT", 45);
         public static readonly string VoiceModel = Env("META_VOICE_MODEL", "muse-voice-transcribe-1.0");
+        public static readonly string ImageModel = Env("META_IMAGE_MODEL", "muse-image-1.0");
 
         // ------------------------------------------------------------------ API key
 
