@@ -168,26 +168,51 @@ namespace RoboFactory.Packing
         /// </summary>
         public static GameObject ProceduralPallet(string name, Vector3 at, float yaw, System.Func<Color, float, float, Material> material = null)
         {
-            mat = material ?? PackingItemFactory.Mat;
             var root = new GameObject(name);
             root.transform.SetPositionAndRotation(at, Quaternion.Euler(0f, yaw, 0f));
-            Color wood = new Color(.66f, .5f, .3f), dark = new Color(.45f, .33f, .2f);
-            // long side along the pallet's local x (2 x 2 columns of the stock pallets: 1.45 m x 1.25 m footprint)
-            for (int i = 0; i < 3; i++) Part(root.transform, new Vector3(0f, .05f, -.5f + .5f * i), new Vector3(1.45f, .1f, .12f), dark);
-            for (int i = 0; i < 7; i++) Part(root.transform, new Vector3(-.66f + .22f * i, .125f, 0f), new Vector3(.14f, .03f, 1.25f), wood);
+            // same footprint as the warehouse pallets: 2.5 m x 1.48 m, top 0.176 m (long side along world x here)
+            BuildPalletModel(root.transform, at, 2.5f, 1.4766f, .176f, material);
             return root;
+        }
+
+        /// <summary>
+        /// Wooden pallet model, world-aligned: three runners along the long side, deck boards across, deck top at
+        /// <paramref name="height"/> above <paramref name="bottomCentre"/>. Used for every stock pallet of the public scene.
+        /// </summary>
+        public static void BuildPalletModel(Transform parent, Vector3 bottomCentre, float sizeX, float sizeZ, float height,
+                                            System.Func<Color, float, float, Material> material = null)
+        {
+            mat = material ?? PackingItemFactory.Mat;
+            Color wood = new Color(.66f, .5f, .3f), dark = new Color(.45f, .33f, .2f);
+            bool alongX = sizeX >= sizeZ;
+            float length = alongX ? sizeX : sizeZ, width = alongX ? sizeZ : sizeX;
+            float deck = Mathf.Min(.03f, height * .3f), runnerH = Mathf.Max(.02f, height - deck);
+            System.Func<float, float, Vector3> W = (along, across) => bottomCentre + (alongX ? new Vector3(along, 0f, across) : new Vector3(across, 0f, along));
+            System.Func<float, float, Vector3> S = (along, across) => alongX ? new Vector3(along, 1f, across) : new Vector3(across, 1f, along);
+            foreach (float k in new[] { -.42f, 0f, .42f })
+            {
+                Vector3 sz = S(length, .12f); sz.y = runnerH;
+                Part(parent, W(0f, k * width) + Vector3.up * (runnerH / 2f), sz, dark, true);
+            }
+            int boards = Mathf.Max(3, Mathf.RoundToInt(length / .2f));
+            float pitch = length / boards;
+            for (int i = 0; i < boards; i++)
+            {
+                Vector3 sz = S(pitch * .72f, width); sz.y = deck;
+                Part(parent, W(-length / 2f + pitch * (i + .5f), 0f) + Vector3.up * (runnerH + deck / 2f), sz, wood, true);
+            }
         }
 
         private static System.Func<Color, float, float, Material> mat;
 
-        private static void Part(Transform parent, Vector3 local, Vector3 size, Color color)
+        private static void Part(Transform parent, Vector3 world, Vector3 size, Color color, bool worldSpace)
         {
             GameObject g = GameObject.CreatePrimitive(PrimitiveType.Cube);
             Object.DestroyImmediate(g.GetComponent<Collider>());
             g.name = "pallet";
-            g.transform.SetParent(parent, false);
-            g.transform.localPosition = local;
+            g.transform.SetPositionAndRotation(world, Quaternion.identity);
             g.transform.localScale = size;
+            g.transform.SetParent(parent, true);
             g.GetComponent<Renderer>().sharedMaterial = mat(color, .2f, 0f);
         }
     }
