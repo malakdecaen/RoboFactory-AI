@@ -542,6 +542,8 @@ namespace RoboFactory.Launcher
             HudFactory.Place((RectTransform)scen.transform, new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(188f, 14f), new Vector2(210f, 38f));
             Button close = HudFactory.Button(resultCard, "Close", "CLOSE", HudTheme.TextLow, () => resultCard.gameObject.SetActive(false), 120f, 38f, HudTheme.FontSmall);
             HudFactory.Place((RectTransform)close.transform, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-26f, 14f), new Vector2(120f, 38f));
+            Button quit = HudFactory.Button(resultCard, "Quit", "QUIT", HudTheme.Red, () => RunMode.Quit(), 120f, 38f, HudTheme.FontSmall);
+            HudFactory.Place((RectTransform)quit.transform, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-156f, 14f), new Vector2(120f, 38f));
         }
 
         // ------------------------------------------------------------------ helpers

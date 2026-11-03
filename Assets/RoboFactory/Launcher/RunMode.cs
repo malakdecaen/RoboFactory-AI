@@ -65,6 +65,16 @@ namespace RoboFactory.Launcher
             Reload();
         }
 
+        /// <summary>Quits the build (in the editor: stops Play mode).</summary>
+        public static void Quit()
+        {
+#if UNITY_EDITOR
+            UnityEditor.EditorApplication.isPlaying = false;
+#else
+            Application.Quit();
+#endif
+        }
+
         private static void Reload()
         {
             Scene scene = SceneManager.GetActiveScene();

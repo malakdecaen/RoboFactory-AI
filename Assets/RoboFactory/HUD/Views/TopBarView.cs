@@ -69,6 +69,9 @@ namespace RoboFactory.HUD
             HudFactory.Place(Switcher, new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(-HudTheme.Margin, -20f), new Vector2(480f, 34f));
             string[] names = { "CINEMATIC", "OPERATIONS", "DEBUG" };
             float[] widths = { 122f, 136f, 92f };
+            // QUIT, top-right corner of the screen, under the mode buttons (leaves the build; stops Play mode in the editor)
+            Button quit = HudFactory.Button(Switcher, "Quit", "QUIT", HudTheme.Red, () => RoboFactory.Launcher.RunMode.Quit(), 74f, 24f, HudTheme.FontMicro);
+            HudFactory.Place((RectTransform)quit.transform, new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(0f, -4f), new Vector2(74f, 24f));
             float x = 0f;
             for (int i = 2; i >= 0; i--)
             {
