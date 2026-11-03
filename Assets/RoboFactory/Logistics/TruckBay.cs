@@ -536,13 +536,21 @@ namespace RoboFactory.Logistics
             return best != null ? best.bounds : InteriorBounds();
         }
 
-        /// <summary>The highest renderer with "pallet" in its name.</summary>
+        /// <summary>
+        /// The highest renderer with "pallet" in its name, or the floor plate of the public version's truck
+        /// ("depot_base", the same 2.5 m x 1.48 m pallet). Without it the whole trailer was taken as the pallet: its
+        /// centre lies deep in the trailer, all the access points were on the same side of it, and the columns
+        /// collapsed onto two places (the boxes of an order ended up inside each other).
+        /// </summary>
         private Renderer PalletRenderer()
         {
             Renderer best = null;
             foreach (Renderer r in Storage.GetComponentsInChildren<Renderer>(true))
             {
-                if (r == null || !r.name.ToLowerInvariant().Contains("pallet")) continue;
+                if (r == null) continue;
+                string n = r.name.ToLowerInvariant();
+                if (!n.Contains("pallet") && n != "depot_base") continue;
+                if (r.GetComponentInParent<CargoBox>() != null) continue;   // a box standing on it is not the pallet
                 if (best == null || r.bounds.max.y > best.bounds.max.y) best = r;
             }
             return best;
