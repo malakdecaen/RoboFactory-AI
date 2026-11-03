@@ -9,7 +9,9 @@ namespace RoboFactory.MetaServer
     /// <summary>
     /// Starts the built-in Meta server (<see cref="MetaLocalServer"/>) when the game launches and stops it
     /// on exit — in the editor as in the build, without Python or an external executable.
-    /// If another server already uses port 8765 (Python proxy started by hand), it is used as is.
+    /// The server only answers the game: every call must carry a random session token made at launch (memory only,
+    /// never sent to Meta), and calls from web pages are refused. If port 8765 is already taken by another program,
+    /// that program is NOT used: LIVE AI reports the error (RECORDED DEMO does not need the server).
     /// API key: <see cref="SetApiKey"/> (LIVE AI window, memory only), otherwise MODEL_API_KEY or
     /// ~/.meta/model_api_key. Call log: logs/meta_calls.jsonl.
     /// </summary>
@@ -21,7 +23,7 @@ namespace RoboFactory.MetaServer
 
         public static ServerState State { get; private set; } = ServerState.Starting;
         public static string StatusText { get; private set; } = "";
-        public static bool IsReady => State == ServerState.Running || State == ServerState.External;
+        public static bool IsReady => State == ServerState.Running;
         public static bool KeyPresent => MetaApi.LoadKey() != null;
 
         private static MetaServerHost instance;
@@ -64,7 +66,11 @@ namespace RoboFactory.MetaServer
 
         private void StartServer()
         {
-            server = new MetaLocalServer { Logger = m => Debug.Log("[MetaServer] " + m) };
+            var bytes = new byte[32];
+            using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create()) rng.GetBytes(bytes);
+            string token = BitConverter.ToString(bytes).Replace("-", "").ToLowerInvariant();
+            RoboFactory.Hackathon.Meta.MetaProxyClient.SessionToken = token;
+            server = new MetaLocalServer { Logger = m => Debug.Log("[MetaServer] " + m), Token = token };
             if (server.Start())
             {
                 State = ServerState.Running;
@@ -72,31 +78,12 @@ namespace RoboFactory.MetaServer
                 if (!KeyPresent) Debug.LogWarning("[MetaServer] " + StatusText);
                 return;
             }
-            // Port busy: is a server already answering (Python proxy started by hand)?
+            // Port busy: another program is not trusted with the user's key; LIVE AI says so (RECORDED DEMO still runs)
             string error = server.LastError;
             server = null;
-            StartCoroutine(CheckExternal(error));
-        }
-
-        private IEnumerator CheckExternal(string bindError)
-        {
-            using (UnityWebRequest req = UnityWebRequest.Get(Url + "/health"))
-            {
-                req.timeout = 2;
-                yield return req.SendWebRequest();
-                if (req.result == UnityWebRequest.Result.Success)
-                {
-                    State = ServerState.External;
-                    StatusText = "another Meta server already uses port 8765: it is used";
-                    Debug.LogWarning("[MetaServer] " + StatusText);
-                }
-                else
-                {
-                    State = ServerState.Failed;
-                    StatusText = "built-in Meta server could not start: " + bindError;
-                    Debug.LogError("[MetaServer] " + StatusText);
-                }
-            }
+            State = ServerState.Failed;
+            StatusText = "port 8765 is used by another program, close it and restart (" + error + ")";
+            Debug.LogError("[MetaServer] built-in Meta server could not start: " + StatusText);
         }
 
         public static void StopServer()

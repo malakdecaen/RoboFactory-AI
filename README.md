@@ -26,7 +26,7 @@ Each run writes its logs next to the executable (`logs/flow_*.log`: every robot 
 
 ### Packing line (upstream)
 
-- **Products on a conveyor loop** (bottles, mugs, balls) come out of a black box. A **scan camera** sends each product's picture to **Muse Spark**, which answers the kind and any visible defect (cracked, dented, stained, broken) with a confidence. The cell decides from that answer only: defect → the arm drops it in the reject bin; good and needed → into its carton (A: 4 bottles, B: 4 mugs, C: 4 balls); unsure → rescanned on the next lap. The simulation's own truth is only logged afterwards to measure the scan (108 of 109 scans agreed with it in our last run of the public build).
+- **Products on a conveyor loop** (bottles, mugs, balls) come out of a black box. A **scan camera** sends each product's picture to **Muse Spark**, which answers the kind and any visible defect (cracked, dented, stained, broken) with a confidence. The cell decides from that answer only: defect → the arm drops it in the reject bin; good and needed → into its carton (A: 4 bottles, B: 4 mugs, C: 4 balls); unsure → rescanned on the next lap. The simulation's own truth is only logged afterwards to measure the scan (108 of 109 scans agreed with it in our last run of the public build: the PACKING line of the summary at the end of `logs/flow_*.log` gives this count for every run).
 - **The belt never stops**: the arm catches each product on the fly, following it as it comes down on it.
 - **Full cartons** close into the same boxes the warehouse uses; **robot R3** takes them from the trays with the robot's own load / unload gestures and stacks them on pallets P07 / P08, which become stock for R1.
 - **HUD**: the very picture sent to Spark, its answer and the cell's verdict (OK → CARTON B, DEFECT → BIN…).
@@ -40,7 +40,7 @@ Each run writes its logs next to the executable (`logs/flow_*.log`: every robot 
 - **SAM 3.1 on the robot cameras**: R1 and R2 send what their on-board camera sees to Meta SAM 3.1 when R1 takes a box from a pallet or puts one on a bench, when R2 reaches a bench and after it drops a box in a truck ("box"), and when an employee is in front of a moving robot ("person"). The word sent to SAM follows the boxes expected there ("cardboard box", "wooden crate") and only the objects inside the work zone (the bench / truck / pallet slots projected into the image) are counted. The boxes SAM returns are drawn in the ROBOT VISION windows with their confidence, next to what the simulation knows at that place ("scene"). **Order check**: after each box R2 drops in a truck, SAM counts the boxes in the trailer; when the order is complete and SAM sees exactly the boxes the truck holds, the HUD shows "ORDER #n VERIFIED", otherwise "CHECK" with both counts. SAM never drives the robots: the emergency stop stays local, because a ~2 s answer is too slow for safety.
 - **Shipping labels (Muse Spark + Muse Image)**: as soon as an order is planned, Muse Spark invents its fictional consignee (name, street, town) and a short description of the place; **Muse Image** draws the label's vignette from it. Every box R1 puts on the bench gets the label (SHIP TO, order, truck, parcel n/N, barcode) before R2 loads it. If Meta does not answer, a printed text-only label is used.
 - **Real-time HUD**: Muse decisions, orders, robot and resource states, orbit camera, and a flow log that flags wasted steps.
-- **Meta gateway built into the game** (C#): no Python, no external executable; the API key never leaves the process.
+- **Meta gateway built into the game** (C#): no Python, no external executable. The key typed in LIVE AI stays in memory and is only sent to Meta's API over HTTPS. The gateway listens on 127.0.0.1 only and answers the game alone: every call must carry a random session token made at launch, calls from web pages are refused, and if port 8765 is taken by another program that program is not used.
 
 ## Run the public version (simplified shapes)
 
@@ -74,11 +74,21 @@ Recordings are only made from real Meta answers: in LIVE AI choose *Record a sce
 
 ## Full version (Release build)
 
-The [GitHub Release](https://github.com/malakdecaen/RoboFactory-AI/releases/latest) contains the Windows build with the original art. To rebuild the full version yourself, import these assets into the project (they cannot be redistributed in this repository under the Asset Store license):
+The [GitHub Release](https://github.com/malakdecaen/RoboFactory-AI/releases/latest) contains the Windows build with the original art. The original scene is not in this repository (it is made of store assets that cannot be redistributed under the Asset Store license), so importing the assets below does not recreate it by itself; the public scene reproduces its layout and behaviour with simple shapes. The store assets used by the full version:
 
 - **Warehouse Robot Controller** (robots, pallets, benches, boxes) — https://assetstore.unity.com/packages/3d/characters/robots/warehouse-robot-controller-389700
 - **Unity Factory** (factory environment) — https://assetstore.unity.com/packages/3d/environments/industrial/unity-factory-276400
 - **Factory Training — Industry Sample** (trucks, workers, props) — https://assetstore.unity.com/packages/templates/packs/factory-training-industry-sample-344832
+
+## Tests
+
+`Assets/RoboFactory/Tests/EditMode`: 40 EditMode tests of the decision safety net, without any scene: the validator of the Muse plans (unknown or reserved resources, stock, coverage of the order, truck capacity, robots) and the resume after an urgent order (load-only plans, suspended / paused orders, reuse of the original plan). Run them from **Window → General → Test Runner → EditMode**, or headless:
+
+```
+Unity.exe -batchmode -nographics -projectPath . -runTests -testPlatform EditMode -testResults results.xml
+```
+
+The scenario itself is checked at the end of every run by the cargo audit (no box lost or duplicated) and summarized in `logs/flow_*.log`.
 
 ## Architecture
 

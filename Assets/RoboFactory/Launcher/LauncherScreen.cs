@@ -376,6 +376,7 @@ namespace RoboFactory.Launcher
                 req.uploadHandler = new UploadHandlerRaw(System.Text.Encoding.UTF8.GetBytes("{}"));
                 req.downloadHandler = new DownloadHandlerBuffer();
                 req.SetRequestHeader("Content-Type", "application/json");
+                RoboFactory.Hackathon.Meta.MetaProxyClient.Authorize(req);
                 req.timeout = 110;
                 yield return req.SendWebRequest();
                 string body = req.downloadHandler != null ? req.downloadHandler.text : "";

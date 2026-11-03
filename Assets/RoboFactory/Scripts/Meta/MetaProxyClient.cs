@@ -380,6 +380,20 @@ namespace RoboFactory.Hackathon.Meta
     public sealed class MetaProxyClient
     {
         public string BaseUrl = "http://127.0.0.1:8765";
+        /// <summary>
+        /// Header carrying the session token of the built-in Meta server: random, made at each launch, kept in memory
+        /// and never sent to Meta. Without it the server refuses every call (another program or a web page on the
+        /// same computer cannot use the user's key through it).
+        /// </summary>
+        public const string TokenHeader = "X-RoboFactory-Token";
+        public static string SessionToken = "";
+
+        /// <summary>Adds the session token to a request for the built-in Meta server.</summary>
+        public static void Authorize(UnityWebRequest request)
+        {
+            if (request != null && !string.IsNullOrEmpty(SessionToken)) request.SetRequestHeader(TokenHeader, SessionToken);
+        }
+
         public int VisionTimeoutSeconds = 120;
         public int OrderTimeoutSeconds = 60;
         public int SupervisionTimeoutSeconds = 120;
@@ -543,6 +557,7 @@ namespace RoboFactory.Hackathon.Meta
                 request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
                 request.downloadHandler = new DownloadHandlerBuffer();
                 request.SetRequestHeader("Content-Type", "application/json");
+                Authorize(request);
                 request.timeout = timeout;
                 yield return request.SendWebRequest();
                 if (request.result != UnityWebRequest.Result.Success)

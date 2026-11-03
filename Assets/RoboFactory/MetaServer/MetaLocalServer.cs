@@ -26,6 +26,8 @@ namespace RoboFactory.MetaServer
         public bool Running { get; private set; }
         public string LastError { get; private set; } = "";
         public Action<string> Logger;
+        /// <summary>Session token every POST must carry (header X-RoboFactory-Token); empty = not checked.</summary>
+        public string Token = "";
 
         private HttpListener listener;
         private Thread acceptThread;
@@ -95,6 +97,14 @@ namespace RoboFactory.MetaServer
 
         // ------------------------------------------------------------------ HTTP
 
+        private static bool FixedTimeEquals(string a, string b)
+        {
+            if (a.Length != b.Length) return false;
+            int diff = 0;
+            for (int i = 0; i < a.Length; i++) diff |= a[i] ^ b[i];
+            return diff == 0;
+        }
+
         private static void SendJson(HttpListenerContext ctx, int status, JObject payload)
         {
             try { RecordedDemoRuntime.CaptureResponse(ctx, status, payload); } catch (Exception) { }
@@ -157,6 +167,14 @@ namespace RoboFactory.MetaServer
                     return;
                 }
                 if (ctx.Request.HttpMethod != "POST") { SendJson(ctx, 404, new JObject { ["ok"] = false, ["error"] = "not found" }); return; }
+                // Only the game may use the key through this server: no web page (a browser sends an Origin header)
+                // and no other program (it does not know the session token made at launch).
+                if (!string.IsNullOrEmpty(ctx.Request.Headers["Origin"]) ||
+                    (!string.IsNullOrEmpty(Token) && !FixedTimeEquals(ctx.Request.Headers["X-RoboFactory-Token"] ?? "", Token)))
+                {
+                    SendJson(ctx, 403, new JObject { ["ok"] = false, ["error"] = "forbidden: calls are only accepted from the game" });
+                    return;
+                }
                 JObject body = ReadBody(ctx);
                 if (body == null) { SendJson(ctx, 400, new JObject { ["ok"] = false, ["error"] = "invalid json body" }); return; }
                 string key = MetaApi.LoadKey();

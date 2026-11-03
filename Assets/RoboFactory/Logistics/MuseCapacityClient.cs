@@ -91,6 +91,7 @@ namespace RoboFactory.Logistics
                 request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(JsonUtility.ToJson(body)));
                 request.downloadHandler = new DownloadHandlerBuffer();
                 request.SetRequestHeader("Content-Type", "application/json");
+                RoboFactory.Hackathon.Meta.MetaProxyClient.Authorize(request);
                 request.timeout = TimeoutSeconds;
                 yield return request.SendWebRequest();
                 string text = request.downloadHandler != null ? request.downloadHandler.text : "";
