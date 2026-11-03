@@ -39,6 +39,7 @@ namespace RoboFactory.Launcher
         private Canvas canvas;
         private RectTransform root, pageMode, pageRecorded, pageLiveKey, pageLiveChoose, resultCard;
         private TextMeshProUGUI recordedStatus, keyStatus, chooseStatus, resultTitle, resultDetail;
+        private ScrollRect resultScroll;
         private TMP_InputField keyField;
         private Button connectButton;
         private Step step = Step.Mode;
@@ -473,18 +474,68 @@ namespace RoboFactory.Launcher
             HudFactory.Set(resultTitle, (player.Replay ? "RECORDED DEMO" : "LIVE AI") + "  ·  " + player.Title + "  ·  COMPLETE\n<size=24>" +
                            "<color=#" + HudTheme.Hex(player.Passed ? HudTheme.Green : HudTheme.Amber) + ">" + player.ResultText + "</color></size>");
             HudFactory.Set(resultDetail, player.DetailText);
+            // back to the top of the (possibly long) report
+            Canvas.ForceUpdateCanvases();
+            if (resultScroll != null) resultScroll.verticalNormalizedPosition = 1f;
         }
 
         private void BuildResultCard()
         {
             resultCard = HudFactory.GlassPanel(canvas.transform, "Scenario Result", HudTheme.GlassStrong, HudTheme.Stroke, 12, true, true);
-            HudFactory.Place(resultCard, new Vector2(.5f, 0f), new Vector2(0f, 120f), new Vector2(900f, 230f));
+            HudFactory.Place(resultCard, new Vector2(.5f, 0f), new Vector2(0f, 120f), new Vector2(900f, 300f));
             resultTitle = HudFactory.Text(resultCard, "Title", "", 24f, HudTheme.TextHi, true, TextAlignmentOptions.Left, 1f);
             resultTitle.textWrappingMode = TextWrappingModes.Normal;
             HudFactory.Place(resultTitle.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(26f, -14f), new Vector2(850f, 72f));
-            resultDetail = HudFactory.Text(resultCard, "Detail", "", HudTheme.FontSmall, HudTheme.TextMid);
+            // report in a scrolling view (mouse wheel, drag or the scrollbar): it can be longer than the card
+            const float viewW = 830f, viewH = 140f;
+            RectTransform view = HudFactory.Rect("Detail View", resultCard);
+            HudFactory.Place(view, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(26f, -90f), new Vector2(viewW, viewH));
+            view.gameObject.AddComponent<RectMask2D>();
+            Image hit = view.gameObject.AddComponent<Image>();
+            hit.color = new Color(0f, 0f, 0f, .001f);   // catches the mouse wheel over the whole view
+            RectTransform content = HudFactory.Rect("Content", view);
+            content.anchorMin = new Vector2(0f, 1f);
+            content.anchorMax = new Vector2(1f, 1f);
+            content.pivot = new Vector2(.5f, 1f);
+            content.anchoredPosition = Vector2.zero;
+            content.sizeDelta = Vector2.zero;
+            var layout = content.gameObject.AddComponent<VerticalLayoutGroup>();
+            layout.childControlHeight = true;
+            layout.childControlWidth = true;
+            layout.childForceExpandHeight = false;
+            layout.childForceExpandWidth = true;
+            layout.padding = new RectOffset(0, 8, 0, 6);
+            content.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            resultDetail = HudFactory.Text(content, "Detail", "", HudTheme.FontSmall, HudTheme.TextMid);
             Wrap(resultDetail);
-            HudFactory.Place(resultDetail.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(26f, -90f), new Vector2(850f, 78f));
+            resultScroll = view.gameObject.AddComponent<ScrollRect>();
+            resultScroll.viewport = view;
+            resultScroll.content = content;
+            resultScroll.horizontal = false;
+            resultScroll.vertical = true;
+            resultScroll.movementType = ScrollRect.MovementType.Clamped;
+            resultScroll.scrollSensitivity = 28f;
+            // slider on the right of the report
+            RectTransform bar = HudFactory.Rect("Scrollbar", resultCard);
+            HudFactory.Place(bar, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(26f + viewW + 8f, -90f), new Vector2(10f, viewH));
+            Image track = bar.gameObject.AddComponent<Image>();
+            track.sprite = HudSprites.Rounded(4);
+            track.type = Image.Type.Sliced;
+            track.color = HudTheme.A(HudTheme.Cyan, .12f);
+            RectTransform area = HudFactory.Rect("Sliding Area", bar);
+            HudFactory.Stretch(area);
+            RectTransform handle = HudFactory.Rect("Handle", area);
+            HudFactory.Stretch(handle);
+            Image knob = handle.gameObject.AddComponent<Image>();
+            knob.sprite = HudSprites.Rounded(4);
+            knob.type = Image.Type.Sliced;
+            knob.color = HudTheme.A(HudTheme.Cyan, .75f);
+            var scrollbar = bar.gameObject.AddComponent<Scrollbar>();
+            scrollbar.handleRect = handle;
+            scrollbar.targetGraphic = knob;
+            scrollbar.direction = Scrollbar.Direction.BottomToTop;
+            resultScroll.verticalScrollbar = scrollbar;
+            resultScroll.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.AutoHide;
             Button again = HudFactory.Button(resultCard, "Replay", "REPLAY", HudTheme.Cyan, () => RunMode.ReloadSame(), 150f, 38f, HudTheme.FontSmall);
             HudFactory.Place((RectTransform)again.transform, new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(26f, 14f), new Vector2(150f, 38f));
             Button scen = HudFactory.Button(resultCard, "Scenarios", "SCENARIOS  (F5)", HudTheme.Cyan, () => RunMode.ReturnToLauncher(), 210f, 38f, HudTheme.FontSmall);
