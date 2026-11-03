@@ -49,7 +49,10 @@ namespace RoboFactory.Packing
 
         private Transform robot;
         private float carryHeight = .5f;
-        private Transform carryRoot;          // "StableCargoRoot" of the robot model (the box origin goes there), if any
+        private Transform carryRoot;          // where the carried box goes (box origin), as the robot's own cargo script does
+        private Vector3 carryOffset;          // the cargo script's carriedBoxLocalPosition
+        private string attachPath;            // the cargo script's attach point (path under the robot), found on the model
+        private bool stableRoot = true;       // createStableCarryRoot of the cargo script
         private Animator anim;
         private PackingRobotEvents events;
 
@@ -88,7 +91,11 @@ namespace RoboFactory.Packing
             robot.SetPositionAndRotation(Park, Quaternion.Euler(0f, 180f, 0f));
             carryHeight = TopOf(robot) - robot.position.y;
             AddObstacle();
-            carryRoot = FindChild(robot, "StableCargoRoot");
+            // Same carry anchor as R1 / R2's cargo script: the asset robot carries the box on its ANIMATED attach point
+            // (createStableCarryRoot off: the box follows the arms), the public robot on its stable root on its top.
+            Transform attach = attachPath != null ? (attachPath.Length == 0 ? robot : robot.Find(attachPath)) : null;
+            carryRoot = !stableRoot && attach != null ? attach : FindChild(robot, "StableCargoRoot");
+            if (carryRoot == null) carryRoot = attach;
             anim = robot.GetComponentInChildren<Animator>();
             if (anim != null && anim.runtimeAnimatorController == null) anim = null;
             if (anim != null)
@@ -276,7 +283,7 @@ namespace RoboFactory.Packing
             Quaternion rot = box.rotation;
             Transform root = carryRoot != null ? carryRoot : robot;
             box.SetParent(root, true);
-            if (anim != null && carryRoot != null) box.SetPositionAndRotation(carryRoot.position, rot);
+            if (anim != null && carryRoot != null) box.SetPositionAndRotation(carryRoot.TransformPoint(carryOffset), rot);
             else
             {
                 Vector3 top = carryRoot != null ? carryRoot.position : robot.position + Vector3.up * carryHeight;
@@ -447,6 +454,7 @@ namespace RoboFactory.Packing
             {
                 var holder = new GameObject("R3 holder");
                 holder.SetActive(false);   // the copy stays inactive while it is stripped: none of its scripts wakes up
+                ReadCargoSettings(src);
                 copy = Instantiate(src, holder.transform);
                 foreach (CargoBox b in copy.GetComponentsInChildren<CargoBox>(true)) DestroyImmediate(b.gameObject);
                 // labels, path lines and overlays attached to R1 at run time would keep showing R1's data
@@ -495,6 +503,33 @@ namespace RoboFactory.Packing
             var rb = robot.gameObject.AddComponent<Rigidbody>();
             rb.isKinematic = true;
             rb.useGravity = false;
+        }
+
+        /// <summary>Carry settings of the template robot's cargo script (read by name: asset or public version).</summary>
+        private void ReadCargoSettings(GameObject src)
+        {
+            const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+            foreach (MonoBehaviour mb in src.GetComponentsInChildren<MonoBehaviour>(true))
+            {
+                if (mb == null) continue;
+                System.Type t = mb.GetType();
+                System.Reflection.FieldInfo ap = t.GetField("cargoAttachPoint", flags);
+                if (ap == null || !(ap.GetValue(mb) is Transform point)) continue;
+                attachPath = PathFrom(src.transform, point);
+                System.Reflection.FieldInfo st = t.GetField("createStableCarryRoot", flags);
+                stableRoot = st == null || (bool)st.GetValue(mb);
+                System.Reflection.FieldInfo off = t.GetField("carriedBoxLocalPosition", flags);
+                if (off != null) carryOffset = (Vector3)off.GetValue(mb);
+                return;
+            }
+        }
+
+        private static string PathFrom(Transform root, Transform t)
+        {
+            if (t == root) return "";
+            var parts = new List<string>();
+            for (Transform c = t; c != null && c != root; c = c.parent) parts.Insert(0, c.name);
+            return t.IsChildOf(root) ? string.Join("/", parts) : null;
         }
 
         private static void Strip(GameObject go)
