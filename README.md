@@ -4,11 +4,29 @@
 
 ---
 
+## Download and play (Windows)
+
+**[Download the Windows build (v1.0)](https://github.com/malakdecaen/RoboFactory-AI/releases/tag/v1.0)**: unzip `RoboFactory-MuseAI_Windows_v1.0.zip` and start `RoboFactory-MuseAI/RoboFactory-MuseAI.exe` (Windows 10/11, 64-bit, DirectX 12). This build has the original art of the full project.
+
+- **RECORDED DEMO** runs at once, with no key and no Internet: real Meta answers recorded earlier, replayed while the warehouse is really simulated.
+- **LIVE AI** uses your own Meta Model API key (kept in memory only) and lets you give urgent orders by voice.
+
+| Key | Action |
+|---|---|
+| M | speak an urgent order (LIVE AI) |
+| F2 / F3 / F4 | HUD modes (cinematic / operations / debug) |
+| H | hide the HUD |
+| F5 | back to the start screen |
+| drag · scroll · arrows | move the camera |
+| QUIT (top right) | leave the program |
+
+Each run writes its logs next to the executable (`logs/flow_*.log`: every robot step, Meta call and box move, with a summary).
+
 ## What it does
 
 ### Packing line (upstream)
 
-- **Products on a conveyor loop** (bottles, mugs, balls) come out of a black box. A **scan camera** sends each product's picture to **Muse Spark**, which answers the kind and any visible defect (cracked, dented, stained, broken) with a confidence. The cell decides from that answer only: defect → the arm drops it in the reject bin; good and needed → into its carton (A: 4 bottles, B: 4 mugs, C: 4 balls); unsure → rescanned on the next lap. The simulation's own truth is only logged afterwards to measure the scan (36 of 38 scans agreed with it in our last test run).
+- **Products on a conveyor loop** (bottles, mugs, balls) come out of a black box. A **scan camera** sends each product's picture to **Muse Spark**, which answers the kind and any visible defect (cracked, dented, stained, broken) with a confidence. The cell decides from that answer only: defect → the arm drops it in the reject bin; good and needed → into its carton (A: 4 bottles, B: 4 mugs, C: 4 balls); unsure → rescanned on the next lap. The simulation's own truth is only logged afterwards to measure the scan (108 of 109 scans agreed with it in our last run of the public build).
 - **The belt never stops**: the arm catches each product on the fly, following it as it comes down on it.
 - **Full cartons** close into the same boxes the warehouse uses; **robot R3** takes them from the trays with the robot's own load / unload gestures and stacks them on pallets P07 / P08, which become stock for R1.
 - **HUD**: the very picture sent to Spark, its answer and the cell's verdict (OK → CARTON B, DEFECT → BIN…).
@@ -56,7 +74,7 @@ Recordings are only made from real Meta answers: in LIVE AI choose *Record a sce
 
 ## Full version (Release build)
 
-The GitHub Release contains the Windows build with the original art. To rebuild the full version yourself, import these assets into the project (they cannot be redistributed in this repository under the Asset Store license):
+The [GitHub Release](https://github.com/malakdecaen/RoboFactory-AI/releases/tag/v1.0) contains the Windows build with the original art. To rebuild the full version yourself, import these assets into the project (they cannot be redistributed in this repository under the Asset Store license):
 
 - **Warehouse Robot Controller** (robots, pallets, benches, boxes) — https://assetstore.unity.com/packages/3d/characters/robots/warehouse-robot-controller-389700
 - **Unity Factory** (factory environment) — https://assetstore.unity.com/packages/3d/environments/industrial/unity-factory-276400
