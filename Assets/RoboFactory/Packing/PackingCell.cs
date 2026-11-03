@@ -375,7 +375,9 @@ namespace RoboFactory.Packing
             {
                 Arm.Goal = Ahead(rider, Time.deltaTime) + Vector3.up * (h + HoverHeight);
                 Vector3 e = Arm.ToolTip - Arm.Goal;
-                if (InZone(rider) && new Vector2(e.x, e.z).magnitude < .03f && Mathf.Abs(e.y) < .05f) { above = true; break; }
+                // the product moves while the arm follows it: allow one frame of belt travel on top of the 3 cm
+                float slack = Track.Speed * Time.deltaTime;
+                if (InZone(rider) && new Vector2(e.x, e.z).magnitude < .03f + slack && Mathf.Abs(e.y) < .05f) { above = true; break; }
                 yield return null;
             }
             // 2. come down on it while following it, grab it by the top
@@ -388,7 +390,7 @@ namespace RoboFactory.Packing
                 {
                     y = Mathf.MoveTowards(y, .004f, DescentSpeed * Time.deltaTime);
                     Arm.Goal = Ahead(rider, Time.deltaTime) + Vector3.up * (h + y);
-                    if (y <= .0045f && Vector3.Distance(Arm.ToolTip, Arm.Goal) < .03f) { caught = true; break; }
+                    if (y <= .0045f && Vector3.Distance(Arm.ToolTip, Arm.Goal) < .03f + Track.Speed * Time.deltaTime) { caught = true; break; }
                     yield return null;
                 }
             }
