@@ -282,6 +282,7 @@ namespace RoboFactory.Packing
             if (png == null) { item.Scanning = false; item.ScanFailed = true; ScanFailures++; Decide(item); yield break; }
             InspectResponse res = null;
             ScansPending++;
+            RoboFactory.MetaServer.RecordedDemoRuntime.HintInspect("item#" + item.Serial, PackingItem.KindName(item.TrueKind), PackingItem.DefectName(item.TrueDefect));
             yield return proxy.AskInspect(png, "item#" + item.Serial, "pack-" + item.Serial + "-" + item.Laps, x => res = x);
             ScansPending--;
             if (item == null) yield break;

@@ -5,6 +5,7 @@ using RoboFactory.Hackathon;
 using RoboFactory.Hackathon.Meta;
 using RoboFactory.Hackathon.Orchestration;
 using RoboFactory.Integration;
+using RoboFactory.MetaServer;
 using UnityEngine;
 using RoboFactory.Sim;
 
@@ -355,6 +356,18 @@ namespace RoboFactory.Logistics
         public void RequestDecision(string trigger)
         {
             if (pending || urgentPending) return;
+            // RECORDED DEMO: Meta is asked at the moment the recording asked it, with the recorded trigger, so the
+            // recorded answers come back in their order (an earlier call would get the plan of another order).
+            if (RecordedDemoRuntime.Replaying &&
+                RecordedDemoRuntime.NextRecorded("/warehouse", out double recordedAt, out string recordedTrigger, out int recordedOrder))
+            {
+                if (!replayForce && !RecordedCallDue(recordedAt, recordedOrder))
+                {
+                    if (replayDeferred == null) replayDeferred = StartCoroutine(RequestAtRecordedTime(recordedAt, recordedOrder));
+                    return;
+                }
+                if (recordedTrigger.Length > 0) trigger = recordedTrigger;
+            }
             // Urgent order in progress (including waiting for capacity): no new normal
             // order is planned — freed resources go to the urgent one.
             if (urgentId >= 0 && !urgentPickDone && (trigger == "new_order" || trigger == "pending_order"))
@@ -1417,6 +1430,29 @@ namespace RoboFactory.Logistics
             }
             Incident("FINISH TO FREE #" + order.id + ": original plan not feasible — targeted Muse decision");
             StartCoroutine(RequestDecisionWhenFree("finish_for_urgent"));
+        }
+
+        private const double ReplayLead = .05;
+        private Coroutine replayDeferred;
+        private bool replayForce;
+
+        /// <summary>RECORDED DEMO: the recorded moment is reached and the order of the recorded plan exists.</summary>
+        private bool RecordedCallDue(double at, int orderId) =>
+            RecordedDemoRuntime.Elapsed >= at - ReplayLead && (orderId <= 0 || FindLocal(orderId) != null);
+
+        /// <summary>RECORDED DEMO: a decision asked too early is sent again at the recorded moment.</summary>
+        private IEnumerator RequestAtRecordedTime(double at, int orderId)
+        {
+            while (RecordedDemoRuntime.Replaying && !RecordedCallDue(at, orderId) && RecordedDemoRuntime.Elapsed < at + 20.0) yield return null;
+            float deadline = Time.time + PendingTimeout + 5f;
+            while ((pending || urgentPending) && Time.time < deadline) yield return null;
+            replayDeferred = null;
+            // already asked by the game in the meantime: nothing to send
+            if (!RecordedDemoRuntime.Replaying || !RecordedDemoRuntime.NextRecorded("/warehouse", out double next, out string trig, out _) ||
+                System.Math.Abs(next - at) > 1e-6) yield break;
+            replayForce = true;
+            try { RequestDecision(trig); }
+            finally { replayForce = false; }
         }
 
         /// <summary>A decision call is sent as soon as no Meta call is in flight.</summary>
