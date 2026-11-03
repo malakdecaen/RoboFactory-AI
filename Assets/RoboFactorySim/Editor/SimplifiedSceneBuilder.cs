@@ -428,19 +428,32 @@ namespace RoboFactory.Sim.EditorTools
                     float bottom = c.y - size.y * .5f;
                     if (role == "Pallet")
                     {
+                        // wooden pallet (runners + deck boards), like the pallets of the packing cell
                         float first = levelHeights.Count > 0 ? levelHeights.Min : bottom + .15f;
                         float h = Mathf.Max(.06f, first - bottom - .25f);
-                        Box("pallet_base", root, new Vector3(c.x, bottom + h * .5f, c.z), Quaternion.identity, new Vector3(size.x, h, size.z), pallet);
+                        Func<Color, float, float, Material> wood = (col, sm, me) =>
+                            Mat("sim_pack_" + ColorUtility.ToHtmlStringRGB(col) + "_" + Mathf.RoundToInt(sm * 100f) + "_" + Mathf.RoundToInt(me * 100f), col, sm, me);
+                        RoboFactory.Packing.PalletStock.BuildPalletModel(root, new Vector3(c.x, bottom, c.z), size.x, size.z, h, wood);
                     }
                     else if (role == "Bench")
                     {
-                        // only the bottom plate is drawn: the upper levels stay free (boxes still sit on their level points)
+                        // Bench as deep as its real frame (0.6 m, the robots' collider is 0.5 m): the bounds of the full
+                        // scene are 1.75 m deep and the robots, which dock 0.625 m from the boxes, drove into the plate.
+                        // Bottom plate under the first level only (the boxes sit on their level points), 4 uprights.
+                        bool longX = size.x >= size.z;
+                        float length = longX ? size.x : size.z, depth = .6f;
+                        Vector3 plateSize = longX ? new Vector3(length, .04f, depth) : new Vector3(depth, .04f, length);
                         foreach (float y in levelHeights.Take(1))
-                            Box("shelf_plate", root, new Vector3(c.x, y - .27f, c.z), Quaternion.identity, new Vector3(size.x, .04f, size.z), plate);
-                        foreach (float dx in new[] { -.5f, .5f })
-                        foreach (float dz in new[] { -.5f, .5f })
-                            Box("upright", root, new Vector3(c.x + dx * (size.x - .05f), c.y, c.z + dz * (size.z - .05f)), Quaternion.identity,
-                                new Vector3(.05f, size.y, .05f), bench);
+                            Box("shelf_plate", root, new Vector3(c.x, y - .27f, c.z), Quaternion.identity, plateSize, plate);
+                        float top = levelHeights.Count > 0 ? levelHeights.Max + .3f : c.y + size.y / 2f;
+                        float floor = bottom;
+                        foreach (float da in new[] { -.5f, .5f })
+                        foreach (float dd in new[] { -.5f, .5f })
+                        {
+                            Vector3 o = longX ? new Vector3(da * (length - .05f), 0f, dd * (depth - .05f)) : new Vector3(dd * (depth - .05f), 0f, da * (length - .05f));
+                            Box("upright", root, new Vector3(c.x + o.x, (floor + top) / 2f, c.z + o.z), Quaternion.identity,
+                                new Vector3(.05f, top - floor, .05f), bench);
+                        }
                     }
                     else
                         Box("depot_base", root, new Vector3(c.x, bottom + .05f, c.z), Quaternion.identity, new Vector3(size.x, .1f, size.z), pallet);
