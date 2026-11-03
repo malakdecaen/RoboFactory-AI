@@ -30,9 +30,9 @@ namespace RoboFactory.Packing
     /// wrist, the wrist is re-oriented every frame so the cylinder points straight down onto the product.
     /// The arm can be scaled up at start (scale): the trays in front of the cell are 2 m to 2.4 m away and the
     /// shipping cartons are 0.27 m to 0.6 m tall, beyond the reach of the arm at its original size. The IK
-    /// component of the asset compares lengths measured in world space (editor: every frame; build: in Awake,
-    /// before the scaling) with the target in the shoulder's local space, so the target is stretched by the
-    /// matching factor to land the wrist exactly where it is wanted in both cases.
+    /// component of the asset compares lengths measured in world space (editor: every frame; build: only in Awake)
+    /// with the target in the shoulder's local space: its lengths are set to the scaled arm at start and the target
+    /// is stretched by the matching factor, to land the wrist exactly where it is wanted in the editor and in a build.
     /// </summary>
     public sealed class IkTargetArm : IPackingArm
     {
@@ -99,11 +99,21 @@ namespace RoboFactory.Packing
             if (scale > 0f && Mathf.Abs(scale - 1f) > 1e-3f) root.localScale *= scale;
             ArmScale = scale > 0f ? scale : 1f;
             float after = arm1Base.lossyScale.x;
-            // editor: the IK re-measures its lengths in world space every frame; build: lengths measured in Awake
-            stretch = Application.isEditor ? after : before;
 
             upper = Vector3.Distance(arm1.position, arm2.position);
             fore = Vector3.Distance(arm2.position, wrist.position);
+            // The IK keeps its own segment lengths: re-measured every frame in the editor, but only in its Awake in a
+            // build, which may run before or after this scaling. Its lengths are set here to the scaled arm, so the
+            // editor and the build solve exactly the same way (world lengths, target in the scaled shoulder space).
+            const BindingFlags any = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
+            FieldInfo upperField = ik.GetType().GetField("_upperArmLength", any), foreField = ik.GetType().GetField("_foreArmLength", any);
+            if (upperField != null && foreField != null && upperField.FieldType == typeof(float) && foreField.FieldType == typeof(float))
+            {
+                upperField.SetValue(ik, upper);
+                foreField.SetValue(ik, fore);
+                stretch = after;
+            }
+            else stretch = Application.isEditor ? after : before; // unknown IK: lengths measured in Awake, before the scaling
             arm1BaseInStand = Quaternion.Inverse(stand.rotation) * (arm1Base.position - stand.position);
             // the joints turn about the stand's local Z: that axis is constant in the wrist frame
             hingeLocal = Quaternion.Inverse(wrist.rotation) * (stand.rotation * Vector3.forward);
