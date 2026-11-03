@@ -450,14 +450,12 @@ namespace RoboFactory.Sim.EditorTools
                         Vector3 plateSize = longX ? new Vector3(length, .04f, depth) : new Vector3(depth, .04f, length);
                         foreach (float y in levelHeights.Take(1))
                             Box("shelf_plate", root, new Vector3(c.x, y - .27f, c.z), Quaternion.identity, plateSize, plate);
-                        float top = levelHeights.Count > 0 ? levelHeights.Max + .3f : c.y + size.y / 2f;
-                        float floor = bottom;
+                        // uprights: their original height (the bench frame), at the corners of the 0.6 m deep plate
                         foreach (float da in new[] { -.5f, .5f })
                         foreach (float dd in new[] { -.5f, .5f })
                         {
                             Vector3 o = longX ? new Vector3(da * (length - .05f), 0f, dd * (depth - .05f)) : new Vector3(dd * (depth - .05f), 0f, da * (length - .05f));
-                            Box("upright", root, new Vector3(c.x + o.x, (floor + top) / 2f, c.z + o.z), Quaternion.identity,
-                                new Vector3(.05f, top - floor, .05f), bench);
+                            Box("upright", root, new Vector3(c.x + o.x, c.y, c.z + o.z), Quaternion.identity, new Vector3(.05f, size.y, .05f), bench);
                         }
                     }
                     else
