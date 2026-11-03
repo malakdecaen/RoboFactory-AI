@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
+using RoboFactory.Logistics;
 using UnityEngine;
 using RoboFactory.Sim;
 
@@ -73,7 +74,12 @@ namespace RoboFactory.Packing
             public int Count;
             public Vector3 Dock;
             public float DockYaw;
+            public bool East;                 // reached from the aisle east of the pallet (R1's aisle)
         }
+
+        /// <summary>Line (z) south of the pallets where R3 crosses to the east aisle, and that aisle's extent.</summary>
+        private float eastCrossZ = float.NaN, eastAisleX, eastNorthZ;
+        private bool eastBlockedLogged;
 
         private IEnumerator Start()
         {
@@ -128,13 +134,22 @@ namespace RoboFactory.Packing
             while (true)
             {
                 PackingCarton carton = NextCarton();
-                Column column = carton != null ? NextColumn() : null;
+                bool eastWait = false;
+                Column column = carton != null ? NextColumn(out eastWait) : null;
+                if (carton != null && column == null && eastWait)
+                {
+                    // only the east half has room and R1 is using that aisle: wait where it is
+                    yield return new WaitForSeconds(.5f);
+                    continue;
+                }
+                if (column != null) fullLogged = false;
                 if (carton == null || column == null)
                 {
                     if (carton != null && !fullLogged) { fullLogged = true; Debug.Log("[PACK] R3: the pallets are full, closed cartons wait on their tray"); }
                     if (!parked)
                     {
                         Activity = "parking";
+                        yield return LeaveEastAisle();
                         yield return Drive(new Vector3(robot.position.x, 0f, TrayLaneZ));
                         yield return Drive(new Vector3(PalletLaneX, 0f, TrayLaneZ));
                         yield return Drive(Park);
@@ -158,15 +173,22 @@ namespace RoboFactory.Packing
             return best;
         }
 
-        private Column NextColumn()
+        /// <param name="eastWait">true when only the east half has room but its aisle is busy (R1, an order).</param>
+        private Column NextColumn(out bool eastWait)
         {
+            eastWait = false;
             foreach (Column c in columns)
             {
-                if (c.Shelf != null)
+                bool free = c.Shelf != null ? c.Shelf.HasFreePlaceToPut(c.Index, out int _) : c.Count < LevelsPerColumn;
+                if (!free) continue;
+                if (c.East && !EastAisleClear(out string why))
                 {
-                    if (c.Shelf.HasFreePlaceToPut(c.Index, out int _)) return c;
+                    if (!eastBlockedLogged) { eastBlockedLogged = true; Debug.Log("[PACK] R3: west side of the pallets full, waits to use the east aisle (" + why + ")"); }
+                    eastWait = true;
+                    return null;
                 }
-                else if (c.Count < LevelsPerColumn) return c;
+                if (c.East) eastBlockedLogged = false;
+                return c;
             }
             return null;
         }
@@ -179,6 +201,7 @@ namespace RoboFactory.Packing
 
             // 1. to the tray: along the tray lane, then face the tray (south)
             Activity = "to tray " + (tray + 1) + " for carton " + name;
+            yield return LeaveEastAisle();
             if (Mathf.Abs(robot.position.z - TrayLaneZ) > .05f)
             {
                 yield return Drive(new Vector3(PalletLaneX, 0f, robot.position.z));
@@ -206,7 +229,17 @@ namespace RoboFactory.Packing
             // 3. to the pallet: back on the tray lane, north along the pallet lane, face the column
             Activity = "carrying carton " + name + " to " + column.Pallet;
             yield return Drive(new Vector3(PalletLaneX, 0f, TrayLaneZ));
-            yield return Drive(new Vector3(PalletLaneX, 0f, column.Dock.z));
+            if (column.East)
+            {
+                // east half: north along R3's lane to below the pallets, east across, then north up R1's aisle
+                // (only if that aisle is still clear; otherwise wait at the crossing)
+                yield return Drive(new Vector3(PalletLaneX, 0f, eastCrossZ));
+                float waitUntil = Time.time + 60f;
+                while (!EastAisleClear(out string _) && Time.time < waitUntil) { Activity = "waiting for the east aisle"; yield return new WaitForSeconds(.5f); }
+                Activity = "carrying carton " + name + " to " + column.Pallet + " (east side)";
+                yield return Drive(new Vector3(column.Dock.x, 0f, eastCrossZ));
+            }
+            else yield return Drive(new Vector3(PalletLaneX, 0f, column.Dock.z));
             yield return Drive(column.Dock);
             yield return Face(column.DockYaw);
 
@@ -220,7 +253,7 @@ namespace RoboFactory.Packing
                 yield return Gesture(false, level, () => OffRobot(box, () => point.position - (box.position - BottomCentre(box))));
                 box.SetPositionAndRotation(point.position, rot);
                 column.Shelf.PutBox(column.Index, level, cargo, rot);
-                where = column.Pallet + " column " + (column.Index + 1) + " level " + (level + 1) + " (stock for R1)";
+                where = column.Pallet + " column " + (column.Index + 1) + " level " + (level + 1) + (column.East ? ", east side" : "") + " (stock for R1)";
             }
             else
             {
@@ -234,6 +267,7 @@ namespace RoboFactory.Packing
             if (cargo != null) { cargo.isCarried = false; cargo.orderId = -1; }
             Delivered++;
             Debug.Log("[PACK] R3 put carton " + name + " on " + where);
+            if (column.East) { Activity = "leaving the east aisle"; yield return LeaveEastAisle(); }
             Activity = "idle";
         }
 
@@ -395,11 +429,13 @@ namespace RoboFactory.Packing
                     for (int c = 0; c < shelf.columns.Length; c++)
                     {
                         Transform p0 = shelf.GetPoint(c, 0);
-                        if (p0 == null || p0.position.x > root.position.x) continue;   // west half only (our lane)
+                        if (p0 == null) continue;
+                        // west half: from R3's lane; east half: from the aisle east of the pallet (shared with R1)
+                        bool east = p0.position.x > root.position.x;
                         columns.Add(new Column
                         {
-                            Pallet = PalletNames[i], PalletRoot = root, Shelf = shelf, Index = c, Centre = p0.position,
-                            Dock = new Vector3(p0.position.x - DockOffset, 0f, p0.position.z), DockYaw = 90f
+                            Pallet = PalletNames[i], PalletRoot = root, Shelf = shelf, Index = c, Centre = p0.position, East = east,
+                            Dock = new Vector3(p0.position.x + (east ? DockOffset : -DockOffset), 0f, p0.position.z), DockYaw = east ? 270f : 90f
                         });
                         added++;
                     }
@@ -418,7 +454,60 @@ namespace RoboFactory.Packing
                     });
                 }
             }
-            columns.Sort((a, b) => a.Dock.z.CompareTo(b.Dock.z));
+            // west columns first (R3's own lane), then the east ones, each from south to north
+            columns.Sort((a, b) => a.East != b.East ? (a.East ? 1 : -1) : a.Dock.z.CompareTo(b.Dock.z));
+            float south = float.MaxValue, north = float.MinValue, aisle = float.MinValue;
+            foreach (Column c in columns)
+            {
+                south = Mathf.Min(south, c.Centre.z);
+                north = Mathf.Max(north, c.Centre.z);
+                if (c.East) aisle = Mathf.Max(aisle, c.Dock.x);
+            }
+            if (aisle > float.MinValue)
+            {
+                eastCrossZ = south - .95f;   // ~0.7 m clear of the pallet's south edge
+                eastAisleX = aisle;
+                eastNorthZ = north;
+            }
+        }
+
+        private bool InEastAisle => !float.IsNaN(eastCrossZ) && robot.position.x > PalletLaneX + .3f && robot.position.z > eastCrossZ + .1f;
+
+        /// <summary>Back from the east aisle to R3's lane, the way it came (south of the pallets).</summary>
+        private IEnumerator LeaveEastAisle()
+        {
+            if (!InEastAisle) yield break;
+            yield return Drive(new Vector3(robot.position.x, 0f, eastCrossZ));
+            yield return Drive(new Vector3(PalletLaneX, 0f, eastCrossZ));
+        }
+
+        /// <summary>
+        /// The east aisle is R1's: R3 only goes in when no order has reserved a pallet along it and neither R1 nor R2
+        /// is in it or on the crossing south of the pallets.
+        /// </summary>
+        private bool EastAisleClear(out string why)
+        {
+            why = "";
+            WarehouseWorld w = WarehouseWorld.Instance;
+            if (w == null) return true;
+            float xMin = PalletLaneX - .6f, xMax = eastAisleX + 1.4f, zMin = eastCrossZ - .7f, zMax = eastNorthZ + 1.2f;
+            foreach (Component r in new Component[] { w.R1, w.R2 })
+            {
+                if (r == null) continue;
+                Vector3 p = r.transform.position;
+                if (p.x > xMin && p.x < xMax && p.z > zMin && p.z < zMax) { why = (r == (Component)w.R1 ? "R1" : "R2") + " is in the aisle"; return false; }
+            }
+            for (int i = 1; i <= w.PalletCount + 2; i++)
+            {
+                string id = "P" + i.ToString("00");
+                ShelfStorage s = w.Pallet(id);
+                if (s == null) continue;
+                Vector3 p = s.transform.position;
+                if (p.x < PalletLaneX || p.x > xMax + 1.5f || p.z < zMin || p.z > zMax) continue;
+                string by = w.ReservedBy(id);
+                if (!string.IsNullOrEmpty(by)) { why = id + " is reserved by order #" + by; return false; }
+            }
+            return true;
         }
 
         /// <summary>Wooden pallet built by code (public version), 1.25 m x 1.45 m like the warehouse pallets.</summary>
