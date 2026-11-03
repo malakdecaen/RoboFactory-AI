@@ -257,6 +257,18 @@ namespace RoboFactory.Packing
             Track.Add(item, spawnS);
         }
 
+        /// <summary>A box made by the packing cell (a closed shipping carton), not one of the warehouse's initial boxes.</summary>
+        public static bool IsCellBox(Component box) => box != null && box.name.Contains(" (packed ");
+
+        /// <summary>The box is still in the cell's hands: in its carton on a tray, or carried by R3.</summary>
+        public static bool HeldByCell(Component box)
+        {
+            if (box == null) return false;
+            if (box.GetComponentInParent<PackingCarton>(true) != null) return true;
+            PackingTransport r3 = PackingTransport.Current;
+            return r3 != null && r3.Robot != null && box.transform.IsChildOf(r3.Robot);
+        }
+
         // ------------------------------------------------------------------ scan + decision
 
         private void OnScanPoint(PackingItem item)

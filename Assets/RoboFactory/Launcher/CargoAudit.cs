@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 using RoboFactory.Sim;
+using RoboFactory.Packing;
 
 namespace RoboFactory.Logistics
 {
@@ -10,6 +11,8 @@ namespace RoboFactory.Logistics
     /// Every box present at the start is followed: it must always be on a pallet, a bench, carried by
     /// a robot or in a truck. A box may disappear only after it was in a truck (shipping). A box that
     /// vanishes from anywhere else, stays on the floor, or any new box that appears, is reported.
+    /// The cartons closed by the packing cell are new boxes by design: they are counted as packed (not duplicated),
+    /// and a carton on its tray or carried by R3 is not on the floor.
     /// </summary>
     public sealed class CargoAudit
     {
@@ -30,6 +33,8 @@ namespace RoboFactory.Logistics
         public int Shipped { get; private set; }
         public int Lost { get; private set; }
         public int Duplicated => duplicates.Count;
+        /// <summary>Cartons closed by the packing cell during the scenario (new boxes, expected).</summary>
+        public int Packed { get; private set; }
         public bool Started { get; private set; }
 
         private const float LooseLimit = 8f;     // seconds on the floor before a box counts as lost
@@ -38,7 +43,7 @@ namespace RoboFactory.Logistics
         public void Begin()
         {
             tracks.Clear(); duplicates.Clear(); issues.Clear();
-            Shipped = Lost = 0;
+            Shipped = Lost = Packed = 0;
             foreach (CargoBox box in Object.FindObjectsByType<CargoBox>(FindObjectsInactive.Include, FindObjectsSortMode.None))
             {
                 if (box == null) continue;
@@ -61,12 +66,22 @@ namespace RoboFactory.Logistics
                 present.Add(id);
                 if (!tracks.TryGetValue(id, out Track t))
                 {
-                    if (duplicates.Add(id)) issues.Add("duplicated box: " + box.name);
-                    continue;
+                    if (PackingCell.IsCellBox(box))
+                    {
+                        // a carton closed by the packing cell: followed from now on like the others
+                        tracks[id] = t = new Track { Name = box.name, Last = CargoRegistry.Classify(box) };
+                        Packed++;
+                    }
+                    else
+                    {
+                        if (duplicates.Add(id)) issues.Add("duplicated box: " + box.name);
+                        continue;
+                    }
                 }
                 CargoStatus now = CargoRegistry.Classify(box);
                 t.Last = now;
-                bool onFloor = now == CargoStatus.Loose || box.transform.position.y < FloorY;
+                bool held = PackingCell.IsCellBox(box) && PackingCell.HeldByCell(box);
+                bool onFloor = !held && (now == CargoStatus.Loose || box.transform.position.y < FloorY);
                 if (onFloor)
                 {
                     if (t.LooseSince < 0f) t.LooseSince = Time.time;
@@ -118,6 +133,7 @@ namespace RoboFactory.Logistics
             sb.Append(Initial).Append(" boxes tracked  ·  ").Append(Delivered).Append(" delivered");
             if (expectedShipped >= 0) sb.Append(" (").Append(expectedShipped).Append(" ordered)");
             sb.Append("  ·  ").Append(Lost).Append(" lost  ·  ").Append(Duplicated).Append(" duplicated");
+            if (Packed > 0) sb.Append("  ·  ").Append(Packed).Append(" packed by the cell");
             if (expectedShipped >= 0 && Delivered != expectedShipped) sb.Append("  ·  DELIVERED COUNT DIFFERS FROM ORDERED");
             return sb.ToString();
         }

@@ -47,6 +47,8 @@ namespace RoboFactory.Packing
         public string Activity { get; private set; } = "idle";
         public int Delivered { get; private set; }
         public Transform Robot => robot;
+        /// <summary>The transport robot of the scene (null until it is ready).</summary>
+        public static PackingTransport Current { get; private set; }
 
         private Transform robot;
         private float carryHeight = .5f;
@@ -113,6 +115,7 @@ namespace RoboFactory.Packing
             }
             Cell.TransportConnected = true;
             Ready = true;
+            Current = this;
             var names = new List<string>();
             foreach (string p in PalletNames)
             {
