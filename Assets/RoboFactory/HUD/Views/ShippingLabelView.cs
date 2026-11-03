@@ -15,7 +15,9 @@ namespace RoboFactory.HUD
     {
         public RectTransform Root { get; private set; }
 
-        private const float Pic = 164f;
+        private const float Pic = 144f;
+        /// <summary>Whole card at 90 %: fits between R2's camera and the AI decisions panel.</summary>
+        private const float Scale = .9f;
         private const float W = HudTheme.VisionW + 12f;
         private const float H = HudTheme.VisionHeader + Pic + 12f;
 
@@ -32,6 +34,7 @@ namespace RoboFactory.HUD
         {
             Root = HudFactory.GlassPanel(parent, "Shipping Label", HudTheme.GlassStrong, HudTheme.A(HudTheme.Cyan, .75f), 10);
             HudFactory.Place(Root, new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-HudTheme.Margin, HudTheme.BottomRowY), new Vector2(W, H));
+            Root.localScale = new Vector3(Scale, Scale, 1f);
             stroke = HudFactory.PanelStroke(Root);
 
             Image icon = HudFactory.Icon(Root, "Icon", HudIcon.Box, 20f, HudTheme.Cyan);
@@ -63,10 +66,8 @@ namespace RoboFactory.HUD
             name = Line("Name", x, top - 18f, cw, HudTheme.FontValue, true, HudTheme.TextHi);
             street = Line("Street", x, top - 42f, cw, HudTheme.FontMicro, false, HudTheme.TextHi);
             address = Line("Address", x, top - 60f, cw, HudTheme.FontMicro, false, HudTheme.TextHi);
-            route = Line("Route", x, top - 84f, cw, HudTheme.FontSmall, true, HudTheme.Cyan);
-            models = Line("Models", x, top - 106f, cw, HudTheme.FontMicro, false, HudTheme.TextMid);
-            models.textWrappingMode = TextWrappingModes.Normal;
-            models.rectTransform.sizeDelta = new Vector2(cw, 30f);
+            route = Line("Route", x, top - 80f, cw, HudTheme.FontSmall, true, HudTheme.Cyan);
+            models = Line("Models", x, top - 100f, cw, HudTheme.FontMicro, false, HudTheme.TextMid);
 
             state = HudFactory.Chip(Root, "State", "", HudTheme.TextMid, cw, 26f);
             HudFactory.Place(state.Root, new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(x, top - Pic + 26f), new Vector2(cw, 26f));
@@ -92,7 +93,9 @@ namespace RoboFactory.HUD
             if (Root.gameObject.activeSelf != on) Root.gameObject.SetActive(on);
             if (!on) return;
             time += dt;
-            Root.anchoredPosition = bottom + H + HudTheme.Gap <= ceiling ? new Vector2(-HudTheme.Margin, bottom) : new Vector2(-besideX, HudTheme.BottomRowY);
+            const float gap = 5f;
+            Root.anchoredPosition = bottom - HudTheme.Gap + gap + H * Scale + gap <= ceiling
+                ? new Vector2(-HudTheme.Margin, bottom - HudTheme.Gap + gap) : new Vector2(-besideX, HudTheme.BottomRowY);
 
             ShippingLabels.Label l = labels.Latest;
             if (l != null && (l.OrderId != shownOrder || l.Applied != shownApplied || l.Image != shownTex))
