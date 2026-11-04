@@ -565,6 +565,9 @@ namespace RoboFactory.Packing
             if (real)
             {
                 GameObject box = Instantiate(template.gameObject);
+                // the template is a live box of the warehouse: if R1 has put it on a bench since, it carries a shipping label.
+                // Only the boxes of an order, on a bench, have one: the copy must start clean.
+                RemoveShippingLabels(box.transform);
                 box.name = template.gameObject.name + " (packed " + recipe.Type + "#" + c.Number + ")";
                 box.transform.localScale = template.transform.lossyScale;
                 Quaternion rot = trayRot * boxRot;
@@ -582,6 +585,17 @@ namespace RoboFactory.Packing
             Debug.Log("[PACK] carton " + recipe.Type + "#" + c.Number + " opened on tray " + (tray + 1) + ": " + recipe.Description +
                       (real ? " (closes into a copy of " + template.gameObject.name + ")" : ""));
             return c;
+        }
+
+        /// <summary>Deletes the shipping label(s) (child "shipping_label" added by ShippingLabels) from a copy of a box.</summary>
+        private static void RemoveShippingLabels(Transform root)
+        {
+            for (int i = root.childCount - 1; i >= 0; i--)
+            {
+                Transform ch = root.GetChild(i);
+                if (ch.name == "shipping_label") DestroyImmediate(ch.gameObject);
+                else RemoveShippingLabels(ch);
+            }
         }
 
         private readonly Dictionary<string, CargoBox> templates = new Dictionary<string, CargoBox>();
