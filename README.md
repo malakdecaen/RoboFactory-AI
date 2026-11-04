@@ -12,7 +12,9 @@
 
 ## Download and play (Windows)
 
-**[Download the Windows build (v1.0)](https://github.com/malakdecaen/RoboFactory-AI/releases/latest)**: unzip `RoboFactory-MuseAI_Windows_v1.0.zip` and start `RoboFactory-MuseAI/RoboFactory-MuseAI.exe` (Windows 10/11, 64-bit, DirectX 12). This build has the original art of the full project.
+**[Download the Windows build (v1.1)](https://github.com/malakdecaen/RoboFactory-AI/releases/latest)**: unzip `RoboFactory-MuseAI_Windows_v1_1.zip` and start `RoboFactory-MuseAI/RoboFactory-MuseAI.exe` (Windows 10/11, 64-bit, DirectX 12). This build has the original art of the full project.
+
+SHA-256 of the zip: `d35ceba71f10f1e69916c0ac218f6d94aa8b2d7ccf17984ab87b5acc08ff9cc2`
 
 - **RECORDED DEMO** runs at once, with no key and no Internet: real Meta answers recorded earlier, replayed while the warehouse is really simulated.
 - **LIVE AI** uses your own Meta Model API key (kept in memory only) and lets you give urgent orders by voice.
