@@ -355,9 +355,12 @@ namespace RoboFactory.HUD
             if (HudInput.KeyDown(SoundKey)) ToggleSound();
             if (HudInput.KeyDown(CameraKey)) ToggleCamera();
             // arrows: the orbit camera follows R1 (←) or R2 (→); ↑ / ↓: overview
-            if (HudInput.KeyDown(KeyCode.LeftArrow)) FocusCamera(HudCameraRig.Focus.R1);
-            if (HudInput.KeyDown(KeyCode.RightArrow)) FocusCamera(HudCameraRig.Focus.R2);
-            if (HudInput.KeyDown(KeyCode.UpArrow) || HudInput.KeyDown(KeyCode.DownArrow)) FocusCamera(HudCameraRig.Focus.Warehouse);
+            if (!CinematicDirector.Enabled)   // shot mode (F6) uses the arrows for its own shots
+            {
+                if (HudInput.KeyDown(KeyCode.LeftArrow)) FocusCamera(HudCameraRig.Focus.R1);
+                if (HudInput.KeyDown(KeyCode.RightArrow)) FocusCamera(HudCameraRig.Focus.R2);
+                if (HudInput.KeyDown(KeyCode.UpArrow) || HudInput.KeyDown(KeyCode.DownArrow)) FocusCamera(HudCameraRig.Focus.Warehouse);
+            }
         }
 
         /// <summary>Scene view <-> orbit view (camera button, C key).</summary>

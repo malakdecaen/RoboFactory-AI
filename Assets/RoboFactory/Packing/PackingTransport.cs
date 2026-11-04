@@ -560,6 +560,7 @@ namespace RoboFactory.Packing
                     if (k != null && k.gameObject != copy && (k is TMPro.TMP_Text || k is Canvas || k is LineRenderer || k is TrailRenderer))
                         DestroyImmediate(k.gameObject);
                 Strip(copy);
+                RoboFactory.Logistics.TrackMotionAnimator.Install(copy);
                 foreach (Animator a in copy.GetComponentsInChildren<Animator>(true)) a.applyRootMotion = false;
                 copy.name = RobotTemplate + " (R3)";
                 copy.transform.SetParent(transform, true);
@@ -642,6 +643,7 @@ namespace RoboFactory.Packing
                     if (k == null) continue;
                     bool drop = k is MonoBehaviour || k is Collider || k is Rigidbody || k is Joint || k is Camera ||
                                 k is AudioListener || k is AudioSource || k is CharacterController;
+                    if (k.GetType().Name == "DualProceduralTracksFromWheels") drop = false;   // keeps the tracks turning (see TrackMotionAnimator)
                     if (!drop || RequiredByOther(k, all)) continue;
                     DestroyImmediate(k);
                     removed = true;

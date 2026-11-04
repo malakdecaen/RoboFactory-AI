@@ -25,6 +25,12 @@ namespace RoboFactory.HUD
                 case KeyCode.F5: return kb.f5Key.wasPressedThisFrame;
                 case KeyCode.F6: return kb.f6Key.wasPressedThisFrame;
                 case KeyCode.F7: return kb.f7Key.wasPressedThisFrame;
+                case KeyCode.Alpha1: return kb.digit1Key.wasPressedThisFrame;
+                case KeyCode.Alpha2: return kb.digit2Key.wasPressedThisFrame;
+                case KeyCode.Alpha3: return kb.digit3Key.wasPressedThisFrame;
+                case KeyCode.Alpha4: return kb.digit4Key.wasPressedThisFrame;
+                case KeyCode.Alpha5: return kb.digit5Key.wasPressedThisFrame;
+                case KeyCode.Alpha6: return kb.digit6Key.wasPressedThisFrame;
                 case KeyCode.Escape: return kb.escapeKey.wasPressedThisFrame;
                 case KeyCode.Return: return kb.enterKey.wasPressedThisFrame;
                 case KeyCode.H: return kb.hKey.wasPressedThisFrame;

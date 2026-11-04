@@ -8,34 +8,36 @@ using RoboFactory.Launcher;
 using RoboFactory.Logistics;
 using RoboFactory.Packing;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
 using RoboFactory.Sim;
 
 namespace RoboFactory.HUD
 {
     /// <summary>
-    /// DIRECTOR camera (F6): films the run by itself for the demo video. Every shot is a FIXED camera (no orbit, no
-    /// drift): its position is chosen once, among many candidate angles, as the best one that sees the subject
-    /// without a wall, shelf or machine in between and without the camera being inside something. Shots that follow a
-    /// robot keep a rigid offset and only change angle (smoothly) if something gets in front of the lens. A shot is
-    /// started only when its action is really happening (a product at the scan point, the arm working, the robot
-    /// moving) and stops when the action stops. Between shots the camera blends smoothly, or cuts when the straight
-    /// path would cross a wall. Opening: wide, products coming out of the machine, scan, arm, top view of the line.
-    /// Then events: Muse decision (R1), label, truck loading, carton closed (trays + R3), urgent order, final wide.
-    /// F7 = SHOT LAB: goes through every shot type once and saves a picture of each one in logs/shots (to check the
-    /// framing). During a run, one picture per shot is saved in logs/director_*_shots. Every shot is written to
-    /// logs/director_*.log with its time, to find the clips when editing.
+    /// SHOT MODE (F6) for filming the demo video: six ready-made shots, each one a free orbit camera.
+    ///   1 belt + scan, 2 arm filling the cartons, 3 R3 carrying cartons to the stock pallets, 4 R1,
+    ///   5 top view of the labelled boxes (label bench), 6 R2 loading the truck.
+    /// Left / right arrow (or keys 1-6): previous / next shot. Drag the mouse: orbit around the subject. Wheel: zoom.
+    /// Up arrow: back to the shot's starting angle. F6 again: gives the camera back.
+    /// A shot starts from the best of ~100 candidate angles (clear view of the subject, nothing in between, not inside
+    /// a wall); a shot on a robot follows the robot, keeping the angle you chose. Nothing moves by itself: no automatic
+    /// orbit. Each change of shot is written to logs/director_*.log with its time.
+    /// F7 = SHOT LAB: saves a picture of the six starting angles in logs/shots (to check the framing).
     /// </summary>
     [DefaultExecutionOrder(30000)]
     public sealed class CinematicDirector : MonoBehaviour
     {
-        /// <summary>Director on: survives the scene reloads of the scenarios (off at each new launch).</summary>
+        /// <summary>Shot mode on: survives the scene reloads of the scenarios (off at each new launch).</summary>
         public static bool Enabled { get; private set; }
 
-        public float Blend = 1.6f;          // s, blend between two shots
-        public float MinShot = 4f;          // s before an event may interrupt a shot
-        public float EventLife = 8f;        // s an event waits in the queue before it is dropped
-        public bool CaptureRunShots = true; // one picture per shot during a run
+        public float Blend = 1.2f;   // s, blend between two shots
+
+        private const int ShotCount = 6;
+        private static readonly string[] Titles =
+        {
+            "BELT + SCAN", "ARM FILLING THE CARTONS", "R3 CARRYING TO THE STOCK", "R1", "LABELLED BOXES (TOP VIEW)", "R2 LOADING THE TRUCK"
+        };
 
         // ------------------------------------------------------------------ bootstrap
 
@@ -58,7 +60,7 @@ namespace RoboFactory.HUD
             new GameObject("Cinematic Director").AddComponent<CinematicDirector>();
         }
 
-        // ------------------------------------------------------------------ shots
+        // ------------------------------------------------------------------ state
 
         private sealed class Shot
         {
@@ -68,340 +70,136 @@ namespace RoboFactory.HUD
             public Vector3 Dir = Vector3.back;  // preferred direction from the look point towards the camera (horizontal)
             public float Dist = 3f, Height = 1.5f;
             public float Fov = 45f;
-            public float Duration = 7f;
-            public int Priority;
             public float Damping = 3f;          // follow smoothing of the look point
-            public bool Moving;                 // the look point moves: the angle is re-checked while filming
-            public Func<bool> Ready;            // the action is happening (null = always)
             // result of the placement
             public Vector3 Offset;
             public float Cost;
             public int Blocked;
         }
 
-        private sealed class Pending
-        {
-            public Func<Shot> Make;
-            public int Priority;
-            public float Since;
-            public string Kind;
-        }
-
-        private sealed class MoveInfo { public Vector3 Last; public float Speed; public bool Init; }
-
         private Camera cam;
         private readonly List<Behaviour> paused = new List<Behaviour>();
         private Vector3 savedPos;
         private Quaternion savedRot;
         private float savedFov;
-        private bool controlling;
+        private bool controlling, lab;
 
+        private int index = -1;
         private Shot shot;
-        private float shotTime, blendT = 1f, recheck, idleT, tick, scriptWait;
-        private Vector3 fromPos, look, offsetNow;
+        private Vector3 look, fromPos;
         private Quaternion fromRot;
-        private float fromFov, ceiling;
-        private bool capturedThisShot;
-        private readonly List<Pending> queue = new List<Pending>();
-        private readonly Queue<Func<Shot>> script = new Queue<Func<Shot>>();
-        private readonly Dictionary<Transform, MoveInfo> moves = new Dictionary<Transform, MoveInfo>();
-        private int filler, shotIndex;
-        private bool introQueued, outroQueued, readyNow = true;
-
-        // watched counters
-        private int seenDecisions, seenLabels, seenCartons, seenTaken;
-        private readonly Dictionary<TruckBay, int> seenLoaded = new Dictionary<TruckBay, int>();
-        private MuseOrchestrator.UrgentStage seenStage;
-        private bool countersReady;
-
-        private MuseOrchestrator orchCache;
+        private float fromFov, blendT = 1f, ceiling;
+        private float baseYaw, basePitch, radius;
+        private float yawT, pitchT, scaleT = 1f, yawC, pitchC, scaleC = 1f;
+        private bool dragging, wasHeld;
+        private Vector2 lastMouse;
+        private float labelUntil;
         private StreamWriter log;
         private float logStart;
-        private string runShotsDir;
-        private bool lab;
+        private GUIStyle labelStyle;
+
+        // ------------------------------------------------------------------ input
 
         private void Update()
         {
             if (HudInput.KeyDown(KeyCode.F6))
             {
                 Enabled = !Enabled;
-                Debug.Log("[DIRECTOR] " + (Enabled ? "on: the camera films the run by itself (F6 to give it back)" : "off"));
+                Debug.Log("[DIRECTOR] " + (Enabled ? "shot mode on: arrows = shot, drag = orbit, wheel = zoom (F6 to give the camera back)" : "shot mode off"));
                 if (!Enabled) Release();
             }
             if (HudInput.KeyDown(KeyCode.F7) && !lab) StartCoroutine(ShotLab());
+            if (!Enabled || !controlling || lab) return;
+
+            if (HudInput.KeyDown(KeyCode.RightArrow)) Switch(index + 1, 1);
+            else if (HudInput.KeyDown(KeyCode.LeftArrow)) Switch(index - 1, -1);
+            for (int i = 0; i < ShotCount; i++)
+                if (HudInput.KeyDown(KeyCode.Alpha1 + i)) Switch(i, 1);
+            if (HudInput.KeyDown(KeyCode.UpArrow)) { yawT = baseYaw; pitchT = basePitch; scaleT = 1f; }
+
+            // orbit: drag; zoom: wheel
+            bool held = HudInput.MouseHeld();
+            Vector2 mp = HudInput.MousePosition();
+            if (held && !wasHeld) dragging = !OverUi();
+            if (!held) dragging = false;
+            if (held && dragging)
+            {
+                Vector2 d = mp - lastMouse;
+                yawT -= d.x * .25f * Mathf.Deg2Rad;
+                pitchT = Mathf.Clamp(pitchT - d.y * .18f * Mathf.Deg2Rad, 4f * Mathf.Deg2Rad, 88f * Mathf.Deg2Rad);
+            }
+            lastMouse = mp;
+            wasHeld = held;
+            float sc = HudInput.ScrollY();
+            if (Mathf.Abs(sc) > .01f && !OverUi()) scaleT = Mathf.Clamp(scaleT * (1f - Mathf.Sign(sc) * .08f), .2f, 4f);
+        }
+
+        private static bool OverUi()
+        {
+            return EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
         }
 
         private void LateUpdate()
         {
             if (!Enabled) { if (controlling) Release(); return; }
-            if (!controlling && !TakeControl()) return;
-            float dt = Time.deltaTime;
-            TrackMoves(dt);
-            if (!lab)
+            if (!controlling)
             {
-                Watch();
-                ChooseShot(dt);
+                if (!TakeControl()) return;
+                Switch(0, 1);
             }
             if (shot == null) return;
-            ApplyPose(dt);
+            ApplyPose(Time.deltaTime);
         }
 
-        private static float Ease(float x) => x * x * x * (x * (6f * x - 15f) + 10f);   // smootherstep
-
-        // ------------------------------------------------------------------ choosing
-
-        private void ChooseShot(float dt)
+        private void Switch(int to, int step)
         {
-            shotTime += dt;
-            tick -= dt;
-            bool doTick = tick <= 0f;
-            if (doTick) { tick = .25f; readyNow = shot == null || shot.Ready == null || shot.Ready(); }
-            if (shot != null && shot.Ready != null && shotTime > .5f) idleT = readyNow ? 0f : idleT + dt;
-            bool over = shot == null || shotTime >= shot.Duration;
-            // the action stopped: do not stay on an empty scene
-            if (!over && shot.Ready != null && shotTime > MinShot * .7f && idleT > 2.5f) over = true;
-
-            if (script.Count > 0 && over)
+            for (int tries = 0; tries < ShotCount; tries++)
             {
-                Shot s = script.Peek()();
-                if (s == null) script.Dequeue();
-                else if (s.Ready == null || s.Ready()) { script.Dequeue(); scriptWait = 0f; Cut(s, "script"); }
-                else if ((scriptWait += dt) > 8f) { script.Dequeue(); scriptWait = 0f; Cut(s, "script (action late)"); }
-                return;
+                int i = ((to % ShotCount) + ShotCount) % ShotCount;
+                Shot s = Make(i);
+                if (s != null) { Cut(s, i); return; }
+                Debug.Log("[DIRECTOR] shot " + (i + 1) + " (" + Titles[i] + ") not available in this scene: skipped");
+                to = i + step;
             }
-            if (!doTick && !over) return;
-
-            Pending next = null; Shot nextShot = null;
-            queue.RemoveAll(p => Time.time - p.Since > EventLife);
-            foreach (Pending p in queue)
-            {
-                if (next != null && (p.Priority < next.Priority || (p.Priority == next.Priority && p.Since > next.Since))) continue;
-                Shot c = p.Make();
-                if (c == null) { p.Since = -1000f; continue; }
-                if (c.Ready != null && !c.Ready()) continue;
-                next = p; nextShot = c;
-            }
-            queue.RemoveAll(p => p.Since < -500f);
-            if (next != null && (over || (shotTime >= MinShot && next.Priority >= shot.Priority)))
-            {
-                queue.Remove(next);
-                Cut(nextShot, next.Kind);
-            }
-            else if (over) Cut(Filler(), "filler");
         }
 
-        private void Push(string kind, int priority, Func<Shot> make)
-        {
-            queue.RemoveAll(p => p.Kind == kind);
-            queue.Add(new Pending { Kind = kind, Priority = priority, Make = make, Since = Time.time });
-        }
+        // ------------------------------------------------------------------ the six shots
 
-        private Shot Filler()
+        private Shot Make(int i)
         {
             WarehouseWorld world = WarehouseWorld.Instance;
-            for (int i = 0; i < 9; i++)
+            switch (i)
             {
-                Shot s;
-                switch (filler++ % 9)
-                {
-                    case 0: s = ArmPick(7f); break;
-                    case 1: s = Follow(R1(world), "R1 picking", 8f); break;
-                    case 2: s = Scan(6f); break;
-                    case 3: s = Follow(R2(world), "R2 loading", 8f); break;
-                    case 4: s = R3("R3 transport", 8f); break;
-                    case 5: s = Spawn(5f); break;
-                    case 6: s = TopView(5f); break;
-                    case 7: s = Trays("the cartons fill up", 5f); break;
-                    default: s = null; break;
-                }
-                if (s != null && (s.Ready == null || s.Ready())) return s;
+                case 0: return Belt();
+                case 1: return ArmPick();
+                case 2: { PackingTransport r3 = PackingTransport.Current; Shot s = r3 != null ? Follow(r3.Robot, "R3", 3.4f, 2.2f) : null; return s; }
+                case 3: return Follow(R1(world), "R1", 3.8f, 3.5f);
+                case 4: return LabelBench(world);
+                default: return Truck(world);
             }
-            return Wide("overview", 8f);
         }
 
         private static Transform R1(WarehouseWorld w) => w != null && w.R1 != null ? w.R1.transform : null;
         private static Transform R2(WarehouseWorld w) => w != null && w.R2 != null ? w.R2.transform : null;
 
-        // ------------------------------------------------------------------ events
-
-        private void Watch()
-        {
-            if (orchCache == null) orchCache = FindFirstObjectByType<MuseOrchestrator>();
-            MuseOrchestrator orch = orchCache;
-            PackingCell cell = PackingCell.Instance;
-            WarehouseWorld world = WarehouseWorld.Instance;
-            ShippingLabels labels = ShippingLabels.Instance;
-            ScenarioPlayer player = ScenarioPlayer.Instance;
-
-            int decisions = orch != null ? AcceptedCount(orch) : 0;
-            int labelled = labels != null ? labels.BoxesLabelled : 0;
-            int cartons = cell != null ? cell.CartonsClosed : 0;
-            int taken = cell != null ? cell.Taken : 0;
-            MuseOrchestrator.UrgentStage stage = orch != null ? orch.Stage : MuseOrchestrator.UrgentStage.Idle;
-            if (!countersReady)
-            {
-                seenDecisions = decisions; seenLabels = labelled; seenCartons = cartons; seenTaken = taken; seenStage = stage;
-                if (world != null) foreach (string id in world.TruckIds) { TruckBay t = world.Truck(id); if (t != null) seenLoaded[t] = t.LoadedCount; }
-                countersReady = true;
-            }
-
-            // opening, once per run: wide, the machine, the scan, the arm, the line from above
-            bool running = player != null && player.State == ScenarioPlayer.PlayerState.Running;
-            if (!introQueued && (running || player == null || player.State == ScenarioPlayer.PlayerState.Idle))
-            {
-                introQueued = true;
-                script.Enqueue(() => Wide("establishing shot", 9f));
-                script.Enqueue(() => Spawn(5.5f));
-                script.Enqueue(() => Scan(6.5f));
-                script.Enqueue(() => ArmPick(8f));
-                script.Enqueue(() => TopView(5.5f));
-            }
-            if (!outroQueued && player != null && player.State == ScenarioPlayer.PlayerState.Complete)
-            {
-                outroQueued = true;
-                Push("end", 9, () => Wide("scenario complete", 14f));
-            }
-
-            if (stage != seenStage)
-            {
-                if ((stage == MuseOrchestrator.UrgentStage.Planning || stage == MuseOrchestrator.UrgentStage.Suspending) &&
-                    seenStage == MuseOrchestrator.UrgentStage.Idle)
-                {
-                    Push("urgent", 8, () => Wide("urgent order: safe pause of the orders", 7f));
-                    Push("urgent R1", 7, () => Follow(R1(world), "R1 on the urgent order", 9f));
-                }
-                else if (stage == MuseOrchestrator.UrgentStage.UrgentActive)
-                    Push("urgent run", 7, () => Follow(R1(world), "urgent order executing", 9f));
-                else if (stage == MuseOrchestrator.UrgentStage.Resuming)
-                    Push("resume", 6, () => Wide("orders resumed", 7f));
-                seenStage = stage;
-            }
-            if (decisions > seenDecisions)
-            {
-                seenDecisions = decisions;
-                Push("decision", 5, () => Follow(R1(world), "Muse Wonder decision: R1 leaves for the pallet", 8f));
-            }
-            if (labelled > seenLabels)
-            {
-                seenLabels = labelled;
-                string bench = labels != null && labels.Latest != null ? labels.Latest.Bench : "";
-                Push("label", 4, () => Bench(world, bench, "shipping label on the box", 6f));
-            }
-            if (world != null)
-                foreach (string id in world.TruckIds)
-                {
-                    TruckBay t = world.Truck(id);
-                    if (t == null) continue;
-                    seenLoaded.TryGetValue(t, out int was);
-                    if (t.LoadedCount > was) { TruckBay bay = t; Push("truck", 4, () => Truck(bay, "box loaded into " + id + " (SAM 3.1 checks it)", 6.5f)); }
-                    seenLoaded[t] = t.LoadedCount;
-                }
-            if (cartons > seenCartons)
-            {
-                seenCartons = cartons;
-                Push("carton", 3, () => Trays("carton closed", 5f));
-                Push("R3", 3, () => R3("R3 brings the carton to the pallets", 8f));
-            }
-            seenTaken = taken;
-        }
-
-        private static int AcceptedCount(MuseOrchestrator orch)
-        {
-            int n = 0;
-            IReadOnlyList<RoboFactory.Hackathon.Orchestration.MuseDecisionRecord> h = orch.History;
-            if (h != null) for (int i = 0; i < h.Count; i++) if (h[i] != null && h[i].Accepted && h[i].OrderId > 0) n++;
-            return n;
-        }
-
-        // ------------------------------------------------------------------ what moves
-
-        private void TrackMoves(float dt)
-        {
-            if (dt <= 0f) return;
-            WarehouseWorld w = WarehouseWorld.Instance;
-            Track(R1(w), dt);
-            Track(R2(w), dt);
-            PackingTransport r3 = PackingTransport.Current;
-            Track(r3 != null ? r3.Robot : null, dt);
-        }
-
-        private void Track(Transform t, float dt)
-        {
-            if (t == null) return;
-            if (!moves.TryGetValue(t, out MoveInfo m)) { m = new MoveInfo(); moves[t] = m; }
-            if (!m.Init) { m.Last = t.position; m.Init = true; return; }
-            float v = (t.position - m.Last).magnitude / dt;
-            m.Speed = Mathf.Lerp(m.Speed, Mathf.Min(v, 6f), 1f - Mathf.Exp(-3f * dt));
-            m.Last = t.position;
-        }
-
-        private bool IsMoving(Transform t) { return t != null && moves.TryGetValue(t, out MoveInfo m) && m.Speed > .2f; }
-
-        private static bool ProductAtScan(PackingCell cell)
-        {
-            if (cell == null || cell.Track == null) return false;
-            if (cell.ScansPending > 0) return true;
-            float s0 = cell.Track.Project(cell.ScanPoint);
-            foreach (PackingItem it in FindObjectsByType<PackingItem>(FindObjectsSortMode.None))
-            {
-                if (it == null) continue;
-                float d = Mathf.Abs(cell.Track.Project(it.transform.position) - s0);
-                if (d > cell.Track.Length * .5f) d = cell.Track.Length - d;
-                if (d < 1f) return true;
-            }
-            return false;
-        }
-
-        // ------------------------------------------------------------------ shot library
-
         private static Vector3 Flat(Vector3 v) { v.y = 0f; return v.sqrMagnitude < 1e-4f ? Vector3.back : v.normalized; }
         private static Vector3 Side(Vector3 f) { return Vector3.Cross(Vector3.up, Flat(f)).normalized; }
 
-        private Shot Wide(string why, float duration)
-        {
-            Vector3 centre = WorldCentre(out float radius);
-            Vector3 dir = cam != null ? Flat(-cam.transform.forward) : Vector3.back;
-            return new Shot
-            {
-                Name = "WIDE", Why = why, Look = () => centre, Dir = dir,
-                Dist = Mathf.Clamp(radius * .8f, 8f, 14f), Height = Mathf.Clamp(radius * .55f, 5f, 8f),
-                Fov = 52f, Duration = duration, Priority = 1
-            };
-        }
-
-        /// <summary>Products coming out of the machine at the start of the belt.</summary>
-        private Shot Spawn(float duration)
-        {
-            PackingCell cell = PackingCell.Instance;
-            if (cell == null || cell.Track == null) return null;
-            // the spawn point is inside the machine: look at the belt just after its exit, from downstream
-            Vector3 p = cell.Track.Evaluate(cell.Track.Project(cell.SpawnPoint) + 1.1f, out Vector3 f);
-            Vector3 dir = Flat(f) + Side(f) * .7f;
-            return new Shot
-            {
-                Name = "MACHINE", Why = "products come out of the machine", Look = () => p + Vector3.up * .45f, Dir = dir,
-                Dist = 3.0f, Height = 1.3f, Fov = 46f, Duration = duration, Priority = 2,
-                Ready = () => PackingCell.Instance != null && PackingCell.Instance.Spawned > 0
-            };
-        }
-
-        private Shot Scan(float duration)
+        /// <summary>The belt with the products, around the scan arch, seen from inside the belt loop.</summary>
+        private Shot Belt()
         {
             PackingCell cell = PackingCell.Instance;
             if (cell == null || cell.Track == null) return null;
             Vector3 p = cell.Track.Evaluate(cell.Track.Project(cell.ScanPoint), out Vector3 f);
-            // from the inside of the belt loop (the console and the scan frame are on the outside), a little downstream
-            Vector3 inside = Flat(LoopCentre(cell) - p);
-            Vector3 dir = inside + Flat(f) * .4f;
+            Vector3 dir = Flat(LoopCentre(cell) - p) + Flat(f) * .4f;
             return new Shot
             {
-                Name = "SCAN", Why = "Muse Spark inspects the product", Look = () => p + Vector3.up * .15f, Dir = dir,
-                Dist = 1.6f, Height = .8f, Fov = 40f, Duration = duration, Priority = 2,
-                Ready = () => ProductAtScan(PackingCell.Instance)
+                Name = Titles[0], Look = () => p + Vector3.up * .15f, Dir = dir,
+                Dist = 2.3f, Height = 1.2f, Fov = 44f
             };
         }
 
-        private Shot ArmPick(float duration)
+        private Shot ArmPick()
         {
             PackingCell cell = PackingCell.Instance;
             if (cell == null || cell.Arm == null || cell.TraySlots == null || cell.TraySlots.Length == 0) return null;
@@ -411,91 +209,56 @@ namespace RoboFactory.HUD
             Vector3 along = Flat(pick - trays);
             return new Shot
             {
-                Name = "ARM", Why = "the arm packs on the moving belt", Look = () => mid, Dir = along + Side(along) * .7f,
-                Dist = 3.4f, Height = 1.8f, Fov = 46f, Duration = duration, Priority = 2,
-                Ready = () => PackingCell.Instance != null && PackingCell.Instance.ArmBusy
+                Name = Titles[1], Look = () => mid, Dir = along + Side(along) * .7f,
+                Dist = 3.4f, Height = 1.8f, Fov = 46f, Damping = 1.5f
             };
         }
 
-        /// <summary>Small view from above of the whole packing line.</summary>
-        private Shot TopView(float duration)
+        private Shot Follow(Transform t, string name, float dist, float height)
         {
-            PackingCell cell = PackingCell.Instance;
-            if (cell == null || cell.TraySlots == null || cell.TraySlots.Length == 0) return null;
-            Vector3 trays = TrayCentre(cell);
-            Vector3 c = LoopCentre(cell);
-            Vector3 along = Flat(cell.PickPoint - cell.SpawnPoint);
+            if (t == null) return null;
+            Vector3 dir = -Flat(t.forward) * .6f + Side(t.forward) * .8f;   // behind and to the side, the starting angle
             return new Shot
             {
-                Name = "TOP", Why = "the packing line seen from above", Look = () => c, Dir = along * .3f + Side(along) * .1f + Vector3.back * .05f,
-                Dist = .6f, Height = 8.4f, Fov = 68f, Duration = duration, Priority = 1
+                Name = name == "R3" ? Titles[2] : name == "R1" ? Titles[3] : Titles[5], Subject = t,
+                Look = () => t.position + Vector3.up * .6f, Dir = dir,
+                Dist = dist, Height = height, Fov = 48f, Damping = 2.5f
             };
         }
 
-        private Shot Trays(string why, float duration)
+        /// <summary>Top view of the label bench: the boxes that got their shipping label.</summary>
+        private Shot LabelBench(WarehouseWorld world)
         {
-            PackingCell cell = PackingCell.Instance;
-            if (cell == null || cell.TraySlots == null || cell.TraySlots.Length == 0) return null;
-            Vector3 trays = TrayCentre(cell);
-            Vector3 d = Flat(trays - cell.PickPoint);   // from the R3 side of the trays
+            if (world == null) return null;
+            ShippingLabels labels = ShippingLabels.Instance;
+            string id = labels != null && labels.Latest != null ? labels.Latest.Bench : "";
+            ShelfStorage bench = world.Bench(id);
+            if (bench == null) foreach (string b in world.BenchIds) { bench = world.Bench(b); if (bench != null) break; }
+            if (bench == null) return null;
+            Vector3 p = bench.transform.position;
+            Vector3 d = Flat(WorldCentre(out float _) - p);
             return new Shot
             {
-                Name = "TRAYS", Why = why, Look = () => trays + Vector3.up * .45f, Dir = d + Side(d) * .5f,
-                Dist = 2.8f, Height = 1.5f, Fov = 46f, Duration = duration, Priority = 3
+                Name = Titles[4], Look = () => p + Vector3.up * .6f, Dir = d,
+                Dist = .8f, Height = 5f, Fov = 50f
             };
         }
 
-        private Shot R3(string why, float duration)
+        /// <summary>R2 carrying the boxes into the trailer, seen from behind.</summary>
+        private Shot Truck(WarehouseWorld world)
         {
-            PackingTransport r3 = PackingTransport.Current;
-            if (r3 == null || r3.Robot == null) return null;
-            Shot s = Follow(r3.Robot, why, duration);
-            s.Name = "R3";
-            s.Dist = 3.0f; s.Height = 1.9f;
+            Transform r2 = R2(world);
+            if (r2 == null) return null;
+            Shot s = Follow(r2, "R2", 4.2f, 2.6f);
+            s.Dir = -Flat(r2.forward) + Side(r2.forward) * .25f;
             return s;
         }
 
-        private Shot Follow(Transform t, string why, float duration)
+        private static Vector3 TrayCentre(PackingCell cell)
         {
-            if (t == null) return null;
-            Vector3 dir = -Flat(t.forward) * .6f + Side(t.forward) * .8f;   // behind and to the side, fixed for the shot
-            return new Shot
-            {
-                Name = "FOLLOW " + t.name, Why = why, Subject = t, Moving = true,
-                Look = () => t.position + Vector3.up * .6f, Dir = dir,
-                Dist = 3.8f, Height = 3.5f, Fov = 48f, Duration = duration, Priority = 2, Damping = 2.5f,
-                Ready = () => IsMoving(t)
-            };
-        }
-
-        private Shot Bench(WarehouseWorld world, string benchId, string why, float duration)
-        {
-            if (world == null) return null;
-            ShelfStorage bench = world.Bench(benchId);
-            if (bench == null) foreach (string id in world.BenchIds) { bench = world.Bench(id); if (bench != null) break; }
-            if (bench == null) return null;
-            Vector3 p = bench.transform.position;
-            Vector3 c = WorldCentre(out float _);
-            Vector3 d = Flat(c - p);   // from the middle of the room, looking at the bench
-            return new Shot
-            {
-                Name = "BENCH " + benchId, Why = why, Look = () => p + Vector3.up * .8f, Dir = d + Side(d) * .4f,
-                Dist = 2.8f, Height = 1.4f, Fov = 44f, Duration = duration, Priority = 3
-            };
-        }
-
-        /// <summary>Box going into a truck: R2 seen from behind as it drives into the trailer.</summary>
-        private Shot Truck(TruckBay bay, string why, float duration)
-        {
-            Transform r2 = R2(WarehouseWorld.Instance);
-            if (r2 == null) return null;
-            Vector3 dir = -Flat(r2.forward) + Side(r2.forward) * .25f;
-            return new Shot
-            {
-                Name = "TRUCK " + (bay != null ? bay.name : ""), Why = why, Subject = r2, Moving = true,
-                Look = () => r2.position + Vector3.up * .6f, Dir = dir,
-                Dist = 4.2f, Height = 2.6f, Fov = 50f, Duration = duration, Priority = 3, Damping = 2.5f
-            };
+            Vector3 c = Vector3.zero;
+            foreach (Vector3 t in cell.TraySlots) c += t;
+            return c / cell.TraySlots.Length;
         }
 
         private static Vector3 LoopCentre(PackingCell cell)
@@ -509,13 +272,6 @@ namespace RoboFactory.HUD
             else c = (cell.SpawnPoint + cell.PickPoint) * .5f;
             c.y = 0f;
             return c;
-        }
-
-        private static Vector3 TrayCentre(PackingCell cell)
-        {
-            Vector3 c = Vector3.zero;
-            foreach (Vector3 t in cell.TraySlots) c += t;
-            return c / cell.TraySlots.Length;
         }
 
         private static Vector3 WorldCentre(out float radius)
@@ -551,7 +307,7 @@ namespace RoboFactory.HUD
             return c.bounds.size.magnitude >= 1f;
         }
 
-        /// <summary>True when something big is between a and b (the last endMargin metres before b do not count: the table or belt under the subject).</summary>
+        /// <summary>True when something big is between a and b (the last endMargin metres before b do not count).</summary>
         private static bool Hidden(Vector3 a, Vector3 b, Transform subject, float endMargin)
         {
             Vector3 d = b - a;
@@ -570,10 +326,10 @@ namespace RoboFactory.HUD
             return false;
         }
 
-        /// <summary>Best camera offset for the shot: close to the wanted direction, clear view of the subject, not inside anything.</summary>
-        private void Solve(Shot s, Vector3 lookAt, Vector3? keepNear)
+        /// <summary>Best starting offset: close to the wanted direction, clear view of the subject, not inside anything.</summary>
+        private static void Solve(Shot s, Vector3 lookAt)
         {
-            float baseYaw = Mathf.Atan2(-s.Dir.x, -s.Dir.z) * Mathf.Rad2Deg;
+            float yaw0 = Mathf.Atan2(-s.Dir.x, -s.Dir.z) * Mathf.Rad2Deg;
             float[] yawD = { 0f, 25f, -25f, 50f, -50f, 80f, -80f, 110f, -110f, 140f, -140f, 180f };
             float[] hM = { 1f, 1.5f, .7f, 2f };
             float[] dM = { 1f, .75f, 1.3f, .55f };
@@ -586,12 +342,11 @@ namespace RoboFactory.HUD
                     {
                         float cost = Mathf.Abs(yawD[yi]) * .02f + Mathf.Abs(hM[hi] - 1f) * 1.2f + Mathf.Abs(dM[di] - 1f) * 1.2f;
                         if (cost >= bestCost) continue;
-                        Vector3 off = Quaternion.Euler(0f, baseYaw + yawD[yi], 0f) * Vector3.back * (s.Dist * dM[di]) + Vector3.up * (s.Height * hM[hi]);
+                        Vector3 off = Quaternion.Euler(0f, yaw0 + yawD[yi], 0f) * Vector3.back * (s.Dist * dM[di]) + Vector3.up * (s.Height * hM[hi]);
                         Vector3 pos = lookAt + off;
                         if (pos.y > roof) pos.y = roof;
                         if (pos.y < .4f) pos.y = .4f;
                         off = pos - lookAt;
-                        if (keepNear.HasValue) cost += Vector3.Angle(Flat(off), Flat(keepNear.Value)) * .012f;
                         if (Inside(pos, s.Subject)) cost += 60f;
                         if (cost >= bestCost) continue;
                         int blocked = 0;
@@ -610,51 +365,38 @@ namespace RoboFactory.HUD
             return at.y + 9f;
         }
 
-        private void Cut(Shot s, string kind)
+        private void Cut(Shot s, int number)
         {
-            if (s == null) return;
             fromPos = cam.transform.position;
             fromRot = cam.transform.rotation;
             fromFov = cam.fieldOfView;
             shot = s;
-            shotTime = 0f; idleT = 0f; recheck = 0f; capturedThisShot = false; readyNow = true; tick = .25f;
+            index = number;
             look = s.Look();
-            Solve(s, look, null);
-            offsetNow = s.Offset;
-            Vector3 target = look + offsetNow;
-            // blend, unless the straight path would cross a wall or is very long: then a clean cut
-            bool crosses = Hidden(fromPos, target, null, 0f) || (fromPos - target).magnitude > 16f;
+            ceiling = Ceiling(look);
+            Solve(s, look);
+            Vector3 o = s.Offset;
+            baseYaw = Mathf.Atan2(o.x, o.z);
+            basePitch = Mathf.Atan2(o.y, new Vector2(o.x, o.z).magnitude);
+            radius = o.magnitude;
+            yawT = yawC = baseYaw; pitchT = pitchC = basePitch; scaleT = scaleC = 1f;
+            Vector3 target = look + o;
+            bool crosses = Hidden(fromPos, target, null, 0f) || (fromPos - target).magnitude > 16f;   // clean cut through walls / far away
             blendT = crosses ? 1f : 0f;
-            shotIndex++;
-            Log(s.Name + (s.Why.Length > 0 ? " — " + s.Why : "") + "  [" + kind + (crosses ? ", cut" : ", blend") + "]  " +
-                "cam " + V(target) + " look " + V(look) + " cost " + s.Cost.ToString("F1", CultureInfo.InvariantCulture) + (s.Blocked > 0 ? " HIDDEN" : ""));
+            labelUntil = Time.unscaledTime + 2.6f;
+            Log((number + 1) + "/" + ShotCount + "  " + s.Name + "  [" + (crosses ? "cut" : "blend") + "]  cam " + V(target) + " look " + V(look) +
+                " cost " + s.Cost.ToString("F1", CultureInfo.InvariantCulture) + (s.Blocked > 0 ? " HIDDEN" : ""));
         }
 
         private void ApplyPose(float dt)
         {
             Vector3 want = shot.Look();
-            look = shotTime < dt * 1.5f ? want : Vector3.Lerp(look, want, 1f - Mathf.Exp(-shot.Damping * dt));
-            if (shot.Moving)
-            {
-                // fixed offset; only changes angle (smoothly) when something gets in front of the lens
-                recheck -= dt;
-                if (recheck <= 0f)
-                {
-                    recheck = .5f;
-                    if (Hidden(look + offsetNow, look + Vector3.up * .2f, shot.Subject, .5f) || Inside(look + offsetNow, shot.Subject))
-                    {
-                        ceiling = Ceiling(look);
-                        Shot probe = new Shot { Dir = shot.Dir, Dist = shot.Dist, Height = shot.Height, Subject = shot.Subject };
-                        Solve(probe, look, offsetNow);
-                        shot.Offset = probe.Offset; shot.Cost = probe.Cost; shot.Blocked = probe.Blocked;
-                    }
-                }
-                offsetNow = Vector3.Lerp(offsetNow, shot.Offset, 1f - Mathf.Exp(-2.5f * dt));
-            }
-            else offsetNow = shot.Offset;
-
-            Vector3 pos = look + offsetNow;
-            if (pos.y < .4f) pos.y = .4f;
+            look = Vector3.Lerp(look, want, 1f - Mathf.Exp(-shot.Damping * dt));
+            float k = 1f - Mathf.Exp(-9f * dt);
+            yawC = Mathf.Lerp(yawC, yawT, k); pitchC = Mathf.Lerp(pitchC, pitchT, k); scaleC = Mathf.Lerp(scaleC, scaleT, k);
+            float r = radius * scaleC;
+            Vector3 pos = look + new Vector3(Mathf.Sin(yawC) * Mathf.Cos(pitchC), Mathf.Sin(pitchC), Mathf.Cos(yawC) * Mathf.Cos(pitchC)) * r;
+            pos.y = Mathf.Clamp(pos.y, .35f, ceiling - .5f);
             Quaternion rot = Quaternion.LookRotation(look - pos, Vector3.up);
             float fov = shot.Fov;
             if (blendT < 1f)
@@ -667,55 +409,48 @@ namespace RoboFactory.HUD
             }
             cam.transform.SetPositionAndRotation(pos, rot);
             cam.fieldOfView = fov;
+        }
 
-            if (CaptureRunShots && !lab && !capturedThisShot && runShotsDir != null && shotTime >= Mathf.Min(shot.Duration * .55f, 4f) && blendT >= 1f)
-            {
-                capturedThisShot = true;
-                try { ScreenCapture.CaptureScreenshot(Path.Combine(runShotsDir, shotIndex.ToString("00") + "_" + Safe(shot.Name) + ".png")); }
-                catch (Exception) { }
-            }
+        private static float Ease(float x) => x * x * x * (x * (6f * x - 15f) + 10f);   // smootherstep
+
+        private void OnGUI()
+        {
+            if (!Enabled || !controlling || lab || index < 0 || Time.unscaledTime > labelUntil) return;
+            if (labelStyle == null) labelStyle = new GUIStyle(GUI.skin.label) { fontSize = 16, fontStyle = FontStyle.Bold, normal = { textColor = Color.white } };
+            float a = Mathf.Clamp01((labelUntil - Time.unscaledTime) / .6f);
+            var old = GUI.color;
+            GUI.color = new Color(1f, 1f, 1f, a);
+            GUI.Label(new Rect(16, 14, 900, 28), (index + 1) + "/" + ShotCount + "   " + Titles[index] + "      ← → shot   drag = orbit   wheel = zoom   ↑ reset   F6 = off", labelStyle);
+            GUI.color = old;
         }
 
         // ------------------------------------------------------------------ shot lab (F7)
 
-        /// <summary>Goes through every shot type once, with its placement, and saves a picture of each (logs/shots/...).</summary>
+        /// <summary>Saves a picture of the starting angle of each of the six shots (logs/shots/...).</summary>
         private IEnumerator ShotLab()
         {
             lab = true;
-            if (!Enabled) { Enabled = true; }
+            Enabled = true;
             while (!controlling) yield return null;
             string dir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "logs", "shots", DateTime.Now.ToString("yyyyMMdd_HHmmss"));
             Directory.CreateDirectory(dir);
             var report = new StringBuilder();
-            WarehouseWorld world = WarehouseWorld.Instance;
-            string bench = ""; if (world != null) foreach (string id in world.BenchIds) { bench = id; break; }
-            TruckBay truck = null; if (world != null) foreach (string id in world.TruckIds) { truck = world.Truck(id); if (truck != null) break; }
-            var list = new List<Func<Shot>>
+            for (int i = 0; i < ShotCount; i++)
             {
-                () => Wide("lab", 5f), () => Spawn(5f), () => Scan(5f), () => ArmPick(5f), () => TopView(5f), () => Trays("lab", 5f),
-                () => R3("lab", 5f), () => Follow(R1(world), "lab", 5f), () => Follow(R2(world), "lab", 5f),
-                () => Bench(world, bench, "lab", 5f), () => Truck(truck, "lab", 5f),
-            };
-            int n = 0;
-            foreach (Func<Shot> make in list)
-            {
-                Shot s = make();
-                n++;
-                if (s == null) { report.AppendLine(n.ToString("00") + "  (not available in this scene)"); continue; }
-                bool ready = s.Ready == null || s.Ready();
-                Cut(s, "lab");
+                Shot s = Make(i);
+                if (s == null) { report.AppendLine((i + 1).ToString("00") + "  " + Titles[i] + "  (not available in this scene)"); continue; }
+                Cut(s, i);
                 blendT = 1f;
-                for (int i = 0; i < 4; i++) { shotTime += Time.deltaTime; yield return null; }
+                for (int f = 0; f < 6; f++) yield return null;
                 yield return new WaitForEndOfFrame();
-                string file = n.ToString("00") + "_" + Safe(s.Name) + ".png";
-                SavePicture(Path.Combine(dir, file));
-                report.AppendLine(n.ToString("00") + "  " + s.Name + "  cam " + V(cam.transform.position) + "  look " + V(look) + "  fov " + s.Fov.ToString("F0", CultureInfo.InvariantCulture) +
-                                  "  cost " + s.Cost.ToString("F1", CultureInfo.InvariantCulture) + (s.Blocked > 0 ? "  HIDDEN(" + s.Blocked + "/3)" : "  clear") + (ready ? "" : "  (action not happening now)"));
+                SavePicture(Path.Combine(dir, (i + 1).ToString("00") + "_" + Safe(Titles[i]) + ".png"));
+                report.AppendLine((i + 1).ToString("00") + "  " + Titles[i] + "  cam " + V(cam.transform.position) + "  look " + V(look) + "  fov " + s.Fov.ToString("F0", CultureInfo.InvariantCulture) +
+                                  "  cost " + s.Cost.ToString("F1", CultureInfo.InvariantCulture) + (s.Blocked > 0 ? "  HIDDEN(" + s.Blocked + "/3)" : "  clear"));
             }
             File.WriteAllText(Path.Combine(dir, "lab.txt"), report.ToString());
             Debug.Log("[DIRECTOR] shot lab done: " + dir + "\n" + report);
             lab = false;
-            shot = null;
+            Switch(0, 1);
         }
 
         private void SavePicture(string path)
@@ -770,12 +505,8 @@ namespace RoboFactory.HUD
                 }
             controlling = true;
             shot = null;
-            queue.Clear();
-            script.Clear();
-            moves.Clear();
-            introQueued = outroQueued = false;
-            countersReady = false;
-            shotIndex = 0;
+            index = -1;
+            dragging = false; wasHeld = HudInput.MouseHeld();
             OpenLog();
             return true;
         }
@@ -804,16 +535,12 @@ namespace RoboFactory.HUD
             CloseLog();
             try
             {
-                string root = Directory.GetParent(Application.dataPath).FullName;
-                string dir = Path.Combine(root, "logs");
+                string dir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "logs");
                 Directory.CreateDirectory(dir);
-                string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                log = new StreamWriter(Path.Combine(dir, "director_" + stamp + ".log")) { AutoFlush = true };
-                log.WriteLine("# RoboFactory — DIRECTOR camera, one line per shot: real time | time since the director started | scenario time | shot");
-                runShotsDir = Path.Combine(dir, "director_" + stamp + "_shots");
-                if (CaptureRunShots) Directory.CreateDirectory(runShotsDir);
+                log = new StreamWriter(Path.Combine(dir, "director_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".log")) { AutoFlush = true };
+                log.WriteLine("# RoboFactory — shot mode, one line per change of shot: real time | time since F6 | scenario time | shot");
             }
-            catch (Exception e) { log = null; runShotsDir = null; Debug.LogWarning("[DIRECTOR] no chapter log: " + e.Message); }
+            catch (Exception e) { log = null; Debug.LogWarning("[DIRECTOR] no chapter log: " + e.Message); }
             logStart = Time.realtimeSinceStartup;
         }
 

@@ -125,6 +125,7 @@ namespace RoboFactory.Packing
             spawnS = Track.Project(SpawnPoint);
             scanS = Track.Project(ScanPoint);
             pickS = Track.Project(PickPoint);
+            BeltFlow.Apply(Track, Speed);   // the belt texture runs along the products (full project)
             itemsRoot = new GameObject("Products").transform;
             itemsRoot.SetParent(transform, false);
             binRoot = new GameObject("Reject bin content").transform;

@@ -38,6 +38,17 @@ namespace RoboFactory.Logistics
             }
         }
 
+        /// <summary>For a robot built at run time (R3, a copy of R1 whose controller was removed): its tracks follow its movement.</summary>
+        public static void Install(GameObject root)
+        {
+            foreach (DualProceduralTracksFromWheels tracks in root.GetComponentsInChildren<DualProceduralTracksFromWheels>(true))
+            {
+                if (tracks == null || tracks.GetComponent<TrackMotionAnimator>() != null) continue;
+                var animator = tracks.gameObject.AddComponent<TrackMotionAnimator>();
+                animator.Tracks = tracks;
+            }
+        }
+
         private void OnEnable() { primed = false; }
 
         private void LateUpdate()
