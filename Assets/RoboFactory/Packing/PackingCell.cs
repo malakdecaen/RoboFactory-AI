@@ -726,15 +726,30 @@ namespace RoboFactory.Packing
             root.position = beltPoint;
             root.rotation = Quaternion.LookRotation(forward, Vector3.up);
             Color frame = new Color(.18f, .2f, .23f), accent = new Color(.15f, .75f, .95f);
-            // wide enough for the whole belt and tall enough for the products to pass well below the beam
-            float half = .68f, top = Mathf.Max(1.1f, height + .55f), post = .08f;
+            // as wide as the belt (measured on the belt modules when there are some), not taller than the camera head
+            float half = BeltHalfWidth(beltPoint, forward) + .15f, top = height + .12f, post = .06f;
             float postY = top / 2f - beltPoint.y / 2f, postH = top + beltPoint.y;
             Box(root, new Vector3(-half, postY, 0f), new Vector3(post, postH, post), frame);
             Box(root, new Vector3(half, postY, 0f), new Vector3(post, postH, post), frame);
-            Box(root, new Vector3(0f, top, 0f), new Vector3(2f * half + post, .1f, .13f), frame);
-            Box(root, new Vector3(0f, (top + height) / 2f, 0f), new Vector3(.05f, top - height, .05f), frame);          // bracket of the camera head
-            Box(root, new Vector3(0f, height + .03f, 0f), new Vector3(.14f, .09f, .14f), new Color(.08f, .08f, .09f)); // camera head
-            Box(root, new Vector3(0f, top - .07f, .07f), new Vector3(2f * half - .12f, .02f, .02f), accent, .9f);      // light bar
+            Box(root, new Vector3(0f, top, 0f), new Vector3(2f * half + post, .06f, .08f), frame);
+            Box(root, new Vector3(0f, height + .03f, 0f), new Vector3(.1f, .06f, .1f), new Color(.08f, .08f, .09f));
+            Box(root, new Vector3(0f, top - .035f, .05f), new Vector3(2f * half - .1f, .012f, .012f), accent, .9f);
+        }
+
+        /// <summary>Half width of the belt at that point: the belt module of the factory scene (shader Line_Belt) under it, else .3 m.</summary>
+        private static float BeltHalfWidth(Vector3 at, Vector3 forward)
+        {
+            Vector3 side = Vector3.Cross(Vector3.up, forward).normalized;
+            float best = 0f;
+            foreach (Renderer r in UnityEngine.Object.FindObjectsByType<Renderer>(FindObjectsSortMode.None))
+            {
+                Material m = r.sharedMaterial;
+                if (m == null || m.shader == null || !m.shader.name.Contains("Line_Belt")) continue;
+                Bounds b = r.bounds;
+                if (!b.Contains(new Vector3(at.x, b.center.y, at.z))) continue;
+                best = Mathf.Max(best, Mathf.Abs(side.x) * b.extents.x + Mathf.Abs(side.z) * b.extents.z);
+            }
+            return best > .1f ? best : .3f;
         }
 
         private static void Box(Transform parent, Vector3 local, Vector3 size, Color color, float smooth = .4f)

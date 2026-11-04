@@ -56,12 +56,27 @@ namespace RoboFactory.Packing
                     f.Normalize();
 
                     Mesh mesh = mf.sharedMesh;
-                    string key = mesh.name + "|" + m;
+                    // key: the module itself (name + place), because static batching merges the meshes of the scene
+                    Vector3 wp = r.transform.position;
+                    string key = r.name + "|" + m + "|" + wp.x.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + "," + wp.z.ToString("F2", System.Globalization.CultureInfo.InvariantCulture);
                     Vector3 tLocal;
                     Entry e = cache.items.Find(x => x.key == key);
                     if (e != null) tLocal = e.t;
-                    else if (!TryDerivative(mesh, m, out tLocal)) { Skip("mesh data not readable", r, mesh); continue; }
-                    else { cache.items.Add(new Entry { key = key, t = tLocal }); changed = true; }
+                    else
+                    {
+                        Mesh source = mesh.isReadable ? mesh : null;
+#if UNITY_EDITOR
+                        if (source == null)
+                        {
+                            // the scene's mesh is a merged copy: the original mesh is the one of the model the module comes from
+                            GameObject origin = UnityEditor.PrefabUtility.GetCorrespondingObjectFromOriginalSource(r.gameObject);
+                            MeshFilter omf = origin != null ? origin.GetComponent<MeshFilter>() : null;
+                            if (omf != null && omf.sharedMesh != null && omf.sharedMesh.isReadable) source = omf.sharedMesh;
+                        }
+#endif
+                        if (source == null || !TryDerivative(source, m, out tLocal)) { Skip(source == null ? "no readable mesh (merged by static batching, no original found)" : "mesh has no usable UV", r, mesh); continue; }
+                        cache.items.Add(new Entry { key = key, t = tLocal }); changed = true;
+                    }
 
                     Vector4 tiling = mat.HasProperty("_Albedo_Tiling") ? mat.GetVector("_Albedo_Tiling") : new Vector4(1f, 1f, 0f, 0f);
                     float tileU = Mathf.Abs(tiling.x) > 1e-4f ? tiling.x : 1f;
@@ -88,7 +103,7 @@ namespace RoboFactory.Packing
         private static bool TryDerivative(Mesh mesh, int sub, out Vector3 t)
         {
             t = Vector3.zero;
-            if (!mesh.isReadable && !Application.isEditor) return false;
+            if (!mesh.isReadable) return false;
             Vector3[] v; Vector2[] uv; int[] tri;
             try
             {
