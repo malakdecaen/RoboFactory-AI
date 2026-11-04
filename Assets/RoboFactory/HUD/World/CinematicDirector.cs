@@ -374,12 +374,13 @@ namespace RoboFactory.HUD
         {
             PackingCell cell = PackingCell.Instance;
             if (cell == null || cell.Track == null) return null;
-            Vector3 p = cell.Track.Evaluate(cell.Track.Project(cell.SpawnPoint), out Vector3 f);
-            Vector3 dir = Flat(f) + Side(f) * .8f;   // downstream of the machine, a little to the side
+            // the spawn point is inside the machine: look at the belt just after its exit, from downstream
+            Vector3 p = cell.Track.Evaluate(cell.Track.Project(cell.SpawnPoint) + 1.1f, out Vector3 f);
+            Vector3 dir = Flat(f) + Side(f) * .7f;
             return new Shot
             {
-                Name = "MACHINE", Why = "products come out of the machine", Look = () => p + Vector3.up * .35f, Dir = dir,
-                Dist = 2.6f, Height = 1.2f, Fov = 46f, Duration = duration, Priority = 2,
+                Name = "MACHINE", Why = "products come out of the machine", Look = () => p + Vector3.up * .45f, Dir = dir,
+                Dist = 3.0f, Height = 1.3f, Fov = 46f, Duration = duration, Priority = 2,
                 Ready = () => PackingCell.Instance != null && PackingCell.Instance.Spawned > 0
             };
         }
@@ -392,8 +393,8 @@ namespace RoboFactory.HUD
             Vector3 dir = Side(f) - Flat(f) * .5f;
             return new Shot
             {
-                Name = "SCAN", Why = "Muse Spark inspects the product", Look = () => p + Vector3.up * .2f, Dir = dir,
-                Dist = 1.7f, Height = .8f, Fov = 42f, Duration = duration, Priority = 2,
+                Name = "SCAN", Why = "Muse Spark inspects the product", Look = () => p + Vector3.up * .15f, Dir = dir,
+                Dist = 1.25f, Height = .6f, Fov = 38f, Duration = duration, Priority = 2,
                 Ready = () => ProductAtScan(PackingCell.Instance)
             };
         }
@@ -421,11 +422,18 @@ namespace RoboFactory.HUD
             if (cell == null || cell.TraySlots == null || cell.TraySlots.Length == 0) return null;
             Vector3 trays = TrayCentre(cell);
             Vector3 c = (cell.SpawnPoint + cell.PickPoint + trays) / 3f;
+            if (cell.Corners != null && cell.Corners.Length > 2)
+            {
+                c = Vector3.zero;
+                foreach (Vector3 k in cell.Corners) c += k;
+                c /= cell.Corners.Length;
+            }
+            c.y = 0f;
             Vector3 along = Flat(cell.PickPoint - cell.SpawnPoint);
             return new Shot
             {
                 Name = "TOP", Why = "the packing line seen from above", Look = () => c, Dir = along * .3f + Side(along) * .1f + Vector3.back * .05f,
-                Dist = .8f, Height = 6f, Fov = 55f, Duration = duration, Priority = 1
+                Dist = .6f, Height = 8.4f, Fov = 62f, Duration = duration, Priority = 1
             };
         }
 
@@ -448,7 +456,7 @@ namespace RoboFactory.HUD
             if (r3 == null || r3.Robot == null) return null;
             Shot s = Follow(r3.Robot, why, duration);
             s.Name = "R3";
-            s.Dist = 3.4f; s.Height = 1.8f;
+            s.Dist = 3.0f; s.Height = 1.9f;
             return s;
         }
 
@@ -460,7 +468,7 @@ namespace RoboFactory.HUD
             {
                 Name = "FOLLOW " + t.name, Why = why, Subject = t, Moving = true,
                 Look = () => t.position + Vector3.up * .6f, Dir = dir,
-                Dist = 4f, Height = 2.2f, Fov = 48f, Duration = duration, Priority = 2, Damping = 2.5f,
+                Dist = 3.8f, Height = 3.5f, Fov = 48f, Duration = duration, Priority = 2, Damping = 2.5f,
                 Ready = () => IsMoving(t)
             };
         }
@@ -481,17 +489,17 @@ namespace RoboFactory.HUD
             };
         }
 
+        /// <summary>Box going into a truck: R2 seen from behind as it drives into the trailer.</summary>
         private Shot Truck(TruckBay bay, string why, float duration)
         {
-            if (bay == null) return null;
-            Vector3 dock = bay.DockPoint != null ? bay.DockPoint.position : bay.transform.position;
-            Vector3 into = bay.transform.position - dock; into.y = 0f;
-            if (into.sqrMagnitude < .01f) into = bay.transform.forward;
-            Vector3 d = -Flat(into) + Side(into) * .4f;   // from the dock side, looking into the trailer
+            Transform r2 = R2(WarehouseWorld.Instance);
+            if (r2 == null) return null;
+            Vector3 dir = -Flat(r2.forward) + Side(r2.forward) * .25f;
             return new Shot
             {
-                Name = "TRUCK " + bay.name, Why = why, Look = () => dock + Flat(into) * 1.2f + Vector3.up * 1f, Dir = d,
-                Dist = 3.6f, Height = 1.4f, Fov = 48f, Duration = duration, Priority = 3
+                Name = "TRUCK " + (bay != null ? bay.name : ""), Why = why, Subject = r2, Moving = true,
+                Look = () => r2.position + Vector3.up * .6f, Dir = dir,
+                Dist = 4.2f, Height = 2.6f, Fov = 50f, Duration = duration, Priority = 3, Damping = 2.5f
             };
         }
 
