@@ -34,7 +34,9 @@ namespace RoboFactory.Packing
         {
             Cache cache = LoadCache();
             bool changed = false;
-            int modules = 0, reversed = 0, skipped = 0;
+            int modules = 0, reversed = 0, skipped = 0, shown = 0;
+            var why = new Dictionary<string, int>();
+            void Skip(string reason, Renderer rr, Mesh mm) { skipped++; why.TryGetValue(reason, out int n); why[reason] = n + 1; if (shown++ < 3) Debug.Log("[PACK] belt flow: skipped " + rr.name + " (mesh " + (mm != null ? mm.name + ", readable " + mm.isReadable : "-") + "): " + reason); }
             var block = new MaterialPropertyBlock();
             foreach (Renderer r in UnityEngine.Object.FindObjectsByType<Renderer>(FindObjectsSortMode.None))
             {
@@ -58,7 +60,7 @@ namespace RoboFactory.Packing
                     Vector3 tLocal;
                     Entry e = cache.items.Find(x => x.key == key);
                     if (e != null) tLocal = e.t;
-                    else if (!TryDerivative(mesh, m, out tLocal)) { skipped++; continue; }
+                    else if (!TryDerivative(mesh, m, out tLocal)) { Skip("mesh data not readable", r, mesh); continue; }
                     else { cache.items.Add(new Entry { key = key, t = tLocal }); changed = true; }
 
                     Vector4 tiling = mat.HasProperty("_Albedo_Tiling") ? mat.GetVector("_Albedo_Tiling") : new Vector4(1f, 1f, 0f, 0f);
@@ -67,9 +69,9 @@ namespace RoboFactory.Packing
                     Vector3 flow = -r.transform.TransformVector(tLocal) / tileU;
                     flow.y = 0f;
                     float len2 = flow.sqrMagnitude;
-                    if (len2 < 1e-6f) { skipped++; continue; }
+                    if (len2 < 1e-6f) { Skip("texture does not run along the ground", r, mesh); continue; }
                     float s = speed * Vector3.Dot(flow, f) / len2;
-                    if (Mathf.Abs(s) < 1e-3f) { skipped++; continue; }
+                    if (Mathf.Abs(s) < 1e-3f) { Skip("belt axis across the texture direction", r, mesh); continue; }
                     r.GetPropertyBlock(block, m);
                     block.SetFloat(SpeedId, s);
                     r.SetPropertyBlock(block, m);

@@ -123,7 +123,10 @@ namespace RoboFactory.HUD
             }
 
             PackingItem it = cell.LastScanned;
-            bool has = it != null && (it.Scanned || it.ScanFailed) && !string.IsNullOrEmpty(it.Verdict);
+            // the photo just taken is shown at once under "ANALYSING" (the answer comes seconds later, the product has moved on)
+            PackingItem fresh = cell.LastCaptured;
+            bool showFresh = fresh != null && fresh.ScanImage != null && !fresh.Scanned && !fresh.ScanFailed && Time.time - cell.CapturedAt < 4f;
+            bool has = !showFresh && it != null && (it.Scanned || it.ScanFailed) && !string.IsNullOrEmpty(it.Verdict);
             if (has && (it.Serial != shownSerial || it.Laps != shownLap))
             {
                 shownSerial = it.Serial;
@@ -132,7 +135,7 @@ namespace RoboFactory.HUD
             }
             flash = Mathf.MoveTowards(flash, 0f, dt * 1.5f);
 
-            Texture tex = has ? it.ScanImage : null;
+            Texture tex = showFresh ? fresh.ScanImage : has ? it.ScanImage : null;
             if (picture.texture != tex) picture.texture = tex;
             HudFactory.SetColor(picture, tex != null ? Color.white : new Color(.05f, .08f, .12f, 1f));
             if (waiting.gameObject.activeSelf != (tex == null)) waiting.gameObject.SetActive(tex == null);

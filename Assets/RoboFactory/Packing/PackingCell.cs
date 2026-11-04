@@ -96,6 +96,8 @@ namespace RoboFactory.Packing
         /// <summary>Products photographed whose answer has not arrived yet.</summary>
         public int ScansPending { get; private set; }
         public PackingItem LastCaptured { get; private set; }
+        /// <summary>Time.time of the last scan picture (the HUD shows it at once, before the answer).</summary>
+        public float CapturedAt { get; private set; }
         public Texture LastScanImage => scanTarget;
         public int Spawned, Scans, ScanFailures, Taken, Rejected, Recycled, CartonsClosed;
         public int ScanCorrect, ScanWrong;   // checked afterwards against the simulation (logs only)
@@ -292,6 +294,7 @@ namespace RoboFactory.Packing
             if (item.ScanImage != null) Destroy(item.ScanImage);
             item.ScanImage = picture;
             LastCaptured = item;
+            CapturedAt = Time.time;
             if (png == null) { item.Scanning = false; item.ScanFailed = true; ScanFailures++; Decide(item); yield break; }
             InspectResponse res = null;
             ScansPending++;
@@ -723,12 +726,15 @@ namespace RoboFactory.Packing
             root.position = beltPoint;
             root.rotation = Quaternion.LookRotation(forward, Vector3.up);
             Color frame = new Color(.18f, .2f, .23f), accent = new Color(.15f, .75f, .95f);
-            float half = .42f, top = height + .12f;
-            Box(root, new Vector3(-half, top / 2f - beltPoint.y * 0f, 0f) + Vector3.down * beltPoint.y / 2f, new Vector3(.05f, top + beltPoint.y, .05f), frame);
-            Box(root, new Vector3(half, top / 2f, 0f) + Vector3.down * beltPoint.y / 2f, new Vector3(.05f, top + beltPoint.y, .05f), frame);
-            Box(root, new Vector3(0f, top, 0f), new Vector3(2f * half + .05f, .06f, .08f), frame);
-            Box(root, new Vector3(0f, height + .03f, 0f), new Vector3(.1f, .06f, .1f), new Color(.08f, .08f, .09f));
-            Box(root, new Vector3(0f, top - .035f, .05f), new Vector3(2f * half - .1f, .012f, .012f), accent, .9f);
+            // wide enough for the whole belt and tall enough for the products to pass well below the beam
+            float half = .68f, top = Mathf.Max(1.1f, height + .55f), post = .08f;
+            float postY = top / 2f - beltPoint.y / 2f, postH = top + beltPoint.y;
+            Box(root, new Vector3(-half, postY, 0f), new Vector3(post, postH, post), frame);
+            Box(root, new Vector3(half, postY, 0f), new Vector3(post, postH, post), frame);
+            Box(root, new Vector3(0f, top, 0f), new Vector3(2f * half + post, .1f, .13f), frame);
+            Box(root, new Vector3(0f, (top + height) / 2f, 0f), new Vector3(.05f, top - height, .05f), frame);          // bracket of the camera head
+            Box(root, new Vector3(0f, height + .03f, 0f), new Vector3(.14f, .09f, .14f), new Color(.08f, .08f, .09f)); // camera head
+            Box(root, new Vector3(0f, top - .07f, .07f), new Vector3(2f * half - .12f, .02f, .02f), accent, .9f);      // light bar
         }
 
         private static void Box(Transform parent, Vector3 local, Vector3 size, Color color, float smooth = .4f)
