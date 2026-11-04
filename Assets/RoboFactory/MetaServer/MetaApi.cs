@@ -103,6 +103,18 @@ namespace RoboFactory.MetaServer
 
         private static readonly HttpClient http = CreateClient();
 
+        private static CancellationTokenSource stopAll = new CancellationTokenSource();
+
+        /// <summary>
+        /// Cancels every Meta call in flight (Play stopped, scripts reloading, game closing): the worker threads finish
+        /// at once instead of waiting up to 45 s for an answer while Unity reloads its scripts.
+        /// </summary>
+        public static void CancelAll()
+        {
+            CancellationTokenSource old = Interlocked.Exchange(ref stopAll, new CancellationTokenSource());
+            try { old.Cancel(); } catch (Exception) { }
+        }
+
         private static HttpClient CreateClient()
         {
             try { ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12; } catch (Exception) { }
@@ -120,12 +132,13 @@ namespace RoboFactory.MetaServer
         private static Result HttpJson(string url, JObject payload, string key, double timeoutS, bool stream, out bool httpError)
         {
             httpError = false;
-            using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutS)))
+            using (var cts = CancellationTokenSource.CreateLinkedTokenSource(stopAll.Token))
             using (var req = new HttpRequestMessage(HttpMethod.Post, url))
             {
                 req.Headers.TryAddWithoutValidation("Authorization", "Bearer " + key);
                 if (stream) req.Headers.TryAddWithoutValidation("Accept", "text/event-stream");
                 req.Content = new StringContent(Py.Dumps(payload), Encoding.UTF8, "application/json");
+                cts.CancelAfter(TimeSpan.FromSeconds(timeoutS));
                 using (HttpResponseMessage resp = http.SendAsync(req, HttpCompletionOption.ResponseContentRead, cts.Token).GetAwaiter().GetResult())
                 {
                     byte[] bytes = resp.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult();

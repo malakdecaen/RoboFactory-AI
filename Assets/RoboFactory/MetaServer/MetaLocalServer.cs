@@ -67,6 +67,7 @@ namespace RoboFactory.MetaServer
         {
             if (!Running) return;
             Running = false;
+            MetaApi.CancelAll();   // the requests in flight end now (no thread left waiting on Meta during a reload)
             try { listener?.Stop(); } catch (Exception) { }
             try { listener?.Close(); } catch (Exception) { }
             listener = null;
@@ -207,8 +208,13 @@ namespace RoboFactory.MetaServer
                     default: SendJson(ctx, 404, new JObject { ["ok"] = false, ["error"] = "not found" }); break;
                 }
             }
+            catch (ThreadAbortException)
+            {
+                // Unity is reloading its scripts: no log (Unity's log is not usable from a thread being aborted)
+            }
             catch (Exception e)
             {
+                if (!Running) return;   // server stopped (Play ended): nothing to report, nobody waits for the answer
                 Logger?.Invoke("internal error: " + e.GetType().Name + " " + e.Message);
                 SendJson(ctx, 500, new JObject { ["ok"] = false, ["error"] = "internal error: " + e.Message });
             }

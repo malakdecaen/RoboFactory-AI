@@ -41,6 +41,23 @@ namespace RoboFactory.MetaServer
         /// <summary>Key entered by the user: kept in memory for this session, never written to disk.</summary>
         public static void SetApiKey(string key) { MetaApi.SetSessionKey(key); }
 
+#if UNITY_EDITOR
+        [UnityEditor.InitializeOnLoadMethod]
+        private static void HookReload()
+        {
+            // stop the server and its calls BEFORE Unity reloads the scripts (Play / script changes)
+            UnityEditor.AssemblyReloadEvents.beforeAssemblyReload -= StopServer;
+            UnityEditor.AssemblyReloadEvents.beforeAssemblyReload += StopServer;
+            UnityEditor.EditorApplication.playModeStateChanged -= OnPlayMode;
+            UnityEditor.EditorApplication.playModeStateChanged += OnPlayMode;
+        }
+
+        private static void OnPlayMode(UnityEditor.PlayModeStateChange change)
+        {
+            if (change == UnityEditor.PlayModeStateChange.ExitingPlayMode) StopServer();
+        }
+#endif
+
         private void Awake()
         {
             Application.quitting += StopServer;
@@ -70,7 +87,10 @@ namespace RoboFactory.MetaServer
             using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create()) rng.GetBytes(bytes);
             string token = BitConverter.ToString(bytes).Replace("-", "").ToLowerInvariant();
             RoboFactory.Hackathon.Meta.MetaProxyClient.SessionToken = token;
-            server = new MetaLocalServer { Logger = m => Debug.Log("[MetaServer] " + m), Token = token };
+            server = new MetaLocalServer { Token = token };
+            MetaLocalServer own = server;
+            // log only while this server runs (never from a worker thread once Play has stopped)
+            own.Logger = m => { if (own.Running) Debug.Log("[MetaServer] " + m); };
             if (server.Start())
             {
                 State = ServerState.Running;
@@ -88,6 +108,7 @@ namespace RoboFactory.MetaServer
 
         public static void StopServer()
         {
+            MetaApi.CancelAll();
             if (server == null) return;
             server.Stop();
             server = null;
