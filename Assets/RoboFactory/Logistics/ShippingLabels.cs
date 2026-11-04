@@ -75,6 +75,24 @@ namespace RoboFactory.Logistics
             go.AddComponent<ShippingLabels>();
         }
 
+        [Tooltip("R2 does not take a box of an order that is still waiting for its label for longer than this (s): safety, so a stalled generation never blocks a truck.")]
+        public float GiveUpAfter = 90f;
+
+        /// <summary>
+        /// True when robot R2 may take this box: it carries its shipping label (the label is put on the box once it is on
+        /// the bench, as soon as Muse has invented the consignee and drawn the vignette). A box of an order whose label is
+        /// still being generated is not ready: R2 waits on the bench instead of loading an unlabelled parcel.
+        /// </summary>
+        public static bool IsReady(CargoBox box)
+        {
+            if (box == null || box.orderId < 0) return true;
+            ShippingLabels s = Instance;
+            if (s == null) return true;                                   // no labelling in this scene
+            if (box.transform.Find("shipping_label") != null) return true;
+            if (s.labelled.Contains(box)) return true;                    // handled (even without a visible top face)
+            return s.Labels.TryGetValue(box.orderId, out Label l) && Time.time - l.RequestedAt > s.GiveUpAfter;
+        }
+
         private void Awake() { Instance = this; proxy = new MetaProxyClient { BaseUrl = ProxyUrl }; }
 
         private void OnDestroy()

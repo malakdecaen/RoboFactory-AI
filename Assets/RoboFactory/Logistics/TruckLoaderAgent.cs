@@ -706,6 +706,7 @@ namespace RoboFactory.Logistics
                 if (NavBlocker.BlocksPoint(z.dockPoint.position)) continue;
                 CargoBox top = CargoRegistry.TopBox(z);
                 if (top == null || top.orderId != orderId || top.isCarried) continue;
+                if (!ShippingLabels.IsReady(top)) continue;   // the parcel gets its shipping label first (R2 waits on the bench)
                 if (registry != null && registry.IsReserved(top) &&
                     !ReferenceEquals(registry.ReservedBy(top), this)) continue;
                 float d = Vector3.Distance(transform.position, z.dockPoint.position);
