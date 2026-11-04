@@ -390,11 +390,13 @@ namespace RoboFactory.HUD
             PackingCell cell = PackingCell.Instance;
             if (cell == null || cell.Track == null) return null;
             Vector3 p = cell.Track.Evaluate(cell.Track.Project(cell.ScanPoint), out Vector3 f);
-            Vector3 dir = Side(f) - Flat(f) * .5f;
+            // from the inside of the belt loop (the console and the scan frame are on the outside), a little downstream
+            Vector3 inside = Flat(LoopCentre(cell) - p);
+            Vector3 dir = inside + Flat(f) * .4f;
             return new Shot
             {
                 Name = "SCAN", Why = "Muse Spark inspects the product", Look = () => p + Vector3.up * .15f, Dir = dir,
-                Dist = 1.25f, Height = .6f, Fov = 38f, Duration = duration, Priority = 2,
+                Dist = 1.6f, Height = .8f, Fov = 40f, Duration = duration, Priority = 2,
                 Ready = () => ProductAtScan(PackingCell.Instance)
             };
         }
@@ -421,19 +423,12 @@ namespace RoboFactory.HUD
             PackingCell cell = PackingCell.Instance;
             if (cell == null || cell.TraySlots == null || cell.TraySlots.Length == 0) return null;
             Vector3 trays = TrayCentre(cell);
-            Vector3 c = (cell.SpawnPoint + cell.PickPoint + trays) / 3f;
-            if (cell.Corners != null && cell.Corners.Length > 2)
-            {
-                c = Vector3.zero;
-                foreach (Vector3 k in cell.Corners) c += k;
-                c /= cell.Corners.Length;
-            }
-            c.y = 0f;
+            Vector3 c = LoopCentre(cell);
             Vector3 along = Flat(cell.PickPoint - cell.SpawnPoint);
             return new Shot
             {
                 Name = "TOP", Why = "the packing line seen from above", Look = () => c, Dir = along * .3f + Side(along) * .1f + Vector3.back * .05f,
-                Dist = .6f, Height = 8.4f, Fov = 62f, Duration = duration, Priority = 1
+                Dist = .6f, Height = 8.4f, Fov = 68f, Duration = duration, Priority = 1
             };
         }
 
@@ -501,6 +496,19 @@ namespace RoboFactory.HUD
                 Look = () => r2.position + Vector3.up * .6f, Dir = dir,
                 Dist = 4.2f, Height = 2.6f, Fov = 50f, Duration = duration, Priority = 3, Damping = 2.5f
             };
+        }
+
+        private static Vector3 LoopCentre(PackingCell cell)
+        {
+            Vector3 c = Vector3.zero;
+            if (cell.Corners != null && cell.Corners.Length > 2)
+            {
+                foreach (Vector3 k in cell.Corners) c += k;
+                c /= cell.Corners.Length;
+            }
+            else c = (cell.SpawnPoint + cell.PickPoint) * .5f;
+            c.y = 0f;
+            return c;
         }
 
         private static Vector3 TrayCentre(PackingCell cell)
