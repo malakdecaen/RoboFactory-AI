@@ -24,6 +24,7 @@ namespace RoboFactory.HUD
                 case KeyCode.F4: return kb.f4Key.wasPressedThisFrame;
                 case KeyCode.F5: return kb.f5Key.wasPressedThisFrame;
                 case KeyCode.F6: return kb.f6Key.wasPressedThisFrame;
+                case KeyCode.F7: return kb.f7Key.wasPressedThisFrame;
                 case KeyCode.Escape: return kb.escapeKey.wasPressedThisFrame;
                 case KeyCode.Return: return kb.enterKey.wasPressedThisFrame;
                 case KeyCode.H: return kb.hKey.wasPressedThisFrame;
