@@ -39,6 +39,8 @@ namespace RoboFactory.Logistics
             public string DestModel = "", ImageModel = "";
             public int DestMs, ImageMs;
             public bool DestFromMeta, ImageFromMeta;
+            /// <summary>Set when generation took longer than GiveUpAfter: the label was printed from the local list instead.</summary>
+            public bool Fallback;
             public Texture2D Image;
             /// <summary>destination → image → ready (or ready without image when Muse Image failed).</summary>
             public string Status = "destination";
@@ -75,13 +77,14 @@ namespace RoboFactory.Logistics
             go.AddComponent<ShippingLabels>();
         }
 
-        [Tooltip("R2 does not take a box of an order that is still waiting for its label for longer than this (s): safety, so a stalled generation never blocks a truck.")]
+        [Tooltip("An order whose label is still not generated after this long (s) gets a printed backup label (local list, no Meta answer), so a stalled generation never blocks a truck and no parcel is ever loaded without a label.")]
         public float GiveUpAfter = 90f;
 
         /// <summary>
         /// True when robot R2 may take this box: it carries its shipping label (the label is put on the box once it is on
         /// the bench, as soon as Muse has invented the consignee and drawn the vignette). A box of an order whose label is
-        /// still being generated is not ready: R2 waits on the bench instead of loading an unlabelled parcel.
+        /// still being generated is not ready: R2 waits on the bench instead of loading an unlabelled parcel. If the
+        /// generation stalls, a printed backup label is applied after GiveUpAfter (see Update): R2 never loads a box without one.
         /// </summary>
         public static bool IsReady(CargoBox box)
         {
@@ -89,8 +92,7 @@ namespace RoboFactory.Logistics
             ShippingLabels s = Instance;
             if (s == null) return true;                                   // no labelling in this scene
             if (box.transform.Find("shipping_label") != null) return true;
-            if (s.labelled.Contains(box)) return true;                    // handled (even without a visible top face)
-            return s.Labels.TryGetValue(box.orderId, out Label l) && Time.time - l.RequestedAt > s.GiveUpAfter;
+            return s.labelled.Contains(box);                              // handled (even without a visible top face)
         }
 
         private void Awake() { Instance = this; proxy = new MetaProxyClient { BaseUrl = ProxyUrl }; }
@@ -133,6 +135,7 @@ namespace RoboFactory.Logistics
                 {
                     if (box == null || box.isCarried || box.orderId < 0 || labelled.Contains(box)) continue;
                     if (!Labels.TryGetValue(box.orderId, out Label label)) label = Request(box.orderId, "", benchId, 0, "");
+                    if (label.Status != "ready" && Time.time - label.RequestedAt > GiveUpAfter) UseBackupLabel(label);
                     if (label.Status == "destination") continue;   // consignee not known yet
                     if (label.Status == "image" && Time.time - label.RequestedAt < WaitForImage) continue;
                     if (label.Bench.Length == 0) label.Bench = benchId;
@@ -166,12 +169,28 @@ namespace RoboFactory.Logistics
             return label;
         }
 
+        /// <summary>
+        /// Generation too slow (Muse Spark / Muse Image not answering): the label is printed from the local list so the
+        /// boxes of the order still get one and R2 can load them. A late answer from Meta is then ignored, so every
+        /// parcel of an order carries the same consignee.
+        /// </summary>
+        private void UseBackupLabel(Label label)
+        {
+            if (label.Fallback) return;
+            label.Fallback = true;
+            if (label.Name.Length == 0 || label.City.Length == 0) Offline(label);
+            label.Status = "ready";
+            Debug.LogWarning("[LABEL] order #" + label.OrderId + ": no label from Meta after " + (int)GiveUpAfter + " s · printed backup label " +
+                             label.Name + ", " + label.City);
+        }
+
         private IEnumerator Generate(Label label)
         {
             string trigger = "order#" + label.OrderId;
             DestinationResponse dest = null;
             yield return proxy.AskDestination(trigger, "order #" + label.OrderId + (label.Contents.Length > 0 ? ": " + label.Contents : ""),
                                               label.Truck.Length > 0 ? label.Truck : "T01", x => dest = x);
+            if (label.Fallback) yield break;   // the backup label is already on the boxes
             if (dest != null && dest.ok && !string.IsNullOrEmpty(dest.name) && !string.IsNullOrEmpty(dest.city))
             {
                 label.Name = dest.name; label.Street = dest.street ?? ""; label.Postcode = dest.postcode ?? "";
@@ -191,6 +210,7 @@ namespace RoboFactory.Logistics
             label.Status = "image";
             LabelResponse img = null;
             if (label.Scene.Length > 0) yield return proxy.AskLabel(trigger, label.Scene, x => img = x);
+            if (label.Fallback) yield break;
             Texture2D tex = null;
             if (img != null && img.ok && !string.IsNullOrEmpty(img.image_b64))
             {

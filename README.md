@@ -12,7 +12,7 @@
 
 ## Download and play (Windows)
 
-**[Download the Windows build (v1.1)](https://github.com/malakdecaen/RoboFactory-AI/releases/latest)**: unzip `RoboFactory-MuseAI_Windows_v1_1.zip` and start `RoboFactory-MuseAI/RoboFactory-MuseAI.exe` (Windows 10/11, 64-bit, DirectX 12). This build has the original art of the full project.
+**[Download the Windows build (v1.1)](https://github.com/malakdecaen/RoboFactory-AI/releases/latest)**: unzip `RoboFactory-MuseAI_Windows_v1.1.zip` and start `RoboFactory-MuseAI/RoboFactory-MuseAI.exe` (Windows 10/11, 64-bit, DirectX 12). This build has the original art of the full project.
 
 SHA-256 of the zip: `d35ceba71f10f1e69916c0ac218f6d94aa8b2d7ccf17984ab87b5acc08ff9cc2`
 
@@ -122,7 +122,7 @@ Meta models used:
 | `sam-3.1` | segmentation of the robot cameras (boxes, people, confidence; masks requested in the compact encoding, not decoded) |
 | `muse-voice-transcribe-1.0` | real-time transcription of urgent orders spoken aloud |
 
-**Muse Glimmer (optional, not included)**: Glimmer is an open-weight, text-only model that teams can run on their own hardware. The gateway reads the API base URL (`META_BASE_URL`) and the fallback model name (`META_ORCHESTRATOR_FALLBACK`) from environment variables, so a self-hosted Glimmer behind a compatible endpoint can be tried for the text decisions. The project does not ship, require or test it: Muse Spark remains the fallback.
+**Muse Glimmer (optional, not included)**: Glimmer is an open-weight, text-only model that teams can run on their own hardware. The gateway reads the API base URL (`META_BASE_URL`) and the fallback model name (`META_ORCHESTRATOR_FALLBACK`) from environment variables, so a self-hosted Glimmer behind a compatible endpoint can be tried for the text decisions. The project does not ship, require or test it: Muse Spark remains the fallback. The Meta key is only ever sent over `https://` / `wss://`: a plain `http://` / `ws://` endpoint is refused, except toward `localhost` / `127.0.0.1` (a gateway on the same computer).
 
 ## License
 

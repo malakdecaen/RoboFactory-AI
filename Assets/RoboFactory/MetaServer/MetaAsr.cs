@@ -60,6 +60,7 @@ namespace RoboFactory.MetaServer
         private void Open(string key)
         {
             string url = MetaApi.AsrUrl + (MetaApi.AsrUrl.Contains("?") ? "&" : "?") + "sessionId=" + Id;
+            if (!string.IsNullOrEmpty(key) && !MetaApi.IsSecureEndpoint(url, out string refusal)) throw new IOException(refusal);
             ws = new ClientWebSocket();
             using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30)))
                 ws.ConnectAsync(new Uri(url), cts.Token).GetAwaiter().GetResult();

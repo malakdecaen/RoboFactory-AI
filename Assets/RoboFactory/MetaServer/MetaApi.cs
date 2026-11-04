@@ -79,6 +79,35 @@ namespace RoboFactory.MetaServer
             return null;
         }
 
+        // ------------------------------------------------------------------ encrypted endpoints only
+
+        /// <summary>
+        /// The Meta key is only ever sent over an encrypted connection: https:// for the API, wss:// for the speech
+        /// stream. Plain http:// / ws:// is refused, except toward this computer itself (localhost, 127.x, ::1: a
+        /// self-hosted gateway, nothing leaves the machine). <paramref name="reason"/> never contains the key.
+        /// </summary>
+        public static bool IsSecureEndpoint(string url, out string reason)
+        {
+            reason = "";
+            if (string.IsNullOrEmpty(url) || !Uri.TryCreate(url, UriKind.Absolute, out Uri uri))
+            {
+                reason = "refused: the Meta endpoint is not a valid absolute URL, the key is not sent";
+                return false;
+            }
+            string scheme = uri.Scheme.ToLowerInvariant();
+            if (scheme == "https" || scheme == "wss") return true;
+            if ((scheme == "http" || scheme == "ws") && IsLoopback(uri)) return true;
+            reason = "refused: the Meta endpoint " + scheme + "://" + uri.Host + " is not encrypted (https / wss required, plain http only toward localhost), the key is not sent";
+            return false;
+        }
+
+        private static bool IsLoopback(Uri uri)
+        {
+            string h = uri.Host.ToLowerInvariant();
+            if (h == "localhost" || h == "::1" || h == "[::1]") return true;
+            return IPAddress.TryParse(h.Trim('[', ']'), out IPAddress ip) && IPAddress.IsLoopback(ip);
+        }
+
         // ------------------------------------------------------------------ journal calls.jsonl
 
         public static string LogFile = "";
@@ -132,6 +161,7 @@ namespace RoboFactory.MetaServer
         private static Result HttpJson(string url, JObject payload, string key, double timeoutS, bool stream, out bool httpError)
         {
             httpError = false;
+            if (!string.IsNullOrEmpty(key) && !IsSecureEndpoint(url, out string refusal)) throw new InvalidOperationException(refusal);
             using (var cts = CancellationTokenSource.CreateLinkedTokenSource(stopAll.Token))
             using (var req = new HttpRequestMessage(HttpMethod.Post, url))
             {
@@ -157,6 +187,7 @@ namespace RoboFactory.MetaServer
         /// <summary>call_with_retry: 429/5xx and network errors retried (1.5 s, 3 s…), otherwise returned as is.</summary>
         public static Result CallWithRetry(string url, JObject payload, string key, double timeoutS, bool stream = false, int attempts = 2)
         {
+            if (!string.IsNullOrEmpty(key) && !IsSecureEndpoint(url, out string refusal)) return new Result(0, refusal);   // no retry: the endpoint is the problem
             Result last = new Result(0, "");
             for (int attempt = 0; attempt < attempts; attempt++)
             {
