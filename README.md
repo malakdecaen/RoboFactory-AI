@@ -2,6 +2,12 @@
 
 **An autonomous warehouse run by Meta's models, from the production line to the truck.** A packing cell inspects every product with Muse Spark and packs the good ones into cartons; a third robot (R3) brings the cartons to the stock pallets; Muse Wonder plans every order for R1 (picking) and R2 (loading); Muse Spark and Muse Image write and draw the shipping label of each order; SAM 3.1 checks what the robot cameras see; Muse Voice takes urgent orders spoken aloud.
 
+## Demo video
+
+[![RoboFactory AI: 3-minute demo](https://img.youtube.com/vi/KH8CJKiiqHs/maxresdefault.jpg)](https://youtu.be/KH8CJKiiqHs)
+
+**[Watch the 3-minute demo on YouTube](https://youtu.be/KH8CJKiiqHs)**: the packing line, R3, order planning, shipping labels, truck loading, and an urgent order spoken to the microphone.
+
 ---
 
 ## Download and play (Windows)
@@ -17,6 +23,7 @@
 | F2 / F3 / F4 | HUD modes (cinematic / operations / debug) |
 | H | hide the HUD |
 | F5 | back to the start screen |
+| F6 | shot mode for filming: 6 camera presets, **← →** change shot, drag = orbit, wheel = zoom, **↑** resets the view, F6 again to leave |
 | drag · scroll · arrows | move the camera |
 | QUIT (top right) | leave the program |
 
